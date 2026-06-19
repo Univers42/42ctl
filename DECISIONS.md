@@ -66,7 +66,7 @@ clients are constructed at the edge and threaded down. The crate forbids `unsafe
 
 ## D7 — Self-security
 
-OS keyring first for keys/tokens, Argon2id-passphrase keystore fallback; short-lived, revocable,
+OS keyring first for keys and tokens, with an Argon2id passphrase keystore as the fallback; short-lived, revocable,
 per-profile auth credentials cleared on `logout`; `zeroize` on every key/plaintext/token buffer;
 no secret in logs/errors/traces/crash dumps/shell history; `update` verifies signature + provenance
 + checksum and only then atomically swaps the binary (a failed verification changes nothing).
