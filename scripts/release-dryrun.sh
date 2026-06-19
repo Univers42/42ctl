@@ -87,13 +87,14 @@ report_secret() {
 check_publish_secrets() {
 	wf_dir="$REPO_ROOT/.github/workflows"
 	set --
-	[ -f "$wf_dir/release.yml" ] && set -- "$@" "$wf_dir/release.yml"
-	[ -f "$wf_dir/docker.yml" ] && set -- "$@" "$wf_dir/docker.yml"
+	for wf in release docker publish sign-release; do
+		[ -f "$wf_dir/$wf.yml" ] && set -- "$@" "$wf_dir/$wf.yml"
+	done
 	if [ "$#" -eq 0 ]; then
-		warn "no release.yml/docker.yml workflow found (publish wired in P4-P6)"
+		warn "no publish workflow found (release/docker/publish/sign-release)"
 		return
 	fi
-	for secret in NPM_TOKEN DOCKER_LOGIN DOCKER_PAT; do
+	for secret in NPM_TOKEN DOCKER_LOGIN DOCKER_PAT HOMEBREW_TAP_TOKEN; do
 		report_secret "$secret" "$@"
 	done
 }
