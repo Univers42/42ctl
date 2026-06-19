@@ -16,6 +16,7 @@
 
 use crate::cli::Config as ConfigCmd;
 use crate::profile::Config;
+use crate::ui;
 use anyhow::Context;
 
 /// Dispatch a `config` subcommand.
@@ -32,9 +33,9 @@ pub fn run(cmd: &ConfigCmd, profile: &str) -> anyhow::Result<()> {
 /// Print the endpoints resolved for `profile`.
 fn show(profile: &str) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
-    println!("profile:   {profile}");
-    println!("server:    {}", endpoint.server);
-    println!("authority: {}", endpoint.authority);
+    ui::field("profile", profile);
+    ui::field("server", &endpoint.server);
+    ui::field("authority", &endpoint.authority);
     Ok(())
 }
 
@@ -44,7 +45,12 @@ fn profile_cmd(name: Option<&str>) -> anyhow::Result<()> {
     let Some(name) = name else {
         for profile in cfg.profiles.keys() {
             let marker = if *profile == cfg.current { "*" } else { " " };
-            println!("{marker} {profile}");
+            let name = if *profile == cfg.current {
+                ui::accent(profile)
+            } else {
+                profile.to_string()
+            };
+            println!("{marker} {name}");
         }
         return Ok(());
     };
@@ -54,7 +60,7 @@ fn profile_cmd(name: Option<&str>) -> anyhow::Result<()> {
     }
     cfg.current = name.to_string();
     cfg.save()?;
-    println!("active profile: {name}");
+    ui::success(&format!("active profile: {name}"));
     Ok(())
 }
 
@@ -76,6 +82,6 @@ fn set_endpoint(
         endpoint.authority = authority.to_string();
     }
     cfg.save()?;
-    println!("updated endpoints for '{profile}'");
+    ui::success(&format!("updated endpoints for '{profile}'"));
     Ok(())
 }

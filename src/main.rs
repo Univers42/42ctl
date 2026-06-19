@@ -20,6 +20,7 @@ mod cli;
 mod cmd;
 mod ops;
 mod profile;
+mod ui;
 
 use clap::Parser;
 use std::process::ExitCode;
@@ -29,7 +30,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("42ctl: {error:#}");
+            ui::report_error(&error);
             ExitCode::FAILURE
         }
     }

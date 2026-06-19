@@ -18,6 +18,7 @@
 use crate::adapters::api::Session;
 use crate::adapters::compose::{self, SelfSeal};
 use crate::adapters::{decrypt, derive};
+use crate::ui;
 use tonic::{Code, Request};
 use vault42_proto::vault::v1::{GetRequest, PushRequest};
 use zeroize::Zeroizing;
@@ -46,7 +47,7 @@ impl Session {
         });
         self.authorize(&mut request, "/vault.v1.Vault/Push")?;
         let version = self.client.push(request).await?.into_inner().version;
-        println!("pushed {path} version {version}");
+        ui::success(&format!("pushed {path} (v{version})"));
         Ok(())
     }
 

@@ -7,6 +7,7 @@
 use crate::adapters::{address, authority, creds, passphrase};
 use crate::cli::Auth;
 use crate::profile::Config;
+use crate::ui;
 
 /// Dispatch an `auth` subcommand for `profile`.
 pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
@@ -25,10 +26,13 @@ async fn login(profile: &str, tenant: &str, token: Option<&str>) -> anyhow::Resu
     let author_pubkey = hex::encode(identity.author_public().to_bytes());
     let contract = authority::register(&endpoint.authority, &author_pubkey, tenant, token).await?;
     creds::save(profile, &contract)?;
-    println!("logged in to tenant '{tenant}' on profile '{profile}'");
+    ui::success(&format!("logged in to '{tenant}' on profile '{profile}'"));
     println!(
-        "contract saved to {}",
-        creds::contract_path(profile).display()
+        "{}",
+        ui::dim(&format!(
+            "contract → {}",
+            creds::contract_path(profile).display()
+        ))
     );
     Ok(())
 }
@@ -39,11 +43,11 @@ fn whoami(profile: &str) -> anyhow::Result<()> {
     let principal = hex::encode(vault42_core::fingerprint(
         &identity.author_public().to_bytes(),
     ));
-    println!("principal: {principal}");
-    println!("address:   {}", address::encode(&identity));
+    ui::field("principal", &principal);
+    ui::field("address", &address::encode(&identity));
     match creds::load(profile) {
-        Some(_) => println!("contract:  bound (profile '{profile}')"),
-        None => println!("contract:  none (run `42ctl auth login`)"),
+        Some(_) => ui::field("contract", &format!("bound (profile '{profile}')")),
+        None => ui::field("contract", &ui::warn("none — run `42ctl auth login`")),
     }
     Ok(())
 }
@@ -51,8 +55,8 @@ fn whoami(profile: &str) -> anyhow::Result<()> {
 /// Report whether `profile` has a saved contract.
 fn status(profile: &str) -> anyhow::Result<()> {
     match creds::load(profile) {
-        Some(_) => println!("profile '{profile}': logged in (contract present)"),
-        None => println!("profile '{profile}': logged out (no contract)"),
+        Some(_) => ui::success(&format!("profile '{profile}': logged in")),
+        None => println!("{}", ui::warn(&format!("profile '{profile}': logged out"))),
     }
     Ok(())
 }
@@ -60,6 +64,6 @@ fn status(profile: &str) -> anyhow::Result<()> {
 /// Clear the saved contract for `profile`.
 fn logout(profile: &str) -> anyhow::Result<()> {
     creds::clear(profile)?;
-    println!("logged out of profile '{profile}'");
+    ui::success(&format!("logged out of profile '{profile}'"));
     Ok(())
 }

@@ -16,6 +16,7 @@
 
 use crate::adapters::api::Session;
 use crate::adapters::compose::{self, SelfSeal};
+use crate::ui;
 use tonic::Request;
 use vault42_proto::vault::v1::{LsRequest, PushRequest, RmRequest};
 
@@ -26,12 +27,31 @@ impl Session {
             prefix: prefix.to_string(),
         });
         self.authorize(&mut request, "/vault.v1.Vault/Ls")?;
-        for secret in self.client.ls(request).await?.into_inner().secrets {
-            println!(
-                "{}\tv{}\t{}",
-                secret.path, secret.version, secret.updated_at
-            );
+        let secrets = self.client.ls(request).await?.into_inner().secrets;
+        if !ui::styled() {
+            for secret in &secrets {
+                println!("{}\t{}\t{}", secret.path, secret.version, secret.updated_at);
+            }
+            return Ok(());
         }
+        if secrets.is_empty() {
+            println!(
+                "{}",
+                ui::dim("no secrets yet — add one with `42ctl vault set <path>`")
+            );
+            return Ok(());
+        }
+        let rows: Vec<Vec<String>> = secrets
+            .iter()
+            .map(|s| {
+                vec![
+                    s.path.clone(),
+                    format!("v{}", s.version),
+                    ui::reltime(s.updated_at),
+                ]
+            })
+            .collect();
+        ui::table(&["PATH", "VER", "UPDATED"], &rows);
         Ok(())
     }
 
@@ -43,7 +63,11 @@ impl Session {
         });
         self.authorize(&mut request, "/vault.v1.Vault/Rm")?;
         let tombstoned = self.client.rm(request).await?.into_inner().tombstoned;
-        println!("{}", if tombstoned { "removed" } else { "not found" });
+        if tombstoned {
+            ui::success(&format!("removed {path}"));
+        } else {
+            println!("{}", ui::warn("not found"));
+        }
         Ok(())
     }
 
@@ -70,7 +94,7 @@ impl Session {
         });
         self.authorize(&mut request, "/vault.v1.Vault/Rotate")?;
         let version = self.client.rotate(request).await?.into_inner().version;
-        println!("rotated {path} to version {version}");
+        ui::success(&format!("rotated {path} to v{version}"));
         Ok(())
     }
 }

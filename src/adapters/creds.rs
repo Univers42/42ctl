@@ -11,23 +11,33 @@
 /* ************************************************************************** */
 
 //! The per-profile contract token file — the credential the authority issued at login.
-//! It sits next to the keystore at `~/.config/42ctl/contract-<profile>.tok` (or
-//! `$FT_CONTRACT`) and is sent as `x-v42-contract` on every request when present. It
+//! It sits beside the active config file as `contract-<profile>.tok` (or `$FT_CONTRACT`)
+//! and is sent as `x-v42-contract` on every request when present. It
 //! carries no secret (a signed, public claim), so it is stored in the clear, one file
 //! per profile so distinct orgs/environments keep distinct contracts.
 
 use std::path::PathBuf;
 
-/// The contract file path for `profile`: `$FT_CONTRACT` overrides; else the per-user
-/// default `~/.config/42ctl/contract-<profile>.tok`.
+/// The contract file path for `profile`: `$FT_CONTRACT` overrides; else
+/// `contract-<profile>.tok` beside the active config file (so `$FT_CONFIG` isolates it too).
 pub fn contract_path(profile: &str) -> PathBuf {
     if let Ok(custom) = std::env::var("FT_CONTRACT") {
         return PathBuf::from(custom);
     }
+    contract_dir().join(format!("contract-{profile}.tok"))
+}
+
+/// The directory contracts live in — the directory of the active config file, falling back
+/// to `~/.config/42ctl` when the config path has no parent.
+fn contract_dir() -> PathBuf {
+    if let Ok(config) = crate::profile::config_path() {
+        if let Some(parent) = config.parent() {
+            return parent.to_path_buf();
+        }
+    }
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("42ctl")
-        .join(format!("contract-{profile}.tok"))
 }
 
 /// Load the saved contract token for `profile`, if any.

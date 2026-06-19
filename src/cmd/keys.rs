@@ -17,6 +17,7 @@
 
 use crate::adapters::{address, keystore, passphrase};
 use crate::cli::Keys;
+use crate::ui;
 use vault42_core::{seal_keystore, Identity, KdfParams};
 
 /// Dispatch a `keys` subcommand.
@@ -43,9 +44,9 @@ fn init(force: bool) -> anyhow::Result<()> {
     let principal = hex::encode(vault42_core::fingerprint(
         &identity.author_public().to_bytes(),
     ));
-    println!("identity created");
-    println!("principal: {principal}");
-    println!("address:   {}", address::encode(&identity));
+    ui::success("identity created");
+    ui::field("principal", &principal);
+    ui::field("address", &address::encode(&identity));
     Ok(())
 }
 
