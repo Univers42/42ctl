@@ -15,6 +15,7 @@
 //! P0 is the scaffold: `version` + `config` are real; the network/crypto verbs are wired
 //! across P1–P3. Errors print with their cause chain; nothing sensitive is ever logged.
 
+mod adapters;
 mod cli;
 mod cmd;
 mod profile;
