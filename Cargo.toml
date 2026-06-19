@@ -1,0 +1,32 @@
+[package]
+name = "c42"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+description = "42ctl — the umbrella platform CLI for the 42 stack (grobase + vault42)"
+license = "AGPL-3.0-only"
+repository = "https://github.com/Univers42/42ctl"
+
+# The crate is `c42` (crates.io names can't lead with a digit) but the command is `42ctl`.
+[[bin]]
+name = "42ctl"
+path = "src/main.rs"
+
+# 42ctl decrypts plaintext locally, so it never writes `unsafe` of its own.
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+
+# P1–P3 (added as the gRPC client, auth, and zero-knowledge ops land) will pull in the
+# pinned git deps `vault42-core` (the future `vault-crypto`) + `vault42-proto`, plus
+# tokio/tonic/keyring/zeroize. Kept out of P0 so the scaffold builds standalone.
+
+[profile.release]
+strip = true
+lto = "thin"

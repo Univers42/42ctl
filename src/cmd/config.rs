@@ -1,0 +1,81 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                          :::      :::::::: */
+/*   config.rs                                            :+:      :+:    :+: */
+/*                                                        +:+ +:+         +:+ */
+/*   By: dlesieur <dev.pro.photo@gmail.com>                +#+  +:+       +#+ */
+/*                                                          +#+#+#+#+#+   +#+ */
+/*   Created: 2026/06/19 00:00:00 by dlesieur                      #+#    #+# */
+/*   Updated: 2026/06/19 00:00:00 by dlesieur               ###   ########.fr */
+/*                                                                            */
+/* ************************************************************************** */
+
+//! `42ctl config` — manage profiles and endpoints (orgs / environments). A new profile
+//! inherits the active profile's endpoints; `endpoint` edits the named profile in place;
+//! `show` prints the resolved endpoints. The config is a plain JSON file (no secrets).
+
+use crate::cli::Config as ConfigCmd;
+use crate::profile::Config;
+use anyhow::Context;
+
+/// Dispatch a `config` subcommand.
+pub fn run(cmd: &ConfigCmd, profile: &str) -> anyhow::Result<()> {
+    match cmd {
+        ConfigCmd::Show => show(profile),
+        ConfigCmd::Profile { name } => profile_cmd(name.as_deref()),
+        ConfigCmd::Endpoint { server, authority } => {
+            set_endpoint(profile, server.as_deref(), authority.as_deref())
+        }
+    }
+}
+
+/// Print the endpoints resolved for `profile`.
+fn show(profile: &str) -> anyhow::Result<()> {
+    let endpoint = Config::load()?.endpoint(profile)?;
+    println!("profile:   {profile}");
+    println!("server:    {}", endpoint.server);
+    println!("authority: {}", endpoint.authority);
+    Ok(())
+}
+
+/// List profiles (no name) or switch to / create `name` (inheriting current endpoints).
+fn profile_cmd(name: Option<&str>) -> anyhow::Result<()> {
+    let mut cfg = Config::load()?;
+    let Some(name) = name else {
+        for profile in cfg.profiles.keys() {
+            let marker = if *profile == cfg.current { "*" } else { " " };
+            println!("{marker} {profile}");
+        }
+        return Ok(());
+    };
+    if !cfg.profiles.contains_key(name) {
+        let base = cfg.endpoint(&cfg.current)?;
+        cfg.profiles.insert(name.to_string(), base);
+    }
+    cfg.current = name.to_string();
+    cfg.save()?;
+    println!("active profile: {name}");
+    Ok(())
+}
+
+/// Set `profile`'s server/authority endpoints in place.
+fn set_endpoint(
+    profile: &str,
+    server: Option<&str>,
+    authority: Option<&str>,
+) -> anyhow::Result<()> {
+    let mut cfg = Config::load()?;
+    let endpoint = cfg
+        .profiles
+        .get_mut(profile)
+        .with_context(|| format!("unknown profile '{profile}'"))?;
+    if let Some(server) = server {
+        endpoint.server = server.to_string();
+    }
+    if let Some(authority) = authority {
+        endpoint.authority = authority.to_string();
+    }
+    cfg.save()?;
+    println!("updated endpoints for '{profile}'");
+    Ok(())
+}

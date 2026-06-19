@@ -1,0 +1,13 @@
+# Rust build output
+/target
+**/*.rs.bk
+
+# operator-only local material (never committed)
+*.local.txt
+*.local
+
+# editor / OS
+.DS_Store
+*.swp
+
+# Cargo.lock IS committed (binary crate — reproducible builds for the supply chain).
