@@ -18,7 +18,7 @@ is signed + provenance-attested, every installer verifies before executing.
   not deleted (deletion-gate discipline). Recorded in vault42 `DECISIONS.md` D12.
 - **The crypto is the future standalone `vault-crypto` crate.** Until it is published to crates.io
   (a gated, irreversible step), `42ctl` depends on the audited crypto **via a pinned git dependency**
-  on `vault42-core` (tag `v0.1.1`) — never a copy. Same for the Protobuf spine via `vault42-proto`.
+  on `vault42-core` (tag `v0.1.2`) — never a copy. Same for the Protobuf spine via `vault42-proto`.
 - **`42ctl` depends on `contracts/`** (the Protobuf spine) for its gRPC client, through
   `vault42-proto`.
 
@@ -70,3 +70,41 @@ OS keyring first for keys/tokens, Argon2id-passphrase keystore fallback; short-l
 per-profile auth credentials cleared on `logout`; `zeroize` on every key/plaintext/token buffer;
 no secret in logs/errors/traces/crash dumps/shell history; `update` verifies signature + provenance
 + checksum and only then atomically swaps the binary (a failed verification changes nothing).
+
+## D8 — Release engine: who owns what (P4/P5/P7)
+
+`cargo-dist` (`dist` 0.28.0) is the release engine, configured in `[workspace.metadata.dist]` and
+**regenerable** with `dist generate`. To keep that file authentic, we do **not** hand-edit
+`release.yml`; instead the ownership is split so each concern lives where it can be owned cleanly:
+
+- **`release.yml` (dist-owned):** matrix build (6 targets, incl. linux musl), SHA-256 checksums,
+  **SLSA build provenance** (`actions/attest-build-provenance`, sigstore-keyless), the
+  `curl|sh` + PowerShell + npm + Homebrew **installer artifacts**, the **self-update receipt**
+  (`install-updater = true`), GitHub Release upload, and the **Homebrew tap** push. `dist` enforces
+  this file matches its generator (`dist plan` aborts otherwise), so it must stay generator-pure.
+- **`publish.yml` (ours, gated):** the **npm publish** — moved out of dist's `publish-jobs` so it
+  can run with `npm publish --provenance` (registry provenance) **and** the protected `publish`
+  environment, because an npm publish is irreversible (no unpublish after 72h).
+- **`sign-release.yml` (ours, gated):** explicit **cosign keyless `sign-blob`** over every release
+  artifact (so `cosign verify-blob` in `SECURITY.md` is real) + a CycloneDX **source SBOM**.
+- **`docker.yml` (ours, gated):** the multi-arch image → Docker Hub, **cosign-signed** + SBOM +
+  provenance.
+
+## D9 — `cargo install c42` from crates.io is NOT a channel (yet)
+
+`c42` depends on `vault42-core`/`vault42-proto` via **git** dependencies, which **crates.io forbids**
+in a published crate. So the **"cargo" channel is `cargo binstall c42`** (it pulls the signed
+GitHub-Release binary cargo-dist publishes — no compile, no crates.io). A true `cargo install c42`
+from source becomes possible only once `vault-crypto`/`vault42-proto` are themselves published to
+crates.io (a separate gated step in vault42). Documented so nobody assumes a broken channel works.
+
+## D10 — Supply-chain CI hardening (P7)
+
+Every action in the workflows **we own** (`ci.yml`, `docker.yml`, `publish.yml`, `sign-release.yml`)
+is **pinned by commit SHA** (resolved from the tag, comment carries the tag), checkouts use
+`persist-credentials: false`, jobs run least-privilege `permissions`, and per-ref `concurrency`
+cancels stale runs. The **dist-owned `release.yml`** pins its own dist version (`v0.28.0`) but uses
+tag-pinned actions; re-pin it with `pinact run` (or `ratchet`) **after every `dist generate`**, since
+regeneration reverts SHA pins. All registry/​image publishes are gated behind the protected
+`publish` GitHub Environment (required reviewers + environment-scoped secrets); cosign is keyless, so
+there is no signing key to leak or rotate.

@@ -1,0 +1,85 @@
+# Multi-arch Docker image publish for 42ctl (P6).
+#
+# SEPARATE from ci.yml (per-PR checks) and release.yml (cargo-dist binaries).
+# Builds deploy/Dockerfile.dist for linux/amd64 + linux/arm64, pushes to Docker
+# Hub, then cosign-signs the digest (keyless OIDC) and attaches an SBOM.
+#
+# Runs ONLY on a real published release (or a manual dispatch / v* tag) and is
+# GATED behind the protected `publish` environment, which holds the required
+# reviewers and the Docker Hub secrets DOCKER_LOGIN (username) + DOCKER_PAT
+# (token). Without that environment + those secrets the job cannot push.
+#
+# P7-hardened: actions pinned by commit SHA (re-pin with `pinact run`).
+name: docker
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Minimal permissions: id-token for cosign keyless + provenance attestation.
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-push-sign:
+    runs-on: ubuntu-latest
+    environment: publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKER_LOGIN }}
+          password: ${{ secrets.DOCKER_PAT }}
+
+      - name: Build and push (multi-arch)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/Dockerfile.dist
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:latest
+            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:${{ github.ref_name }}
+            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:${{ github.sha }}
+          build-args: |
+            FT_GIT_SHA=${{ github.sha }}
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign image (keyless OIDC)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes \
+            "docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl@${DIGEST}"
+
+      - name: Generate and attach SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl@${{ steps.build.outputs.digest }}

@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+# 42ctl production distribution image (P6).
+# SEPARATE from the repo-root P0 distroless Dockerfile — that one stays for the
+# reproducible-build proof. This one is the published artifact: a MUSL static
+# build shipped on FROM scratch (binary + CA certs only), non-root, multi-arch
+# (buildx picks the musl target from TARGETARCH), cosign-signed with SBOM +
+# provenance attached by the docker.yml workflow.
+
+FROM rust:1.96-alpine AS builder
+WORKDIR /build
+
+# ring / aws-lc-sys (rustls) need a C toolchain + headers to build against musl.
+RUN apk add --no-cache musl-dev gcc make perl
+
+# crt-static makes the binary fully static so it runs on FROM scratch.
+ENV RUSTFLAGS="-C target-feature=+crt-static"
+
+# buildx sets TARGETARCH per platform; map it to the matching musl rust target.
+ARG TARGETARCH
+COPY . .
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) RUST_TARGET="x86_64-unknown-linux-musl" ;; \
+      arm64) RUST_TARGET="aarch64-unknown-linux-musl" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    rustup target add "${RUST_TARGET}"; \
+    cargo build --release --target "${RUST_TARGET}"; \
+    cp "target/${RUST_TARGET}/release/42ctl" /42ctl
+
+FROM scratch AS runtime
+# CA bundle so the TLS gRPC client can verify the public edge.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /42ctl /42ctl
+
+ARG FT_GIT_SHA=unknown
+ENV FT_GIT_SHA=${FT_GIT_SHA}
+
+# Non-root, read-only-friendly: the static binary owns no writable paths.
+USER 65532:65532
+ENTRYPOINT ["/42ctl"]

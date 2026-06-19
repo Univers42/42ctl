@@ -6,6 +6,7 @@ rust-version = "1.91"
 description = "42ctl — the umbrella platform CLI for the 42 stack (grobase + vault42)"
 license = "AGPL-3.0-only"
 repository = "https://github.com/Univers42/42ctl"
+homepage = "https://github.com/Univers42/42ctl"
 
 # The crate is `c42` (crates.io names can't lead with a digit) but the command is `42ctl`.
 [[bin]]
@@ -34,7 +35,45 @@ hex = "0.4"
 base64 = "0.22"
 uuid = { version = "1", features = ["v5"] }
 rpassword = "7"
+# Self-update engine — reads the cargo-dist install receipt, verifies the
+# release artifact's checksum from the signed dist-manifest, and only then
+# swaps the running binary (verify-before-swap, P7).
+axoupdater = { version = "0.9", features = ["blocking"] }
 
 [profile.release]
 strip = true
 lto = "thin"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Config for 'dist'
+[workspace.metadata.dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.28.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "npm", "homebrew"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+# A namespace to use when publishing this package to the npm registry
+npm-scope = "@universe42"
+# A GitHub repo to push Homebrew formulas to
+tap = "Univers42/homebrew-tap"
+# cargo-dist pushes only the Homebrew formula. The npm package is published by
+# our own gated publish.yml (protected `publish` env + `npm publish --provenance`),
+# so "npm" stays OUT of publish-jobs; the npm INSTALLER artifact is still generated.
+publish-jobs = ["homebrew"]
+# Checksums to generate for each App
+checksum = "sha256"
+# Whether to enable GitHub Attestations
+github-attestations = true
+# Whether to install an updater program
+install-updater = true
+# Which actions to run on pull requests
+pr-run-mode = "plan"
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"

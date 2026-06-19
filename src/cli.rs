@@ -123,6 +123,13 @@ pub enum Vault {
         #[arg(long, default_value_t = 0)]
         since: i64,
     },
+    /// Import a `.env` file, sealing each `KEY=VALUE` as `<prefix>/KEY`.
+    Import { source: String },
+    /// Export the caller's secrets under a prefix as `KEY=value` lines.
+    Export {
+        #[arg(long, default_value = "")]
+        prefix: String,
+    },
 }
 
 /// `db` subcommands.

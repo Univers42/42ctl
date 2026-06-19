@@ -1,28 +1,26 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                          :::      :::::::: */
-/*   db.rs                                                :+:      :+:    :+: */
-/*                                                        +:+ +:+         +:+ */
-/*   By: dlesieur <dev.pro.photo@gmail.com>                +#+  +:+       +#+ */
-/*                                                          +#+#+#+#+#+   +#+ */
-/*   Created: 2026/06/19 00:00:00 by dlesieur                      #+#    #+# */
-/*   Updated: 2026/06/19 00:00:00 by dlesieur               ###   ########.fr */
-/*                                                                            */
-/* ************************************************************************** */
+//! `42ctl db` — read owner-scoped encrypted records and decrypt them client-side. A
+//! record is just a vault secret read through the same signed, contract-bound session:
+//! the server owner-scopes the read (RBAC) and returns an opaque envelope; vault-crypto
+//! decrypts it locally. `get` prints one record's plaintext; `ls` lists readable records.
 
-//! `42ctl db` — read RBAC-checked encrypted records from the platform and decrypt them
-//! client-side. The server enforces access; vault-crypto does the decryption locally.
-//! Stub until P3.
-
+use crate::adapters::api::Session;
+use crate::adapters::{creds, passphrase};
 use crate::cli::Db;
 use crate::profile::Config;
 
-/// Stub: encrypted-record reads land in P3.
-pub fn run(_cmd: &Db, profile: &str) -> anyhow::Result<()> {
+/// Dispatch a `db` subcommand for `profile`.
+pub async fn run(cmd: &Db, profile: &str) -> anyhow::Result<()> {
+    let mut session = open_session(profile).await?;
+    match cmd {
+        Db::Get { path } => session.cmd_get(path, 0).await,
+        Db::Ls { prefix } => session.cmd_ls(prefix).await,
+    }
+}
+
+/// Open a signed session: resolve the endpoint, unlock the identity, load the contract.
+async fn open_session(profile: &str) -> anyhow::Result<Session> {
     let endpoint = Config::load()?.endpoint(profile)?;
-    println!(
-        "db: wired in P3 — RBAC-checked records from {}, decrypted locally",
-        endpoint.server
-    );
-    Ok(())
+    let identity = passphrase::unlock()?;
+    let contract = creds::load(profile);
+    Session::connect(&endpoint.server, identity, contract).await
 }

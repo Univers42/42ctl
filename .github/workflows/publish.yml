@@ -1,0 +1,56 @@
+# Gated npm publish for 42ctl (P5).
+#
+# cargo-dist (release.yml) GENERATES the @universe42/42ctl npm-installer package
+# and uploads it to the GitHub Release, but does NOT push it to the registry.
+# This workflow does — with `npm publish --provenance` (npm registry provenance,
+# backed by the workflow's OIDC identity) and GATED behind the protected
+# `publish` environment, because an npm publish is irreversible (no unpublish
+# after 72h). NPM_TOKEN is scoped to that environment.
+#
+# P7-hardened: action pinned by commit SHA (re-pin with `pinact run`).
+name: publish-npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write   # npm registry provenance
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    environment: publish
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20.x"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download the npm package from the release
+        run: |
+          mkdir -p npm
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir npm --pattern '*-npm-package.tar.gz'
+
+      - name: npm publish (provenance)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in npm/*-npm-package.tar.gz; do
+            [ -f "$pkg" ] || { echo "no npm package found for $TAG" >&2; exit 1; }
+            npm publish --provenance --access public "$pkg"
+          done

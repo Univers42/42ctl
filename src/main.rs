@@ -18,6 +18,7 @@
 mod adapters;
 mod cli;
 mod cmd;
+mod ops;
 mod profile;
 
 use clap::Parser;
