@@ -79,3 +79,13 @@ install-updater = true
 pr-run-mode = "plan"
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
+
+# GitHub retired the ubuntu-20.04 hosted runner, but cargo-dist 0.28 still emits it for the
+# global + Linux jobs (which then queue forever). Pin those to a current image; the macOS and
+# Windows targets keep their still-valid defaults.
+[workspace.metadata.dist.github-custom-runners]
+global = "ubuntu-22.04"
+x86_64-unknown-linux-gnu = "ubuntu-22.04"
+x86_64-unknown-linux-musl = "ubuntu-22.04"
+aarch64-unknown-linux-gnu = "ubuntu-22.04"
+x86_64-pc-windows-msvc = "windows-2022"
