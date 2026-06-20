@@ -67,6 +67,9 @@ pub enum Auth {
         tenant: String,
         #[arg(long, env = "FT_REGISTER_TOKEN")]
         token: Option<String>,
+        /// Account email — when set, require an email OTP (6-digit code) before login.
+        #[arg(long, env = "FT_LOGIN_EMAIL")]
+        email: Option<String>,
     },
     /// Clear the saved contract/token for this profile.
     Logout,

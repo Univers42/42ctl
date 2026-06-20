@@ -24,4 +24,5 @@ pub mod creds;
 pub mod decrypt;
 pub mod derive;
 pub mod keystore;
+pub mod otp;
 pub mod passphrase;

@@ -4,7 +4,7 @@
 //! whether a contract is bound), `status` reports whether this profile is logged in, and
 //! `logout` clears the saved contract. The private key never leaves the machine.
 
-use crate::adapters::{address, authority, creds, passphrase};
+use crate::adapters::{address, authority, creds, otp, passphrase};
 use crate::cli::Auth;
 use crate::profile::Config;
 use crate::ui;
@@ -12,7 +12,11 @@ use crate::ui;
 /// Dispatch an `auth` subcommand for `profile`.
 pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
     match cmd {
-        Auth::Login { tenant, token } => login(profile, tenant, token.as_deref()).await,
+        Auth::Login {
+            tenant,
+            token,
+            email,
+        } => login(profile, tenant, token.as_deref(), email.as_deref()).await,
         Auth::Whoami => whoami(profile),
         Auth::Status => status(profile),
         Auth::Logout => logout(profile),
@@ -20,9 +24,20 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
 }
 
 /// Register this identity with the profile's authority and save the issued contract.
-async fn login(profile: &str, tenant: &str, token: Option<&str>) -> anyhow::Result<()> {
+/// When `email` is set, an email OTP (6-digit code) must pass FIRST — a Bitwarden-style
+/// second factor: the authority mails the code and the terminal waits for it.
+async fn login(
+    profile: &str,
+    tenant: &str,
+    token: Option<&str>,
+    email: Option<&str>,
+) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let identity = passphrase::unlock()?;
+    if let Some(addr) = email {
+        otp::email_otp(&endpoint.authority, addr).await?;
+        ui::success("email verification passed");
+    }
     let author_pubkey = hex::encode(identity.author_public().to_bytes());
     let contract = authority::register(&endpoint.authority, &author_pubkey, tenant, token).await?;
     creds::save(profile, &contract)?;
