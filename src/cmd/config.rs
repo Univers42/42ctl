@@ -28,7 +28,12 @@ pub fn run(cmd: &ConfigCmd, profile: &str) -> anyhow::Result<()> {
             server,
             authority,
             grobase,
-        } => set_endpoint(profile, server.as_deref(), authority.as_deref(), grobase.as_deref()),
+        } => set_endpoint(
+            profile,
+            server.as_deref(),
+            authority.as_deref(),
+            grobase.as_deref(),
+        ),
     }
 }
 

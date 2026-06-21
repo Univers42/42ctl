@@ -45,11 +45,24 @@ pub fn materialize(root: &Path, plans: Vec<Plan>, opts: &Opts) -> anyhow::Result
         let target = projpath::to_native(root, &plan.rel);
         let exists = target.exists();
         if !opts.apply {
-            ui::field(plan.rel.as_str(), if exists { "would overwrite" } else { "would create" });
+            ui::field(
+                plan.rel.as_str(),
+                if exists {
+                    "would overwrite"
+                } else {
+                    "would create"
+                },
+            );
             continue;
         }
         if exists && !opts.force {
-            println!("{}", ui::warn(&format!("skip {} (exists — use --force)", plan.rel.as_str())));
+            println!(
+                "{}",
+                ui::warn(&format!(
+                    "skip {} (exists — use --force)",
+                    plan.rel.as_str()
+                ))
+            );
             continue;
         }
         if exists && opts.backup {
@@ -71,7 +84,10 @@ fn guard(root: &Path, rel: &RelPath) -> anyhow::Result<()> {
     while let Some(dir) = ancestor {
         if let Ok(meta) = std::fs::symlink_metadata(dir) {
             if meta.file_type().is_symlink() {
-                anyhow::bail!("refusing to write through a symlinked path: {}", rel.as_str());
+                anyhow::bail!(
+                    "refusing to write through a symlinked path: {}",
+                    rel.as_str()
+                );
             }
         }
         if dir == root {

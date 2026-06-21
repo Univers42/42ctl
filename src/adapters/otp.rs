@@ -43,7 +43,10 @@ pub async fn email_otp(authority_url: &str, email: &str) -> anyhow::Result<Strin
         .json(&json!({ "email": email }))
         .send()
         .await?; // always 200 (no email-enumeration oracle)
-    println!("{}", ui::accent(&format!("A 6-digit code was sent to {email}.")));
+    println!(
+        "{}",
+        ui::accent(&format!("A 6-digit code was sent to {email}."))
+    );
     let code = prompt_code()?;
     let resp = client
         .post(format!("{base}/v1/auth/otp/verify"))
@@ -51,7 +54,10 @@ pub async fn email_otp(authority_url: &str, email: &str) -> anyhow::Result<Strin
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("verification code rejected (HTTP {})", resp.status().as_u16());
+        anyhow::bail!(
+            "verification code rejected (HTTP {})",
+            resp.status().as_u16()
+        );
     }
     Ok(resp.json::<VerifyResp>().await?.proof.unwrap_or_default())
 }
@@ -61,7 +67,10 @@ pub async fn email_otp(authority_url: &str, email: &str) -> anyhow::Result<Strin
 fn prompt_code() -> anyhow::Result<String> {
     print!(
         "{}",
-        ui::dim(&format!("Enter the code (waiting {}s): ", OTP_TIMEOUT.as_secs()))
+        ui::dim(&format!(
+            "Enter the code (waiting {}s): ",
+            OTP_TIMEOUT.as_secs()
+        ))
     );
     std::io::stdout().flush().ok();
     let (tx, rx) = mpsc::channel();

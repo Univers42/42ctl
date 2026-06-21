@@ -53,6 +53,9 @@ pub enum Command {
     /// Profiles and endpoints (orgs / environments).
     #[command(subcommand)]
     Config(Config),
+    /// Org-scoped operations (GitHub App connect / link / sync).
+    #[command(subcommand)]
+    Org(Org),
     /// Push the project's *.env* tree to the vault (encrypted, path-aware).
     Push {
         #[arg(long)]
@@ -80,15 +83,19 @@ pub enum Command {
 /// `auth` subcommands.
 #[derive(Subcommand)]
 pub enum Auth {
-    /// Register/log in and obtain a contract for this identity.
+    /// Register/log in and obtain a contract for this identity. With `--github`, log in to
+    /// grobase via the GitHub device flow instead (saves a session token, no contract).
     Login {
-        #[arg(long)]
-        tenant: String,
+        #[arg(long, required_unless_present = "github")]
+        tenant: Option<String>,
         #[arg(long, env = "FT_REGISTER_TOKEN")]
         token: Option<String>,
         /// Account email — when set, require an email OTP (6-digit code) before login.
         #[arg(long, env = "FT_LOGIN_EMAIL")]
         email: Option<String>,
+        /// Log in to grobase via the GitHub device flow (no browser callback).
+        #[arg(long)]
+        github: bool,
     },
     /// Clear the saved contract/token for this profile.
     Logout,
@@ -206,6 +213,25 @@ pub enum Db {
         #[arg(default_value = "")]
         prefix: String,
     },
+}
+
+/// `org` subcommands — org-scoped operations grouped by provider.
+#[derive(Subcommand)]
+pub enum Org {
+    /// GitHub App connect / link / sync for an org (needs `auth login --github` first).
+    #[command(subcommand)]
+    Github(OrgGithub),
+}
+
+/// `org github` subcommands.
+#[derive(Subcommand)]
+pub enum OrgGithub {
+    /// Begin connecting a GitHub App installation to ORG (prints the install URL + nonce).
+    Connect { org: String },
+    /// Link a GitHub org login to ORG.
+    Link { org: String, github_org: String },
+    /// Sync GitHub teams/members/repos into ORG's RBAC.
+    Sync { org: String },
 }
 
 /// `config` subcommands.

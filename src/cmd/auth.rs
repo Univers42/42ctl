@@ -4,10 +4,11 @@
 //! whether a contract is bound), `status` reports whether this profile is logged in, and
 //! `logout` clears the saved contract. The private key never leaves the machine.
 
-use crate::adapters::{address, authority, creds, otp, passphrase};
+use crate::adapters::{address, authority, creds, github_device, otp, passphrase, session};
 use crate::cli::Auth;
 use crate::profile::Config;
 use crate::ui;
+use anyhow::Context;
 
 /// Dispatch an `auth` subcommand for `profile`.
 pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
@@ -16,11 +17,33 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
             tenant,
             token,
             email,
-        } => login(profile, tenant, token.as_deref(), email.as_deref()).await,
+            github,
+        } => {
+            if *github {
+                github_login(profile).await
+            } else {
+                let tenant = tenant
+                    .as_deref()
+                    .context("`--tenant` is required (or use `--github`)")?;
+                login(profile, tenant, token.as_deref(), email.as_deref()).await
+            }
+        }
         Auth::Whoami => whoami(profile),
         Auth::Status => status(profile),
         Auth::Logout => logout(profile),
     }
+}
+
+/// Log in to grobase via the GitHub device flow and save the minted session token. No
+/// local identity is needed — this is a grobase login (org/RBAC), not a vault42 contract.
+async fn github_login(profile: &str) -> anyhow::Result<()> {
+    let endpoint = Config::load()?.endpoint(profile)?;
+    let token = github_device::device_login(endpoint.otp_base()).await?;
+    session::save(profile, &token)?;
+    ui::success(&format!(
+        "logged in to grobase via GitHub on profile '{profile}'"
+    ));
+    Ok(())
 }
 
 /// Register this identity with the profile's authority and save the issued contract.
@@ -90,9 +113,10 @@ fn status(profile: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Clear the saved contract for `profile`.
+/// Clear the saved contract AND grobase session token for `profile`.
 fn logout(profile: &str) -> anyhow::Result<()> {
     creds::clear(profile)?;
+    session::clear(profile)?;
     ui::success(&format!("logged out of profile '{profile}'"));
     Ok(())
 }

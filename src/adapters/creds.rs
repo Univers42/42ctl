@@ -24,12 +24,13 @@ pub fn contract_path(profile: &str) -> PathBuf {
     if let Ok(custom) = std::env::var("FT_CONTRACT") {
         return PathBuf::from(custom);
     }
-    contract_dir().join(format!("contract-{profile}.tok"))
+    token_dir().join(format!("contract-{profile}.tok"))
 }
 
-/// The directory contracts live in — the directory of the active config file, falling back
-/// to `~/.config/42ctl` when the config path has no parent.
-fn contract_dir() -> PathBuf {
+/// The directory per-profile tokens live in — the directory of the active config file,
+/// falling back to `~/.config/42ctl` when the config path has no parent. Shared by the
+/// contract and the grobase session token (`session.rs`).
+pub(crate) fn token_dir() -> PathBuf {
     if let Ok(config) = crate::profile::config_path() {
         if let Some(parent) = config.parent() {
             return parent.to_path_buf();

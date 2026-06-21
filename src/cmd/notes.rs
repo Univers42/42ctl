@@ -21,7 +21,11 @@ use crate::cli::Note;
 pub async fn run(cmd: &Note, profile: &str) -> anyhow::Result<()> {
     let mut session = super::sync::open_session(profile).await?;
     match cmd {
-        Note::Add { path, project, file } => {
+        Note::Add {
+            path,
+            project,
+            file,
+        } => {
             let bytes = super::vault::read_input(file.as_deref())?;
             session.cmd_note_add(project.as_deref(), path, &bytes).await
         }

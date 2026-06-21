@@ -64,7 +64,8 @@ impl Session {
                     plaintext: plaintext.as_slice(),
                 },
             )?;
-            self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push").await?;
+            self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push")
+                .await?;
             manifest.upsert(Entry {
                 relative_path: rel.as_str().to_string(),
                 vault_path,
@@ -91,13 +92,24 @@ impl Session {
         let cwd = std::env::current_dir()?;
         let (proj, _) = project::open(&cwd, explicit_id)?;
         let manifest = self.load_manifest(&proj.project_id).await?.ok_or_else(|| {
-            anyhow::anyhow!("no manifest for project {} (push first, or pass --project)", proj.project_id)
+            anyhow::anyhow!(
+                "no manifest for project {} (push first, or pass --project)",
+                proj.project_id
+            )
         })?;
         let mut plans = Vec::new();
-        for entry in manifest.entries.iter().filter(|e| e.kind != Kind::Note as u8) {
+        for entry in manifest
+            .entries
+            .iter()
+            .filter(|e| e.kind != Kind::Note as u8)
+        {
             let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
             let bytes = self.fetch_blob(&entry.vault_path).await?;
-            plans.push(materialize::Plan { rel, bytes, mode: entry.mode });
+            plans.push(materialize::Plan {
+                rel,
+                bytes,
+                mode: entry.mode,
+            });
         }
         if !opts.apply {
             ui::field("pull", "dry-run — re-run with --apply to write");
@@ -106,7 +118,13 @@ impl Session {
     }
 
     /// Push one opaque envelope at `vault_path` with optimistic concurrency.
-    pub(crate) async fn push_blob(&mut self, vault_path: &str, envelope: Vec<u8>, rev: u64, method: &str) -> anyhow::Result<()> {
+    pub(crate) async fn push_blob(
+        &mut self,
+        vault_path: &str,
+        envelope: Vec<u8>,
+        rev: u64,
+        method: &str,
+    ) -> anyhow::Result<()> {
         let mut request = Request::new(PushRequest {
             path: vault_path.to_string(),
             envelope,
@@ -118,7 +136,11 @@ impl Session {
     }
 
     /// Seal + push the manifest (kind=Manifest) at the project's reserved manifest path.
-    pub(crate) async fn push_manifest(&mut self, project_id: &str, manifest: &Manifest) -> anyhow::Result<()> {
+    pub(crate) async fn push_manifest(
+        &mut self,
+        project_id: &str,
+        manifest: &Manifest,
+    ) -> anyhow::Result<()> {
         let vault_path = manifest_path(project_id);
         let rev = self.current_version(&vault_path).await?;
         let bytes = manifest.to_bytes()?;
@@ -134,11 +156,15 @@ impl Session {
                 plaintext: &bytes,
             },
         )?;
-        self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push").await
+        self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push")
+            .await
     }
 
     /// Fetch + decrypt the manifest (None when the project has nothing pushed yet).
-    pub(crate) async fn load_manifest(&mut self, project_id: &str) -> anyhow::Result<Option<Manifest>> {
+    pub(crate) async fn load_manifest(
+        &mut self,
+        project_id: &str,
+    ) -> anyhow::Result<Option<Manifest>> {
         let vault_path = manifest_path(project_id);
         match self.get_blob(&vault_path).await {
             Ok(bytes) => Ok(Some(Manifest::parse(&bytes)?)),
@@ -148,7 +174,10 @@ impl Session {
     }
 
     /// Fetch + decrypt the blob at `vault_path` (anyhow error on any failure).
-    pub(crate) async fn fetch_blob(&mut self, vault_path: &str) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    pub(crate) async fn fetch_blob(
+        &mut self,
+        vault_path: &str,
+    ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
         Ok(self.get_blob(vault_path).await?)
     }
 
@@ -183,7 +212,9 @@ fn file_mode(file: &std::path::Path) -> u32 {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(file).map(|m| m.mode() & 0o777).unwrap_or(0o600)
+        std::fs::metadata(file)
+            .map(|m| m.mode() & 0o777)
+            .unwrap_or(0o600)
     }
     #[cfg(not(unix))]
     {

@@ -47,7 +47,11 @@ pub fn validate_stored(raw: &str) -> anyhow::Result<RelPath> {
         anyhow::bail!("path empty or too long");
     }
     // sec: reject NUL, backslash, absolute, and drive/UNC forms outright
-    if raw.as_bytes().contains(&0) || raw.contains('\\') || raw.starts_with('/') || has_drive_or_unc(raw) {
+    if raw.as_bytes().contains(&0)
+        || raw.contains('\\')
+        || raw.starts_with('/')
+        || has_drive_or_unc(raw)
+    {
         anyhow::bail!("illegal path form (nul/backslash/absolute/drive/unc)");
     }
     for comp in raw.split('/') {
@@ -123,7 +127,12 @@ mod tests {
 
     #[test]
     fn accepts_safe_relative_paths() {
-        for p in ["config/db.env", "a/b/c.env", ".env", "deep/nested/x.secrets"] {
+        for p in [
+            "config/db.env",
+            "a/b/c.env",
+            ".env",
+            "deep/nested/x.secrets",
+        ] {
             assert!(validate_stored(p).is_ok(), "should accept {p}");
         }
     }

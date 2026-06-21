@@ -50,16 +50,24 @@ impl Manifest {
     /// Insert or replace the entry for its relative path, keeping entries path-sorted
     /// (deterministic ciphertext).
     pub fn upsert(&mut self, entry: Entry) {
-        match self.entries.iter_mut().find(|e| e.relative_path == entry.relative_path) {
+        match self
+            .entries
+            .iter_mut()
+            .find(|e| e.relative_path == entry.relative_path)
+        {
             Some(slot) => *slot = entry,
             None => self.entries.push(entry),
         }
-        self.entries.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+        self.entries
+            .sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     }
 
     /// Drop the entry for `relative_path`; returns the removed entry if it was present.
     pub fn remove(&mut self, relative_path: &str) -> Option<Entry> {
-        let idx = self.entries.iter().position(|e| e.relative_path == relative_path)?;
+        let idx = self
+            .entries
+            .iter()
+            .position(|e| e.relative_path == relative_path)?;
         Some(self.entries.remove(idx))
     }
 

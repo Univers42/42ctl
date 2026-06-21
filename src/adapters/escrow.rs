@@ -10,7 +10,6 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-
 //! The multi-device keystore-escrow client. `put` uploads the passphrase-wrapped
 //! keystore (already ciphertext) to grobase after an email-OTP proof; `fetch` retrieves
 //! it on a second device after its own proof. The server only ever holds ciphertext —

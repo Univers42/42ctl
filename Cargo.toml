@@ -28,7 +28,7 @@ dirs = "5"
 vault42-core = { git = "https://github.com/Univers42/vault42", tag = "v0.2.0" }
 vault42-proto = { git = "https://github.com/Univers42/vault42", tag = "v0.2.0" }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 zeroize = { version = "1", features = ["derive"] }
 hex = "0.4"

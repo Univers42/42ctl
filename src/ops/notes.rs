@@ -28,7 +28,12 @@ use vault42_core::Kind;
 
 impl Session {
     /// Seal `bytes` as a Note at `rel_raw` and record it in the project manifest.
-    pub async fn cmd_note_add(&mut self, explicit_id: Option<&str>, rel_raw: &str, bytes: &[u8]) -> anyhow::Result<()> {
+    pub async fn cmd_note_add(
+        &mut self,
+        explicit_id: Option<&str>,
+        rel_raw: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<()> {
         let (proj, created) = project::open(&std::env::current_dir()?, explicit_id)?;
         if created {
             ui::field("project", &proj.project_id);
@@ -37,8 +42,16 @@ impl Session {
         if bytes.len() > MAX_BLOB {
             anyhow::bail!("note exceeds the 64 MiB blob ceiling");
         }
-        let id = derive::secret_id(&self.principal, &format!("{}/note/{}", proj.project_id, rel.as_str()));
-        let vault_path = format!("{}/nb/{}/{}", projpath::RESERVED_PREFIX, proj.project_id, id);
+        let id = derive::secret_id(
+            &self.principal,
+            &format!("{}/note/{}", proj.project_id, rel.as_str()),
+        );
+        let vault_path = format!(
+            "{}/nb/{}/{}",
+            projpath::RESERVED_PREFIX,
+            proj.project_id,
+            id
+        );
         let mut manifest = self
             .load_manifest(&proj.project_id)
             .await?
@@ -56,7 +69,8 @@ impl Session {
                 plaintext: bytes,
             },
         )?;
-        self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push").await?;
+        self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push")
+            .await?;
         manifest.upsert(Entry {
             relative_path: rel.as_str().to_string(),
             vault_path,
@@ -64,16 +78,25 @@ impl Session {
             kind: Kind::Note as u8,
         });
         self.push_manifest(&proj.project_id, &manifest).await?;
-        ui::success(&format!("note {} saved in project {}", rel.as_str(), proj.project_id));
+        ui::success(&format!(
+            "note {} saved in project {}",
+            rel.as_str(),
+            proj.project_id
+        ));
         Ok(())
     }
 
     /// Fetch + decrypt the note at `rel_raw` and write it to stdout (byte-exact).
-    pub async fn cmd_note_get(&mut self, explicit_id: Option<&str>, rel_raw: &str) -> anyhow::Result<()> {
+    pub async fn cmd_note_get(
+        &mut self,
+        explicit_id: Option<&str>,
+        rel_raw: &str,
+    ) -> anyhow::Result<()> {
         let (proj, _) = project::open(&std::env::current_dir()?, explicit_id)?;
-        let manifest = self.load_manifest(&proj.project_id).await?.ok_or_else(|| {
-            anyhow::anyhow!("project {} has no notes yet", proj.project_id)
-        })?;
+        let manifest = self
+            .load_manifest(&proj.project_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("project {} has no notes yet", proj.project_id))?;
         let entry = find_note(&manifest, rel_raw)?;
         let bytes = self.fetch_blob(&entry.vault_path).await?;
         std::io::stdout().write_all(&bytes)?;
@@ -98,11 +121,16 @@ impl Session {
     }
 
     /// Remove the note's manifest entry, making it unreachable (ZK: no name↔blob link left).
-    pub async fn cmd_note_rm(&mut self, explicit_id: Option<&str>, rel_raw: &str) -> anyhow::Result<()> {
+    pub async fn cmd_note_rm(
+        &mut self,
+        explicit_id: Option<&str>,
+        rel_raw: &str,
+    ) -> anyhow::Result<()> {
         let (proj, _) = project::open(&std::env::current_dir()?, explicit_id)?;
-        let mut manifest = self.load_manifest(&proj.project_id).await?.ok_or_else(|| {
-            anyhow::anyhow!("project {} has no notes yet", proj.project_id)
-        })?;
+        let mut manifest = self
+            .load_manifest(&proj.project_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("project {} has no notes yet", proj.project_id))?;
         find_note(&manifest, rel_raw)?;
         manifest.remove(rel_raw); // ponytail: ciphertext blob left orphaned — a GC sweep RPC could reclaim it
         self.push_manifest(&proj.project_id, &manifest).await?;

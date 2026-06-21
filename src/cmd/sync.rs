@@ -42,5 +42,14 @@ pub async fn pull(
     backup: bool,
 ) -> anyhow::Result<()> {
     let mut session = open_session(profile).await?;
-    session.cmd_pull(project, Opts { apply, force, backup }).await
+    session
+        .cmd_pull(
+            project,
+            Opts {
+                apply,
+                force,
+                backup,
+            },
+        )
+        .await
 }

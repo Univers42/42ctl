@@ -38,14 +38,20 @@ pub async fn run(cmd: &Keys, profile: &str) -> anyhow::Result<()> {
 fn init(force: bool) -> anyhow::Result<()> {
     let path = keystore::keystore_path()?;
     if path.exists() && !force {
-        anyhow::bail!("keystore already exists at {} (use --force)", path.display());
+        anyhow::bail!(
+            "keystore already exists at {} (use --force)",
+            path.display()
+        );
     }
     let identity = Identity::generate();
     let passphrase = passphrase::prompt_new_passphrase()?;
     let blob = seal_keystore(&identity, passphrase.as_bytes(), KdfParams::default())?;
     keystore::save(&path, &blob)?;
     ui::success("identity created");
-    ui::field("principal", &hex::encode(fingerprint(&identity.author_public().to_bytes())));
+    ui::field(
+        "principal",
+        &hex::encode(fingerprint(&identity.author_public().to_bytes())),
+    );
     ui::field("address", &address::encode(&identity));
     Ok(())
 }
@@ -78,7 +84,10 @@ async fn recover(profile: &str, email: &str) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let path = keystore::keystore_path()?;
     if path.exists() {
-        anyhow::bail!("a keystore already exists at {} — move it aside first", path.display());
+        anyhow::bail!(
+            "a keystore already exists at {} — move it aside first",
+            path.display()
+        );
     }
     let proof = otp::email_otp(endpoint.otp_base(), email).await?;
     let raw = STANDARD.decode(escrow::fetch(endpoint.otp_base(), email, &proof).await?)?;
@@ -87,7 +96,10 @@ async fn recover(profile: &str, email: &str) -> anyhow::Result<()> {
     keystore::save(&path, &blob)?;
     let identity = passphrase::unlock()?;
     ui::success("keystore recovered + unlocked on this machine");
-    ui::field("principal", &hex::encode(fingerprint(&identity.author_public().to_bytes())));
+    ui::field(
+        "principal",
+        &hex::encode(fingerprint(&identity.author_public().to_bytes())),
+    );
     ui::field("address", &address::encode(&identity));
     Ok(())
 }
