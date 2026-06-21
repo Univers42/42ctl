@@ -29,4 +29,5 @@ pub mod github_org;
 pub mod keystore;
 pub mod otp;
 pub mod passphrase;
+pub mod rbac;
 pub mod session;

@@ -16,10 +16,16 @@
 mod auth;
 mod config;
 mod db;
+mod env;
+mod group;
+mod invite;
 mod keys;
 mod notes;
 mod org;
+mod project;
 mod sync;
+mod team;
+mod team_members;
 mod unseal;
 mod update;
 mod vault;
@@ -56,6 +62,11 @@ async fn net(cli: &Cli) -> anyhow::Result<()> {
         Command::Db(cmd) => db::run(cmd, &cli.profile).await,
         Command::Note(cmd) => notes::run(cmd, &cli.profile).await,
         Command::Org(cmd) => org::run(cmd, &cli.profile).await,
+        Command::Team(cmd) => team::run(cmd, &cli.profile).await,
+        Command::Group(cmd) => group::run(cmd, &cli.profile).await,
+        Command::Env(cmd) => env::run(cmd, &cli.profile).await,
+        Command::Project(cmd) => project::run(cmd, &cli.profile).await,
+        Command::Invite(cmd) => invite::run(cmd, &cli.profile).await,
         Command::Push { project } => sync::push(&cli.profile, project.as_deref()).await,
         Command::Pull {
             project,

@@ -98,9 +98,24 @@ pub enum Command {
     /// Profiles and endpoints (orgs / environments).
     #[command(subcommand)]
     Config(Config),
-    /// Org-scoped operations (GitHub App connect / link / sync).
+    /// Org-scoped operations (create, members, invites, GitHub App connect / link / sync).
     #[command(subcommand)]
     Org(Org),
+    /// Team-scoped RBAC (create/list teams, members, invites, project grants).
+    #[command(subcommand)]
+    Team(Team),
+    /// Project group operations (create, members, invites).
+    #[command(subcommand)]
+    Group(Group),
+    /// Per-project environments (create, list).
+    #[command(subcommand)]
+    Env(Env),
+    /// Project-role grants for a user.
+    #[command(subcommand)]
+    Project(Project),
+    /// Generalized invite operations (accept by token, show by id).
+    #[command(subcommand)]
+    Invite(Invite),
     /// Push the project's *.env* tree to the vault (encrypted, path-aware).
     Push {
         #[arg(long)]
@@ -260,12 +275,166 @@ pub enum Db {
     },
 }
 
-/// `org` subcommands — org-scoped operations grouped by provider.
+/// `org` subcommands — org-scoped operations (RBAC + provider integrations).
 #[derive(Subcommand)]
 pub enum Org {
+    /// Create an org from a slug + display name.
+    Create {
+        #[arg(long)]
+        slug: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// List an org's members.
+    Members {
+        #[arg(long)]
+        org: String,
+    },
+    /// Invite an email to an org with a role (prints the one-time token).
+    Invite {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        email: String,
+        #[arg(long)]
+        role: String,
+    },
+    /// Accept an org invite by its one-time token.
+    AcceptInvite {
+        #[arg(long)]
+        token: String,
+    },
     /// GitHub App connect / link / sync for an org (needs `auth login --github` first).
     #[command(subcommand)]
     Github(OrgGithub),
+}
+
+/// `team` subcommands — team RBAC within an org.
+#[derive(Subcommand)]
+pub enum Team {
+    /// Create a team under an org.
+    Create {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        slug: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// List an org's teams.
+    List {
+        #[arg(long)]
+        org: String,
+    },
+    /// Add a user to a team with a role.
+    AddMember {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        user: String,
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
+    /// Invite an email to a team (prints the one-time token).
+    Invite {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        email: String,
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
+    /// Grant a team a project role (optionally scoped to an environment).
+    GrantProject {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        env: Option<String>,
+    },
+}
+
+/// `group` subcommands — project group operations.
+#[derive(Subcommand)]
+pub enum Group {
+    /// Create a project's group (the server derives the name).
+    Create {
+        #[arg(long)]
+        project: String,
+    },
+    /// Add a user to a group.
+    AddMember {
+        #[arg(long)]
+        group: String,
+        #[arg(long)]
+        user: String,
+    },
+    /// Invite an email to a group (prints the one-time token).
+    Invite {
+        #[arg(long)]
+        group: String,
+        #[arg(long)]
+        email: String,
+    },
+}
+
+/// `env` subcommands — per-project environments.
+#[derive(Subcommand)]
+pub enum Env {
+    /// Create an environment under a project.
+    Create {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// List a project's environments.
+    List {
+        #[arg(long)]
+        project: String,
+    },
+}
+
+/// `project` subcommands — user-scoped project grants.
+#[derive(Subcommand)]
+pub enum Project {
+    /// Grant a user a project role (optionally scoped to an environment).
+    Grant {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        user: String,
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        env: Option<String>,
+    },
+}
+
+/// `invite` subcommands — generalized invite operations.
+#[derive(Subcommand)]
+pub enum Invite {
+    /// Accept an invite by its one-time token.
+    Accept {
+        #[arg(long)]
+        token: String,
+    },
+    /// Show an invite by its id.
+    Show {
+        #[arg(long)]
+        id: String,
+    },
 }
 
 /// `org github` subcommands.
