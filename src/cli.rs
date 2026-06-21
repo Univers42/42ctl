@@ -50,6 +50,22 @@ pub enum Command {
     /// Profiles and endpoints (orgs / environments).
     #[command(subcommand)]
     Config(Config),
+    /// Push the project's *.env* tree to the vault (encrypted, path-aware).
+    Push {
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Pull the project's encrypted tree back (dry-run unless --apply).
+    Pull {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        backup: bool,
+    },
     /// Print the version and commit.
     Version,
     /// Self-update (verifies signature + provenance before swapping the binary).

@@ -17,6 +17,7 @@ mod auth;
 mod config;
 mod db;
 mod keys;
+mod sync;
 mod unseal;
 mod update;
 mod vault;
@@ -51,6 +52,10 @@ async fn net(cli: &Cli) -> anyhow::Result<()> {
         Command::Keys(cmd) => keys::run(cmd, &cli.profile).await,
         Command::Vault(cmd) => vault::run(cmd, &cli.profile).await,
         Command::Db(cmd) => db::run(cmd, &cli.profile).await,
+        Command::Push { project } => sync::push(&cli.profile, project.as_deref()).await,
+        Command::Pull { project, apply, force, backup } => {
+            sync::pull(&cli.profile, project.as_deref(), *apply, *force, *backup).await
+        }
         _ => unreachable!("offline verbs are handled before block_on_net"),
     }
 }

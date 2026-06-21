@@ -11,3 +11,4 @@
 *.swp
 
 # Cargo.lock IS committed (binary crate — reproducible builds for the supply chain).
+/42ctl-bin

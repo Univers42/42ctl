@@ -18,6 +18,7 @@
 mod adapters;
 mod cli;
 mod cmd;
+mod core;
 mod ops;
 mod profile;
 mod ui;

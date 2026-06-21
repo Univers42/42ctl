@@ -69,6 +69,43 @@ pub struct SharedSeal<'a> {
     pub plaintext: &'a [u8],
 }
 
+/// The path-aware seal spec for a project blob (or its manifest). `relative_path` is
+/// NEVER set on the wire — the real path lives only inside the encrypted manifest (ZK);
+/// `vault_path` is the opaque server location.
+pub struct ProjectSeal<'a> {
+    pub owner: &'a str,
+    pub vault_path: &'a str,
+    pub project_id: &'a str,
+    pub kind: Kind,
+    pub mode: u32,
+    pub rev: u64,
+    pub plaintext: &'a [u8],
+}
+
+/// Seal `plaintext` as a path-aware project blob for the caller's own identity. The
+/// secret id is derived from the opaque `vault_path` (so `open` binds the read scope);
+/// the real path is omitted from the leaf metadata.
+pub fn project_envelope(identity: &Identity, spec: &ProjectSeal) -> anyhow::Result<Vec<u8>> {
+    let meta = Metadata {
+        version: 2,
+        secret_id: derive::secret_id(spec.owner, spec.vault_path),
+        tenant: "self".to_string(),
+        owner: spec.owner.to_string(),
+        rev: spec.rev,
+        content_type: "project".to_string(),
+        recovery_optin: false,
+        project_id: spec.project_id.to_string(),
+        relative_path: String::new(), // sec: ZK — the real path lives only in the manifest
+        kind: spec.kind,
+        mode: spec.mode,
+    };
+    let recipients = Recipients {
+        users: &[identity.encryption_public()],
+        recovery: None,
+    };
+    Ok(seal(spec.plaintext, meta, &recipients, identity.signing_key())?.to_bytes()?)
+}
+
 /// Seal `plaintext` for a friend (their X25519 key) plus the author, under the friend's
 /// owner space at `path`.
 pub fn shared_envelope(identity: &Identity, seal_spec: &SharedSeal) -> anyhow::Result<Vec<u8>> {

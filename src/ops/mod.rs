@@ -21,3 +21,4 @@ mod io;
 mod manage;
 mod secret;
 mod share;
+mod sync;
