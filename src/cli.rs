@@ -89,6 +89,18 @@ pub enum Keys {
     },
     /// Print this identity's shareable public address.
     ExportPub,
+    /// Escrow the passphrase-wrapped keystore to grobase (multi-device), gated by an
+    /// email OTP. The server stores only ciphertext — your passphrase never leaves.
+    Escrow {
+        #[arg(long, env = "FT_LOGIN_EMAIL")]
+        email: String,
+    },
+    /// Recover the keystore on a new machine: email OTP → fetch the escrow → unlock
+    /// locally with your passphrase.
+    Recover {
+        #[arg(long, env = "FT_LOGIN_EMAIL")]
+        email: String,
+    },
 }
 
 /// `vault` / `secrets` subcommands.

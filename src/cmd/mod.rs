@@ -32,7 +32,6 @@ pub fn dispatch(cli: &Cli) -> anyhow::Result<()> {
         Command::Update => update::run(),
         Command::Unseal => unseal::run(&cli.profile),
         Command::Config(cmd) => config::run(cmd, &cli.profile),
-        Command::Keys(cmd) => keys::run(cmd, &cli.profile),
         _ => block_on_net(cli),
     }
 }
@@ -49,6 +48,7 @@ fn block_on_net(cli: &Cli) -> anyhow::Result<()> {
 async fn net(cli: &Cli) -> anyhow::Result<()> {
     match &cli.command {
         Command::Auth(cmd) => auth::run(cmd, &cli.profile).await,
+        Command::Keys(cmd) => keys::run(cmd, &cli.profile).await,
         Command::Vault(cmd) => vault::run(cmd, &cli.profile).await,
         Command::Db(cmd) => db::run(cmd, &cli.profile).await,
         _ => unreachable!("offline verbs are handled before block_on_net"),
