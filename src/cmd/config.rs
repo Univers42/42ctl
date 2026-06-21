@@ -24,9 +24,11 @@ pub fn run(cmd: &ConfigCmd, profile: &str) -> anyhow::Result<()> {
     match cmd {
         ConfigCmd::Show => show(profile),
         ConfigCmd::Profile { name } => profile_cmd(name.as_deref()),
-        ConfigCmd::Endpoint { server, authority } => {
-            set_endpoint(profile, server.as_deref(), authority.as_deref())
-        }
+        ConfigCmd::Endpoint {
+            server,
+            authority,
+            grobase,
+        } => set_endpoint(profile, server.as_deref(), authority.as_deref(), grobase.as_deref()),
     }
 }
 
@@ -36,6 +38,7 @@ fn show(profile: &str) -> anyhow::Result<()> {
     ui::field("profile", profile);
     ui::field("server", &endpoint.server);
     ui::field("authority", &endpoint.authority);
+    ui::field("grobase", endpoint.otp_base());
     Ok(())
 }
 
@@ -64,11 +67,12 @@ fn profile_cmd(name: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Set `profile`'s server/authority endpoints in place.
+/// Set `profile`'s server/authority/grobase endpoints in place.
 fn set_endpoint(
     profile: &str,
     server: Option<&str>,
     authority: Option<&str>,
+    grobase: Option<&str>,
 ) -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let endpoint = cfg
@@ -80,6 +84,9 @@ fn set_endpoint(
     }
     if let Some(authority) = authority {
         endpoint.authority = authority.to_string();
+    }
+    if let Some(grobase) = grobase {
+        endpoint.grobase = grobase.to_string();
     }
     cfg.save()?;
     ui::success(&format!("updated endpoints for '{profile}'"));

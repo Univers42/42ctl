@@ -34,12 +34,26 @@ async fn login(
 ) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let identity = passphrase::unlock()?;
-    if let Some(addr) = email {
-        otp::email_otp(&endpoint.authority, addr).await?;
-        ui::success("email verification passed");
-    }
+    let proof = match email {
+        Some(addr) => {
+            let p = otp::email_otp(endpoint.otp_base(), addr).await?;
+            ui::success("email verification passed");
+            Some(p)
+        }
+        None => None,
+    };
     let author_pubkey = hex::encode(identity.author_public().to_bytes());
-    let contract = authority::register(&endpoint.authority, &author_pubkey, tenant, token).await?;
+    let contract = authority::register(
+        &endpoint.authority,
+        &authority::RegisterSpec {
+            author_pubkey_hex: &author_pubkey,
+            tenant,
+            token,
+            email,
+            otp_proof: proof.as_deref(),
+        },
+    )
+    .await?;
     creds::save(profile, &contract)?;
     ui::success(&format!("logged in to '{tenant}' on profile '{profile}'"));
     println!(

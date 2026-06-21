@@ -20,11 +20,27 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// A profile's endpoints: the vault42 data plane + the contract authority.
+/// A profile's endpoints: the vault42 data plane, the contract authority, and the
+/// grobase URL that serves the email-OTP routes (`#[serde(default)]` so older configs
+/// without it still load — an empty value falls back to the authority host).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Endpoint {
     pub server: String,
     pub authority: String,
+    #[serde(default)]
+    pub grobase: String,
+}
+
+impl Endpoint {
+    /// The base URL serving the email-OTP routes — the grobase URL, or the authority
+    /// host when grobase is unset (single-host deployments).
+    pub fn otp_base(&self) -> &str {
+        if self.grobase.is_empty() {
+            &self.authority
+        } else {
+            &self.grobase
+        }
+    }
 }
 
 /// The active profile name plus the named profiles.
@@ -42,6 +58,7 @@ impl Default for Config {
             Endpoint {
                 server: "https://vault42.fly.dev".to_string(),
                 authority: "https://grobase-nano.fly.dev".to_string(),
+                grobase: "https://grobase-nano.fly.dev".to_string(),
             },
         );
         Self {

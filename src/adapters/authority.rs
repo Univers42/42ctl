@@ -24,6 +24,10 @@ struct RegisterReq<'a> {
     author_pubkey: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     token: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    email: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    otp_proof: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -31,21 +35,28 @@ struct RegisterResp {
     contract: String,
 }
 
-/// Register `author_pubkey_hex` as `tenant` with the authority, sending the invite
-/// `token` when required, and returning the issued contract token.
-pub async fn register(
-    authority_url: &str,
-    author_pubkey_hex: &str,
-    tenant: &str,
-    token: Option<&str>,
-) -> anyhow::Result<String> {
+/// The author identity + optional invite token + optional email-OTP proof a register
+/// call carries (keeps `register` within the ≤4-param limit).
+pub struct RegisterSpec<'a> {
+    pub author_pubkey_hex: &'a str,
+    pub tenant: &'a str,
+    pub token: Option<&'a str>,
+    pub email: Option<&'a str>,
+    pub otp_proof: Option<&'a str>,
+}
+
+/// Register the author key as `tenant` with the authority, carrying the invite `token`
+/// and (when OTP is enforced) the `email` + `otp_proof`, returning the issued contract.
+pub async fn register(authority_url: &str, spec: &RegisterSpec<'_>) -> anyhow::Result<String> {
     let url = format!("{}/v1/register", authority_url.trim_end_matches('/'));
     let response = reqwest::Client::new()
         .post(url)
         .json(&RegisterReq {
-            tenant,
-            author_pubkey: author_pubkey_hex,
-            token,
+            tenant: spec.tenant,
+            author_pubkey: spec.author_pubkey_hex,
+            token: spec.token,
+            email: spec.email,
+            otp_proof: spec.otp_proof,
         })
         .send()
         .await?;

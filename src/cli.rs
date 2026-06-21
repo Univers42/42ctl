@@ -158,6 +158,9 @@ pub enum Config {
         server: Option<String>,
         #[arg(long)]
         authority: Option<String>,
+        /// grobase URL that serves the email-OTP routes (for `auth login --email`).
+        #[arg(long)]
+        grobase: Option<String>,
     },
     /// Print the resolved configuration.
     Show,
