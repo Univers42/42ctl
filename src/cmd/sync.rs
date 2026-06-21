@@ -20,7 +20,7 @@ use crate::core::materialize::Opts;
 use crate::profile::Config;
 
 /// Open a signed session: resolve the endpoint, unlock the identity, load the contract.
-async fn open_session(profile: &str) -> anyhow::Result<Session> {
+pub(in crate::cmd) async fn open_session(profile: &str) -> anyhow::Result<Session> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let identity = passphrase::unlock()?;
     let contract = creds::load(profile);

@@ -25,12 +25,16 @@ pub struct Manifest {
     pub entries: Vec<Entry>,
 }
 
-/// One file in the manifest: the real path, its opaque server (vault) path, and mode.
+/// One file in the manifest: the real path, its opaque server (vault) path, mode, and
+/// `kind` (the `vault42_core::Kind` repr — 1=EnvFile, 2=Note; defaults to 0 for
+/// pre-`kind` manifests, which `pull` still treats as a non-note file).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
     pub relative_path: String,
     pub vault_path: String,
     pub mode: u32,
+    #[serde(default)]
+    pub kind: u8,
 }
 
 impl Manifest {
@@ -51,6 +55,12 @@ impl Manifest {
             None => self.entries.push(entry),
         }
         self.entries.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    }
+
+    /// Drop the entry for `relative_path`; returns the removed entry if it was present.
+    pub fn remove(&mut self, relative_path: &str) -> Option<Entry> {
+        let idx = self.entries.iter().position(|e| e.relative_path == relative_path)?;
+        Some(self.entries.remove(idx))
     }
 
     /// Serialize to canonical JSON bytes (sealed by the caller).

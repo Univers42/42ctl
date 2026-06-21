@@ -19,6 +19,7 @@
 mod audit;
 mod io;
 mod manage;
+mod notes;
 mod secret;
 mod share;
 mod sync;

@@ -17,6 +17,7 @@ mod auth;
 mod config;
 mod db;
 mod keys;
+mod notes;
 mod sync;
 mod unseal;
 mod update;
@@ -52,6 +53,7 @@ async fn net(cli: &Cli) -> anyhow::Result<()> {
         Command::Keys(cmd) => keys::run(cmd, &cli.profile).await,
         Command::Vault(cmd) => vault::run(cmd, &cli.profile).await,
         Command::Db(cmd) => db::run(cmd, &cli.profile).await,
+        Command::Note(cmd) => notes::run(cmd, &cli.profile).await,
         Command::Push { project } => sync::push(&cli.profile, project.as_deref()).await,
         Command::Pull { project, apply, force, backup } => {
             sync::pull(&cli.profile, project.as_deref(), *apply, *force, *backup).await

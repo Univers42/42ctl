@@ -27,7 +27,7 @@ use vault42_core::Kind;
 use vault42_proto::vault::v1::{GetRequest, PushRequest};
 use zeroize::Zeroizing;
 
-const MAX_BLOB: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_BLOB: usize = 64 * 1024 * 1024;
 
 impl Session {
     /// Scan the project, seal + push each matched file under an opaque vault path, and
@@ -69,6 +69,7 @@ impl Session {
                 relative_path: rel.as_str().to_string(),
                 vault_path,
                 mode,
+                kind: Kind::EnvFile as u8,
             });
         }
         self.push_manifest(&proj.project_id, &manifest).await?;
@@ -93,7 +94,7 @@ impl Session {
             anyhow::anyhow!("no manifest for project {} (push first, or pass --project)", proj.project_id)
         })?;
         let mut plans = Vec::new();
-        for entry in &manifest.entries {
+        for entry in manifest.entries.iter().filter(|e| e.kind != Kind::Note as u8) {
             let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
             let bytes = self.fetch_blob(&entry.vault_path).await?;
             plans.push(materialize::Plan { rel, bytes, mode: entry.mode });
@@ -105,7 +106,7 @@ impl Session {
     }
 
     /// Push one opaque envelope at `vault_path` with optimistic concurrency.
-    async fn push_blob(&mut self, vault_path: &str, envelope: Vec<u8>, rev: u64, method: &str) -> anyhow::Result<()> {
+    pub(crate) async fn push_blob(&mut self, vault_path: &str, envelope: Vec<u8>, rev: u64, method: &str) -> anyhow::Result<()> {
         let mut request = Request::new(PushRequest {
             path: vault_path.to_string(),
             envelope,
@@ -117,7 +118,7 @@ impl Session {
     }
 
     /// Seal + push the manifest (kind=Manifest) at the project's reserved manifest path.
-    async fn push_manifest(&mut self, project_id: &str, manifest: &Manifest) -> anyhow::Result<()> {
+    pub(crate) async fn push_manifest(&mut self, project_id: &str, manifest: &Manifest) -> anyhow::Result<()> {
         let vault_path = manifest_path(project_id);
         let rev = self.current_version(&vault_path).await?;
         let bytes = manifest.to_bytes()?;
@@ -137,7 +138,7 @@ impl Session {
     }
 
     /// Fetch + decrypt the manifest (None when the project has nothing pushed yet).
-    async fn load_manifest(&mut self, project_id: &str) -> anyhow::Result<Option<Manifest>> {
+    pub(crate) async fn load_manifest(&mut self, project_id: &str) -> anyhow::Result<Option<Manifest>> {
         let vault_path = manifest_path(project_id);
         match self.get_blob(&vault_path).await {
             Ok(bytes) => Ok(Some(Manifest::parse(&bytes)?)),
@@ -147,7 +148,7 @@ impl Session {
     }
 
     /// Fetch + decrypt the blob at `vault_path` (anyhow error on any failure).
-    async fn fetch_blob(&mut self, vault_path: &str) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    pub(crate) async fn fetch_blob(&mut self, vault_path: &str) -> anyhow::Result<Zeroizing<Vec<u8>>> {
         Ok(self.get_blob(vault_path).await?)
     }
 

@@ -47,6 +47,9 @@ pub enum Command {
     /// Read RBAC-checked encrypted records; decrypt client-side.
     #[command(subcommand)]
     Db(Db),
+    /// Project notes (kind=Note) — encrypted, path-addressed, riding the project manifest.
+    #[command(subcommand)]
+    Note(Note),
     /// Profiles and endpoints (orgs / environments).
     #[command(subcommand)]
     Config(Config),
@@ -160,6 +163,36 @@ pub enum Vault {
     Export {
         #[arg(long, default_value = "")]
         prefix: String,
+    },
+}
+
+/// `note` subcommands — project-scoped (resolve the project from `.42ctl` or `--project`).
+#[derive(Subcommand)]
+pub enum Note {
+    /// Seal a note (stdin or --file) at PATH within the project.
+    Add {
+        path: String,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        file: Option<String>,
+    },
+    /// Fetch and decrypt the note at PATH to stdout.
+    Get {
+        path: String,
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// List the project's notes.
+    Ls {
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Remove the note at PATH.
+    Rm {
+        path: String,
+        #[arg(long)]
+        project: Option<String>,
     },
 }
 

@@ -39,7 +39,7 @@ async fn dispatch(session: &mut Session, cmd: &Vault) -> anyhow::Result<()> {
 }
 
 /// Read secret input from a file or stdin into a zeroizing buffer.
-fn read_input(file: Option<&str>) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+pub(in crate::cmd) fn read_input(file: Option<&str>) -> anyhow::Result<Zeroizing<Vec<u8>>> {
     match file {
         Some(path) => Ok(Zeroizing::new(std::fs::read(path)?)),
         None => {
