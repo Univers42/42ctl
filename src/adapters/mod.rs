@@ -30,4 +30,6 @@ pub mod keystore;
 pub mod otp;
 pub mod passphrase;
 pub mod rbac;
+pub mod scope;
+pub mod scope_grpc;
 pub mod session;

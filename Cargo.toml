@@ -25,14 +25,17 @@ serde_json = "1"
 dirs = "5"
 # Zero-knowledge crypto (the future `vault-crypto`) + the contracts gRPC client — pinned
 # git deps on the public vault42 repo, never copied (DECISIONS D1).
-vault42-core = { git = "https://github.com/Univers42/vault42", tag = "v0.2.0" }
-vault42-proto = { git = "https://github.com/Univers42/vault42", tag = "v0.2.0" }
+vault42-core = { git = "https://github.com/Univers42/vault42", branch = "feat/scope-key-crypto" }
+vault42-proto = { git = "https://github.com/Univers42/vault42", branch = "feat/scope-key-crypto" }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 zeroize = { version = "1", features = ["derive"] }
 hex = "0.4"
 base64 = "0.22"
+# Scope-id derivation: blake3(project_uuid_bytes || env_name_bytes)[..16] — already in the
+# tree (a transitive dep), promoted to a direct dep for the scope-key orchestration verbs.
+blake3 = "1"
 uuid = { version = "1", features = ["v5"] }
 rpassword = "7"
 # Self-update engine — reads the cargo-dist install receipt, verifies the

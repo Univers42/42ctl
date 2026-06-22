@@ -231,6 +231,36 @@ pub enum Vault {
         #[arg(long, default_value = "")]
         prefix: String,
     },
+    /// Admin bootstrap: generate an env scope keyset, publish its public key to grobase,
+    /// and self-wrap the scope secret to the admin (so it can later reconcile members).
+    EnvInit {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
+    /// Admin reconcile: recover the env scope secret, then wrap it to every authorized
+    /// member still missing a wrap (skipping members with no registered pubkey).
+    SyncKeys {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
+    /// Show each authorized member's scope-key state: active / pending-provision /
+    /// pending-enrollment (no registered pubkey).
+    ScopeStatus {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
 }
 
 /// `note` subcommands — project-scoped (resolve the project from `.42ctl` or `--project`).
