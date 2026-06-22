@@ -98,9 +98,24 @@ pub enum Command {
     /// Profiles and endpoints (orgs / environments).
     #[command(subcommand)]
     Config(Config),
-    /// Org-scoped operations (GitHub App connect / link / sync).
+    /// Org-scoped operations (create, members, invites, GitHub App connect / link / sync).
     #[command(subcommand)]
     Org(Org),
+    /// Team-scoped RBAC (create/list teams, members, invites, project grants).
+    #[command(subcommand)]
+    Team(Team),
+    /// Project group operations (create, members, invites).
+    #[command(subcommand)]
+    Group(Group),
+    /// Per-project environments (create, list).
+    #[command(subcommand)]
+    Env(Env),
+    /// Project-role grants for a user.
+    #[command(subcommand)]
+    Project(Project),
+    /// Generalized invite operations (accept by token, show by id).
+    #[command(subcommand)]
+    Invite(Invite),
     /// Push the project's *.env* tree to the vault (encrypted, path-aware).
     Push {
         #[arg(long)]
@@ -160,6 +175,13 @@ pub enum Keys {
     },
     /// Print this identity's shareable public address.
     ExportPub,
+    /// Publish this identity's public keys to grobase (`PUT /v1/orgs/{org}/pubkey`) so a
+    /// scope admin's `sync-keys` can wrap environment keys to you. Run once per org after
+    /// joining; the private key never leaves the machine.
+    Enroll {
+        #[arg(long)]
+        org: String,
+    },
     /// Escrow the passphrase-wrapped keystore to grobase (multi-device), gated by an
     /// email OTP. The server stores only ciphertext — your passphrase never leaves.
     Escrow {
@@ -216,6 +238,67 @@ pub enum Vault {
         #[arg(long, default_value = "")]
         prefix: String,
     },
+    /// Admin bootstrap: generate an env scope keyset, publish its public key to grobase,
+    /// and self-wrap the scope secret to the admin (so it can later reconcile members).
+    EnvInit {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
+    /// Admin reconcile: recover the env scope secret, then wrap it to every authorized
+    /// member still missing a wrap (skipping members with no registered pubkey).
+    SyncKeys {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
+    /// Show each authorized member's scope-key state: active / pending-provision /
+    /// pending-enrollment (no registered pubkey).
+    ScopeStatus {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
+    /// Seal a value (stdin) to the env's scope public key and store it at PATH — any wrapped
+    /// member of the env can read it back, but the server never sees the plaintext.
+    SetEnv {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+        path: String,
+    },
+    /// Recover the env scope secret, then fetch + decrypt the env secret at PATH to stdout.
+    GetEnv {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+        path: String,
+    },
+    /// Forward-secure rotation: re-seal every env secret to a fresh scope keyset and re-wrap
+    /// the new scope key to the remaining authorized members (a removed member loses access).
+    RotateScope {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
 }
 
 /// `note` subcommands — project-scoped (resolve the project from `.42ctl` or `--project`).
@@ -260,12 +343,166 @@ pub enum Db {
     },
 }
 
-/// `org` subcommands — org-scoped operations grouped by provider.
+/// `org` subcommands — org-scoped operations (RBAC + provider integrations).
 #[derive(Subcommand)]
 pub enum Org {
+    /// Create an org from a slug + display name.
+    Create {
+        #[arg(long)]
+        slug: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// List an org's members.
+    Members {
+        #[arg(long)]
+        org: String,
+    },
+    /// Invite an email to an org with a role (prints the one-time token).
+    Invite {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        email: String,
+        #[arg(long)]
+        role: String,
+    },
+    /// Accept an org invite by its one-time token.
+    AcceptInvite {
+        #[arg(long)]
+        token: String,
+    },
     /// GitHub App connect / link / sync for an org (needs `auth login --github` first).
     #[command(subcommand)]
     Github(OrgGithub),
+}
+
+/// `team` subcommands — team RBAC within an org.
+#[derive(Subcommand)]
+pub enum Team {
+    /// Create a team under an org.
+    Create {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        slug: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// List an org's teams.
+    List {
+        #[arg(long)]
+        org: String,
+    },
+    /// Add a user to a team with a role.
+    AddMember {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        user: String,
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
+    /// Invite an email to a team (prints the one-time token).
+    Invite {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        email: String,
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
+    /// Grant a team a project role (optionally scoped to an environment).
+    GrantProject {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        env: Option<String>,
+    },
+}
+
+/// `group` subcommands — project group operations.
+#[derive(Subcommand)]
+pub enum Group {
+    /// Create a project's group (the server derives the name).
+    Create {
+        #[arg(long)]
+        project: String,
+    },
+    /// Add a user to a group.
+    AddMember {
+        #[arg(long)]
+        group: String,
+        #[arg(long)]
+        user: String,
+    },
+    /// Invite an email to a group (prints the one-time token).
+    Invite {
+        #[arg(long)]
+        group: String,
+        #[arg(long)]
+        email: String,
+    },
+}
+
+/// `env` subcommands — per-project environments.
+#[derive(Subcommand)]
+pub enum Env {
+    /// Create an environment under a project.
+    Create {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// List a project's environments.
+    List {
+        #[arg(long)]
+        project: String,
+    },
+}
+
+/// `project` subcommands — user-scoped project grants.
+#[derive(Subcommand)]
+pub enum Project {
+    /// Grant a user a project role (optionally scoped to an environment).
+    Grant {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        user: String,
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        env: Option<String>,
+    },
+}
+
+/// `invite` subcommands — generalized invite operations.
+#[derive(Subcommand)]
+pub enum Invite {
+    /// Accept an invite by its one-time token.
+    Accept {
+        #[arg(long)]
+        token: String,
+    },
+    /// Show an invite by its id.
+    Show {
+        #[arg(long)]
+        id: String,
+    },
 }
 
 /// `org github` subcommands.

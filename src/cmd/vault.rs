@@ -12,7 +12,7 @@ use zeroize::Zeroizing;
 /// Dispatch a `vault` subcommand for `profile`.
 pub async fn run(cmd: &Vault, profile: &str) -> anyhow::Result<()> {
     let mut session = open_session(profile).await?;
-    dispatch(&mut session, cmd).await
+    dispatch(&mut session, cmd, profile).await
 }
 
 /// Open a signed session: resolve the endpoint, unlock the identity, load the contract.
@@ -23,8 +23,10 @@ async fn open_session(profile: &str) -> anyhow::Result<Session> {
     Session::connect(&endpoint.server, identity, contract).await
 }
 
-/// Route the unlocked session to the requested verb.
-async fn dispatch(session: &mut Session, cmd: &Vault) -> anyhow::Result<()> {
+/// Route the unlocked session to the requested verb. The scope-key orchestration verbs
+/// bridge grobase (membership/pubkeys) and vault42 (scope wraps), so they take the gRPC
+/// session plus the active profile (to open the grobase REST session).
+async fn dispatch(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
     match cmd {
         Vault::Get { path, version } => session.cmd_get(path, *version).await,
         Vault::Set { path, file } => session.cmd_set(path, read_input(file.as_deref())?).await,
@@ -35,6 +37,7 @@ async fn dispatch(session: &mut Session, cmd: &Vault) -> anyhow::Result<()> {
         Vault::Audit { since } => session.cmd_audit(*since).await,
         Vault::Import { source } => session.cmd_import(source, "").await,
         Vault::Export { prefix } => session.cmd_export(prefix).await,
+        _ => crate::cmd::scope::run(session, cmd, profile).await,
     }
 }
 

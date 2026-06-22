@@ -15,7 +15,18 @@
 //! (a JWT-bound, RBAC-checked credential, distinct from the vault42 contract in `creds.rs`).
 //! Stored beside the config as `session-<profile>.tok` (or `$FT_SESSION`).
 
+use crate::profile::Config;
+use anyhow::Context;
 use std::path::PathBuf;
+
+/// Resolve `profile` to its grobase base URL and saved session token — the pair every RBAC
+/// verb needs. Errors if the profile is unknown or there is no saved grobase session.
+pub fn connect(profile: &str) -> anyhow::Result<(String, String)> {
+    let grobase = Config::load()?.endpoint(profile)?.otp_base().to_string();
+    let token = load(profile)
+        .context("not logged in to grobase — run `42ctl auth login --github` first")?;
+    Ok((grobase, token))
+}
 
 /// The session-token path for `profile`: `$FT_SESSION` overrides; else
 /// `session-<profile>.tok` beside the active config file.
