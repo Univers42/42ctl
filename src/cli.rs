@@ -175,6 +175,13 @@ pub enum Keys {
     },
     /// Print this identity's shareable public address.
     ExportPub,
+    /// Publish this identity's public keys to grobase (`PUT /v1/orgs/{org}/pubkey`) so a
+    /// scope admin's `sync-keys` can wrap environment keys to you. Run once per org after
+    /// joining; the private key never leaves the machine.
+    Enroll {
+        #[arg(long)]
+        org: String,
+    },
     /// Escrow the passphrase-wrapped keystore to grobase (multi-device), gated by an
     /// email OTP. The server stores only ciphertext — your passphrase never leaves.
     Escrow {

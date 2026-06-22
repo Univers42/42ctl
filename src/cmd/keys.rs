@@ -15,8 +15,9 @@
 //! is never exported in plaintext. `escrow`/`recover` move the SEALED keystore between
 //! devices through grobase (gated by an email OTP); the server only ever holds ciphertext.
 
-use crate::adapters::{address, escrow, keystore, otp, passphrase};
+use crate::adapters::{address, escrow, keystore, otp, passphrase, session};
 use crate::cli::Keys;
+use crate::cmd::scope_pubkey;
 use crate::profile::Config;
 use crate::ui;
 use anyhow::Context;
@@ -29,9 +30,23 @@ pub async fn run(cmd: &Keys, profile: &str) -> anyhow::Result<()> {
     match cmd {
         Keys::Init { force } => init(*force),
         Keys::ExportPub => export_pub(),
+        Keys::Enroll { org } => enroll(profile, org).await,
         Keys::Escrow { email } => escrow_keystore(profile, email).await,
         Keys::Recover { email } => recover(profile, email).await,
     }
+}
+
+/// Publish this identity's public keys to grobase's wrap-target registry so a scope admin's
+/// `sync-keys` can wrap environment keys to this member. Unlocks the keystore only to sign
+/// the proof-of-possession; the private key never leaves the machine.
+async fn enroll(profile: &str, org: &str) -> anyhow::Result<()> {
+    let (grobase, token) = session::connect(profile)?;
+    let identity = passphrase::unlock()?;
+    scope_pubkey::register_self(&grobase, &token, org, &identity).await?;
+    ui::success(&format!(
+        "pubkey enrolled in org {org} — an admin can now provision environment keys to you"
+    ));
+    Ok(())
 }
 
 /// Generate a fresh identity, seal it under a new passphrase, and write the keystore.
