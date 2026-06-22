@@ -17,61 +17,33 @@
 //! keeps a `.bak`. ponytail: per-file atomic (validate-all-first), not a whole-tree journal.
 
 use crate::core::projpath::{self, RelPath};
-use crate::ui;
 use std::path::Path;
-use zeroize::Zeroizing;
 
-/// One file to materialize: where, the decrypted bytes, and the mode to restore.
-pub struct Plan {
-    pub rel: RelPath,
-    pub bytes: Zeroizing<Vec<u8>>,
-    pub mode: u32,
-}
-
-/// The overwrite policy for `pull`.
+/// The pull policy: dry-run unless `apply`; `force` takes remote even on divergence (no
+/// conflict markers); `backup` keeps a `.bak` before overwriting an existing file.
 pub struct Opts {
     pub apply: bool,
     pub force: bool,
     pub backup: bool,
 }
 
-/// Validate every target, then (when applying) write each byte-exact. A failure during
-/// validation writes NOTHING; per-file writes are atomic temp-then-rename.
-pub fn materialize(root: &Path, plans: Vec<Plan>, opts: &Opts) -> anyhow::Result<()> {
-    for plan in &plans {
-        guard(root, &plan.rel)?;
+/// Write one resolved file byte-exact: traversal guard, optional `.bak` of an existing
+/// target, atomic temp-then-rename, mode restore. The `pull` reconciler decides per-file
+/// what to write, then calls this.
+pub(crate) fn write_one(
+    root: &Path,
+    rel: &RelPath,
+    bytes: &[u8],
+    mode: u32,
+    backup: bool,
+) -> anyhow::Result<()> {
+    guard(root, rel)?;
+    let target = projpath::to_native(root, rel);
+    if backup && target.exists() {
+        let _ = std::fs::rename(&target, target.with_extension("bak"));
     }
-    for plan in &plans {
-        let target = projpath::to_native(root, &plan.rel);
-        let exists = target.exists();
-        if !opts.apply {
-            ui::field(
-                plan.rel.as_str(),
-                if exists {
-                    "would overwrite"
-                } else {
-                    "would create"
-                },
-            );
-            continue;
-        }
-        if exists && !opts.force {
-            println!(
-                "{}",
-                ui::warn(&format!(
-                    "skip {} (exists — use --force)",
-                    plan.rel.as_str()
-                ))
-            );
-            continue;
-        }
-        if exists && opts.backup {
-            let _ = std::fs::rename(&target, target.with_extension("bak"));
-        }
-        write_atomic(&target, &plan.bytes)?;
-        apply_mode(&target, plan.mode);
-        ui::success(plan.rel.as_str());
-    }
+    write_atomic(&target, bytes)?;
+    apply_mode(&target, mode);
     Ok(())
 }
 

@@ -16,5 +16,7 @@
 
 pub mod manifest;
 pub mod materialize;
+pub mod merge;
 pub mod project;
 pub mod projpath;
+pub mod syncstate;

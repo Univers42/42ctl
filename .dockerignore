@@ -1,0 +1,12 @@
+# Keep the Docker build context lean — the image only needs source to `cargo build`.
+target/
+.git/
+dist/
+42ctl-release/
+*.log
+
+# Never bake local identity / session / secrets into an image.
+*.tok
+keystore*.v42
+.env
+.env.*
