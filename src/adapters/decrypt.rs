@@ -15,7 +15,7 @@
 //! envelope (so a malicious server cannot substitute a different author), then opens
 //! the envelope with the caller's X25519 secret under the expected read scope.
 
-use vault42_core::{open, AuthorPublicKey, Envelope, Identity, ReadScope};
+use vault42_core::{open, AuthorPublicKey, Envelope, Identity, ReadScope, RecipientSecretKey};
 use vault42_proto::vault::v1::GetResponse;
 use zeroize::Zeroizing;
 
@@ -34,6 +34,21 @@ pub fn open_envelope(
         min_rev,
     };
     Ok(open(&env, identity.encryption_secret(), &author, &scope)?)
+}
+
+/// Open an env-secret envelope with the recovered SCOPE secret (not the caller's key) —
+/// the scope is the recipient, so a wrapped member opens it via the scope secret. Pins the
+/// author the same way `open_envelope` does, binding the read to `expected_secret_id`/`min_rev`.
+pub fn open_env_envelope(
+    scope_secret: &Zeroizing<[u8; 32]>,
+    envelope: &[u8],
+    author_pubkey: &[u8],
+    scope: ReadScope,
+) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    let env = Envelope::from_bytes(envelope)?;
+    let author = author_key(author_pubkey, &env)?;
+    let recipient = RecipientSecretKey::from(**scope_secret);
+    Ok(open(&env, &recipient, &author, &scope)?)
 }
 
 /// Reconstruct the author public key the server returned, rejecting it unless its

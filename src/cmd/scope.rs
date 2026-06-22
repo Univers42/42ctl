@@ -20,7 +20,7 @@ use crate::adapters::api::Session;
 use crate::adapters::rbac::{grant, pubkey};
 use crate::adapters::session;
 use crate::cli::Vault;
-use crate::cmd::{scope_init, scope_status, scope_sync};
+use crate::cmd::{scope_init, scope_rotate, scope_secret, scope_status, scope_sync};
 
 /// The resolved orchestration context: the grobase base URL + session token and the
 /// project/env identifiers a scope verb operates on (org id, project UUID, env id, name).
@@ -46,6 +46,27 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
         }
         Vault::ScopeStatus { org, project, env } => {
             scope_status::scope_status(session, &resolve(profile, org, project, env).await?).await
+        }
+        Vault::SetEnv {
+            org,
+            project,
+            env,
+            path,
+        } => {
+            let ctx = resolve(profile, org, project, env).await?;
+            scope_secret::set_env(session, &ctx, path).await
+        }
+        Vault::GetEnv {
+            org,
+            project,
+            env,
+            path,
+        } => {
+            let ctx = resolve(profile, org, project, env).await?;
+            scope_secret::get_env(session, &ctx, path).await
+        }
+        Vault::RotateScope { org, project, env } => {
+            scope_rotate::rotate_scope(session, &resolve(profile, org, project, env).await?).await
         }
         _ => unreachable!("scope::run only handles the scope-key verbs"),
     }

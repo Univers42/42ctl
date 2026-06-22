@@ -24,9 +24,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
 # Zero-knowledge crypto (the future `vault-crypto`) + the contracts gRPC client — pinned
-# git deps on the public vault42 repo, never copied (DECISIONS D1).
-vault42-core = { git = "https://github.com/Univers42/vault42", branch = "feat/scope-key-crypto" }
-vault42-proto = { git = "https://github.com/Univers42/vault42", branch = "feat/scope-key-crypto" }
+# git deps on the public vault42 repo, never copied (DECISIONS D1). Pinned to the
+# feat/scope-key-crypto tip d15460e, which adds the env-secret + rotate-scope RPCs.
+vault42-core = { git = "https://github.com/Univers42/vault42", rev = "d15460e" }
+vault42-proto = { git = "https://github.com/Univers42/vault42", rev = "d15460e" }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

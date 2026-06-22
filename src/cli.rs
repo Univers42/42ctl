@@ -261,6 +261,37 @@ pub enum Vault {
         #[arg(long)]
         env: String,
     },
+    /// Seal a value (stdin) to the env's scope public key and store it at PATH — any wrapped
+    /// member of the env can read it back, but the server never sees the plaintext.
+    SetEnv {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+        path: String,
+    },
+    /// Recover the env scope secret, then fetch + decrypt the env secret at PATH to stdout.
+    GetEnv {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+        path: String,
+    },
+    /// Forward-secure rotation: re-seal every env secret to a fresh scope keyset and re-wrap
+    /// the new scope key to the remaining authorized members (a removed member loses access).
+    RotateScope {
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        env: String,
+    },
 }
 
 /// `note` subcommands — project-scoped (resolve the project from `.42ctl` or `--project`).
