@@ -20,7 +20,9 @@ use crate::adapters::api::Session;
 use crate::adapters::compose::{self, ProjectSeal};
 use crate::adapters::{decrypt, derive};
 use crate::core::manifest::{Entry, Manifest};
-use crate::core::{materialize, project, projpath};
+use crate::core::syncstate::{self, SyncState};
+use crate::core::{materialize, merge, project, projpath};
+use crate::ops::reconcile;
 use crate::ui;
 use tonic::{Code, Request};
 use vault42_core::Kind;
@@ -43,6 +45,7 @@ impl Session {
             .load_manifest(&proj.project_id)
             .await?
             .unwrap_or_else(|| Manifest::new(&proj.project_id));
+        let mut state = SyncState::load(&proj.root);
         for file in &files {
             let rel = projpath::canonicalize_for_storage(file, &proj.root)?;
             let vault_path = blob_path(&proj.project_id, &self.principal, rel.as_str());
@@ -66,6 +69,7 @@ impl Session {
             )?;
             self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push")
                 .await?;
+            state.set(rel.as_str(), rev + 1, syncstate::hash(&plaintext));
             manifest.upsert(Entry {
                 relative_path: rel.as_str().to_string(),
                 vault_path,
@@ -74,6 +78,7 @@ impl Session {
             });
         }
         self.push_manifest(&proj.project_id, &manifest).await?;
+        state.save(&proj.root)?;
         ui::success(&format!(
             "pushed {} file(s) + manifest for project {}",
             files.len(),
@@ -82,8 +87,10 @@ impl Session {
         Ok(())
     }
 
-    /// Fetch the manifest, validate every path, decrypt each blob, and materialize the
-    /// tree (dry-run unless `apply`).
+    /// Fetch the manifest, then reconcile each file 3-way (local-on-disk vs remote-in-vault
+    /// vs the last-synced base): fast-forward when local is unchanged, keep local when only
+    /// local moved, and write git-style conflict markers when both diverged. Dry-run unless
+    /// `apply`.
     pub async fn cmd_pull(
         &mut self,
         explicit_id: Option<&str>,
@@ -97,24 +104,57 @@ impl Session {
                 proj.project_id
             )
         })?;
-        let mut plans = Vec::new();
+        let mut state = SyncState::load(&proj.root);
+        if !opts.apply {
+            ui::field("pull", "dry-run — re-run with --apply to write");
+        }
+        let mut conflicts = 0usize;
         for entry in manifest
             .entries
             .iter()
             .filter(|e| e.kind != Kind::Note as u8)
         {
-            let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
-            let bytes = self.fetch_blob(&entry.vault_path).await?;
-            plans.push(materialize::Plan {
-                rel,
-                bytes,
-                mode: entry.mode,
-            });
+            if self
+                .reconcile_entry(&proj.root, entry, &mut state, &opts)
+                .await?
+            {
+                conflicts += 1;
+            }
         }
-        if !opts.apply {
-            ui::field("pull", "dry-run — re-run with --apply to write");
+        if opts.apply {
+            state.save(&proj.root)?;
         }
-        materialize::materialize(&proj.root, plans, &opts)
+        if conflicts > 0 {
+            println!(
+                "{}",
+                ui::warn(&format!(
+                    "{conflicts} file(s) in conflict — resolve, then push"
+                ))
+            );
+        }
+        Ok(())
+    }
+
+    /// Fetch one entry's remote, classify it against local + base, apply the resolution,
+    /// and record the new base (on apply). Returns whether the file ended in conflict.
+    async fn reconcile_entry(
+        &mut self,
+        root: &std::path::Path,
+        entry: &Entry,
+        state: &mut SyncState,
+        opts: &materialize::Opts,
+    ) -> anyhow::Result<bool> {
+        let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
+        let remote = self.fetch_blob(&entry.vault_path).await?;
+        let rev = self.current_version(&entry.vault_path).await?;
+        let local = std::fs::read(projpath::to_native(root, &rel)).ok();
+        let base = state.bases.get(rel.as_str());
+        let action = merge::decide(opts.force, local.as_deref(), &remote, rev, base);
+        let conflict = reconcile::write_action(root, &rel, &action, entry.mode, opts)?;
+        if opts.apply {
+            reconcile::update_base(state, rel.as_str(), &action, &remote, rev);
+        }
+        Ok(conflict)
     }
 
     /// Push one opaque envelope at `vault_path` with optimistic concurrency.
