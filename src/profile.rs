@@ -13,7 +13,8 @@
 //! Profiles & endpoints — the multi-org/environment config, stored as JSON at
 //! `$FT_CONFIG` or `~/.config/42ctl/config.json`. No globals: a caller loads a `Config`,
 //! resolves a profile to its `Endpoint`, and threads it down. The default profile points
-//! at the public duo (vault42 + grobase-nano).
+//! at the public trio: vault42 (secrets), grobase-nano (contract authority / `/v1/register`),
+//! and grobase-stack (the email-OTP routes `/v1/auth/otp/*` + escrow).
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -58,7 +59,7 @@ impl Default for Config {
             Endpoint {
                 server: "https://vault42.fly.dev".to_string(),
                 authority: "https://grobase-nano.fly.dev".to_string(),
-                grobase: "https://grobase-nano.fly.dev".to_string(),
+                grobase: "https://grobase-stack.fly.dev".to_string(),
             },
         );
         Self {
