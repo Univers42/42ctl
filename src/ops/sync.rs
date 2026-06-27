@@ -34,13 +34,14 @@ pub(crate) const MAX_BLOB: usize = 64 * 1024 * 1024;
 impl Session {
     /// Scan the project, seal + push each matched file under an opaque vault path, and
     /// push the encrypted manifest mapping real paths → those vault paths.
-    pub async fn cmd_push(&mut self, explicit_id: Option<&str>) -> anyhow::Result<()> {
+    pub async fn cmd_push(&mut self, explicit_id: Option<&str>, prune: bool) -> anyhow::Result<()> {
         let cwd = std::env::current_dir()?;
         let (proj, created) = project::open(&cwd, explicit_id)?;
         if created {
             ui::field("project", &proj.project_id);
         }
         let files = project::scan(&proj)?;
+        let mut scanned: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut manifest = self
             .load_manifest(&proj.project_id)
             .await?
@@ -48,6 +49,7 @@ impl Session {
         let mut state = SyncState::load(&proj.root);
         for file in &files {
             let rel = projpath::canonicalize_for_storage(file, &proj.root)?;
+            scanned.insert(rel.as_str().to_string());
             let vault_path = blob_path(&proj.project_id, &self.principal, rel.as_str());
             let mode = file_mode(file);
             let plaintext = Zeroizing::new(std::fs::read(file)?);
@@ -77,11 +79,23 @@ impl Session {
                 kind: Kind::EnvFile as u8,
             });
         }
+        let pruned = if prune {
+            let before = manifest.entries.len();
+            manifest.entries.retain(|e| scanned.contains(&e.relative_path));
+            before - manifest.entries.len()
+        } else {
+            0
+        };
         self.push_manifest(&proj.project_id, &manifest).await?;
         state.save(&proj.root)?;
         ui::success(&format!(
-            "pushed {} file(s) + manifest for project {}",
+            "pushed {} file(s){} + manifest for project {}",
             files.len(),
+            if pruned > 0 {
+                format!(", pruned {pruned} stale")
+            } else {
+                String::new()
+            },
             proj.project_id
         ));
         Ok(())

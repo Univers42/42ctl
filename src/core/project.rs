@@ -83,7 +83,38 @@ pub fn scan(project: &Project) -> anyhow::Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-/// Recursively collect matching files, skipping the marker dir + symlinks (no-follow).
+/// Directory names never descended during a scan: the marker dir plus VCS / build /
+/// dependency trees that may hold stray `*.env*` files irrelevant to the project (and
+/// would bloat the encrypted tree). Keeps the sync to the project's own files.
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    "build",
+    "vendor",
+    ".cache",
+    "coverage",
+    "__pycache__",
+    ".next",
+    ".venv",
+    ".claude",
+    ".vault",
+    "baas.bak",
+];
+
+/// Whether a directory `name` should be skipped (not descended) during a scan.
+fn skip_dir(name: &str) -> bool {
+    name == MARKER_DIR || SKIP_DIRS.contains(&name)
+}
+
+/// Whether a *matched* file should still be skipped: deliberately-stale (`*.stale`)
+/// or backup (`*.bak*`) copies that shadow a real env file and are not real secrets.
+fn skip_file(name: &str) -> bool {
+    name.ends_with(".stale") || name.contains(".bak")
+}
+
+/// Recursively collect matching files, skipping the marker + build/dep dirs + symlinks.
 fn walk(dir: &Path, patterns: &[String], out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
@@ -93,10 +124,10 @@ fn walk(dir: &Path, patterns: &[String], out: &mut Vec<PathBuf>) -> anyhow::Resu
             continue;
         }
         if meta.is_dir() {
-            if name != MARKER_DIR {
+            if !skip_dir(&name) {
                 walk(&entry.path(), patterns, out)?;
             }
-        } else if matches(&name, patterns) {
+        } else if matches(&name, patterns) && !skip_file(&name) {
             out.push(entry.path());
         }
     }

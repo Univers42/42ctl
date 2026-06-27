@@ -28,9 +28,10 @@ pub(in crate::cmd) async fn open_session(profile: &str) -> anyhow::Result<Sessio
 }
 
 /// `push` — scan + seal + upload the project's tree and its encrypted manifest.
-pub async fn push(profile: &str, project: Option<&str>) -> anyhow::Result<()> {
+/// `prune` mirrors: manifest entries whose file is no longer scanned are dropped.
+pub async fn push(profile: &str, project: Option<&str>, prune: bool) -> anyhow::Result<()> {
     let mut session = open_session(profile).await?;
-    session.cmd_push(project).await
+    session.cmd_push(project, prune).await
 }
 
 /// `pull` — fetch the manifest + blobs and materialize the tree (dry-run unless apply).

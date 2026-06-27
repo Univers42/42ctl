@@ -77,7 +77,9 @@ async fn net(cli: &Cli) -> anyhow::Result<()> {
         Command::Env(cmd) => env::run(cmd, &cli.profile).await,
         Command::Project(cmd) => project::run(cmd, &cli.profile).await,
         Command::Invite(cmd) => invite::run(cmd, &cli.profile).await,
-        Command::Push { project } => sync::push(&cli.profile, project.as_deref()).await,
+        Command::Push { project, prune } => {
+            sync::push(&cli.profile, project.as_deref(), *prune).await
+        }
         Command::Pull {
             project,
             apply,

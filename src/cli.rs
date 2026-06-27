@@ -120,6 +120,10 @@ pub enum Command {
     Push {
         #[arg(long)]
         project: Option<String>,
+        /// Mirror the tree: also REMOVE manifest entries whose file is no longer
+        /// scanned (prune stale / now-ignored paths). Run from the project ROOT.
+        #[arg(long)]
+        prune: bool,
     },
     /// Pull the project's encrypted tree back (dry-run unless --apply).
     Pull {
