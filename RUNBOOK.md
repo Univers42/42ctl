@@ -75,8 +75,10 @@ It prints the Actions URL to watch and the Release URL that will exist a few min
 4. **Publish** — `gh release create vX.Y.Z` with generated notes prefixed by
    `.github/release-notes.md` (the install one-liner + asset table).
 
-On `release: published`, `sign-release.yml` (cosign keyless `.sig`/`.pem` + CycloneDX SBOM) and
-`docker.yml` (multi-arch image → Docker Hub) run in the protected `publish` environment.
+When `release.yml` succeeds (`workflow_run`), `sign-release.yml` (cosign keyless `.sig`/`.pem`
++ CycloneDX SBOM) and `docker.yml` (multi-arch image → Docker Hub, `FROM scratch` + the verified
+release binary per arch) start and **wait for approval** in the protected `publish` environment.
+Approve them under *Actions → the run → Review deployments*; nothing is published until then.
 
 ### How users receive it
 

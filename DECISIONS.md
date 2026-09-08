@@ -136,7 +136,14 @@ project does not need. Replaced by three small, owned pieces:
   one-shot credential helper (never on a command line).
 
 Consequences: `publish.yml` (npm) is deleted — it consumed a dist-generated package that no
-longer exists. `sign-release.yml` (cosign) and `docker.yml` still trigger on the published
-release and work unchanged on the new assets. The **`cargo` channel is dropped** (D9's
-`cargo binstall` relied on dist's archive naming). Windows/macOS are out of scope (Linux only;
-Docker elsewhere).
+longer exists. The **`cargo` channel is dropped** (D9's `cargo binstall` relied on dist's
+archive naming). Windows/macOS are out of scope (Linux only; Docker elsewhere).
+
+**Amendment — chaining and the image.** A release created with the job's `GITHUB_TOKEN` emits
+no `release: published` event to other workflows, so `sign-release.yml` and `docker.yml`
+chain on `release.yml` with `workflow_run` (still gated by the `publish` environment). The
+Docker image no longer compiles from source under QEMU: `deploy/Dockerfile.dist` is
+`FROM scratch` + the **released** static musl binary per arch, fetched and SHA-256-verified
+against the release's `SHA256SUMS` inside the build — the image ships the exact attested
+bytes and builds in seconds. The repo-root `Dockerfile` stays the from-source reproducible
+build proven in `ci.yml`.

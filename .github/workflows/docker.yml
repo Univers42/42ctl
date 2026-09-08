@@ -1,47 +1,49 @@
-# Multi-arch Docker image publish for 42ctl (P6).
+# Multi-arch Docker image publish for 42ctl (P6, D11).
 #
-# SEPARATE from ci.yml (per-PR checks) and release.yml (the static Linux binaries).
-# Builds deploy/Dockerfile.dist for linux/amd64 + linux/arm64, pushes to Docker
-# Hub, then cosign-signs the digest (keyless OIDC) and attaches an SBOM.
+# Runs AFTER release.yml succeeds (workflow_run — a release created with the job's
+# GITHUB_TOKEN emits no release:published). The image is FROM scratch + the RELEASED
+# static musl binary per arch, fetched and SHA-256-verified inside deploy/Dockerfile.dist:
+# no second compile, no QEMU-emulated Rust build, the exact attested bytes. Pushed to
+# Docker Hub, cosign-signed (keyless OIDC), SBOM + provenance attached.
 #
-# Runs ONLY on a real published release (or a manual dispatch / v* tag) and is
-# GATED behind the protected `publish` environment, which holds the required
-# reviewers and the Docker Hub secrets DOCKER_LOGIN (username) + DOCKER_PAT
-# (token). Without that environment + those secrets the job cannot push.
+# GATED behind the protected `publish` environment, which holds the required reviewers
+# and the Docker Hub secrets DOCKER_LOGIN (username = image namespace) + DOCKER_PAT.
 #
 # P7-hardened: actions pinned by commit SHA (re-pin with `pinact run`).
 name: docker
 
 on:
-  release:
-    types: [published]
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: [release]
+    types: [completed]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to package (e.g. v0.2.0)"
+        required: true
 
 # Minimal permissions: id-token for cosign keyless + provenance attestation.
 permissions:
   contents: read
   id-token: write
-  packages: read
 
 concurrency:
-  group: docker-${{ github.ref }}
+  group: docker-${{ github.event.workflow_run.head_branch || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   build-push-sign:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: publish
+    env:
+      TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
     steps:
-      - name: Checkout
+      - name: Checkout the tag
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.tag }}
           persist-credentials: false
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -52,7 +54,7 @@ jobs:
           username: ${{ secrets.DOCKER_LOGIN }}
           password: ${{ secrets.DOCKER_PAT }}
 
-      - name: Build and push (multi-arch)
+      - name: Build and push (multi-arch, from the verified release assets)
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -62,10 +64,9 @@ jobs:
           push: true
           tags: |
             docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:latest
-            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:${{ github.ref_name }}
-            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:${{ github.sha }}
+            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:${{ env.TAG }}
           build-args: |
-            FT_GIT_SHA=${{ github.sha }}
+            VERSION=${{ env.TAG }}
           provenance: true
           sbom: true
 
