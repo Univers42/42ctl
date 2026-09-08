@@ -18,6 +18,8 @@ mod config;
 mod db;
 mod env;
 mod group;
+mod help;
+mod help_topics;
 mod invite;
 mod keys;
 mod notes;
@@ -44,11 +46,11 @@ mod version;
 use crate::cli::{Cli, Command};
 
 /// Route a parsed CLI invocation. Offline verbs run synchronously; the network verbs
-/// (auth/vault/db) run on a multi-thread tokio runtime.
+/// (auth/vault/db/update/…) run on a multi-thread tokio runtime.
 pub fn dispatch(cli: &Cli) -> anyhow::Result<()> {
     match &cli.command {
         Command::Version => version::run(),
-        Command::Update => update::run(),
+        Command::Help { topic } => help::run(topic.as_deref()),
         Command::Unseal => unseal::run(&cli.profile),
         Command::Config(cmd) => config::run(cmd, &cli.profile),
         _ => block_on_net(cli),
@@ -84,6 +86,7 @@ async fn net(cli: &Cli) -> anyhow::Result<()> {
             force,
             backup,
         } => sync::pull(&cli.profile, project.as_deref(), *apply, *force, *backup).await,
+        Command::Update { check, version } => update::run(*check, version.as_deref()).await,
         _ => unreachable!("offline verbs are handled before block_on_net"),
     }
 }
