@@ -21,7 +21,11 @@ RUN set -eu; \
     base="https://github.com/Univers42/42ctl/releases/download/${VERSION}"; \
     curl -fsSL -o /42ctl "${base}/${asset}"; \
     curl -fsSL -o /SHA256SUMS "${base}/SHA256SUMS"; \
-    grep " ${asset}\$" /SHA256SUMS | sed "s| ${asset}\$|  /42ctl|" | sha256sum -c -; \
+    expected="$(awk -v n="${asset}" '$2 == n || $2 == "*" n { print $1 }' /SHA256SUMS)"; \
+    actual="$(sha256sum /42ctl | cut -d' ' -f1)"; \
+    [ -n "${expected}" ] && [ "${actual}" = "${expected}" ] \
+      || { echo "SHA-256 mismatch for ${asset}: refusing to build" >&2; exit 1; }; \
+    echo "verified ${asset} ${VERSION} sha256=${actual}"; \
     chmod 0755 /42ctl
 
 FROM scratch AS runtime
