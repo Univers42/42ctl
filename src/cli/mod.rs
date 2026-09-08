@@ -56,7 +56,6 @@ Per-command help:    42ctl <command> --help";
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP,
     styles = STYLES,
-    arg_required_else_help = true,
     disable_help_subcommand = true
 )]
 pub struct Cli {
@@ -69,8 +68,9 @@ pub struct Cli {
         value_name = "NAME"
     )]
     pub profile: String,
+    /// The verb to run; none at all shows the guided overview (`42ctl help`).
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 /// Top-level command groups, in the order `--help` lists them.
