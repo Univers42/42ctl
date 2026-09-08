@@ -1,16 +1,12 @@
-# Cosign + SBOM companion to release.yml (P4/P7).
+# Cosign + SBOM companion to release.yml (P4/P7, D11).
 #
-# cargo-dist (release.yml) already emits SHA-256 checksums and SLSA build
-# provenance (actions/attest-build-provenance). This workflow adds the explicit
-# cosign keyless signature over EVERY release artifact — so the `cosign
-# verify-blob` flow in SECURITY.md is real — plus a CycloneDX source SBOM.
+# release.yml already emits SHA256SUMS and SLSA build provenance
+# (actions/attest-build-provenance) for the static Linux binaries. This workflow
+# adds the explicit cosign keyless signature over EVERY release artifact — so the
+# `cosign verify-blob` flow in SECURITY.md is real — plus a CycloneDX source SBOM.
 #
 # Runs AFTER a release is published, GATED behind the protected `publish`
 # environment. Keyless: trust is the workflow's GitHub OIDC identity (no key).
-#
-# Note: `cargo install c42` from crates.io is NOT a channel — c42 depends on
-# vault42-core/-proto via git, which crates.io forbids; the `cargo` channel is
-# `cargo binstall c42` (pulls the signed GitHub Release binary). See DECISIONS.
 #
 # P7-hardened: actions pinned by commit SHA (re-pin with `pinact run`).
 name: sign-release

@@ -1,6 +1,6 @@
 # Multi-arch Docker image publish for 42ctl (P6).
 #
-# SEPARATE from ci.yml (per-PR checks) and release.yml (cargo-dist binaries).
+# SEPARATE from ci.yml (per-PR checks) and release.yml (the static Linux binaries).
 # Builds deploy/Dockerfile.dist for linux/amd64 + linux/arm64, pushes to Docker
 # Hub, then cosign-signs the digest (keyless OIDC) and attaches an SBOM.
 #
