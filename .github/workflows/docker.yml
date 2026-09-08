@@ -4,10 +4,11 @@
 # GITHUB_TOKEN emits no release:published). The image is FROM scratch + the RELEASED
 # static musl binary per arch, fetched and SHA-256-verified inside deploy/Dockerfile.dist:
 # no second compile, no QEMU-emulated Rust build, the exact attested bytes. Pushed to
-# Docker Hub, cosign-signed (keyless OIDC), SBOM + provenance attached.
+# Docker Hub as docker.io/dlesieur/42ctl, cosign-signed (keyless OIDC), SBOM + provenance
+# attached.
 #
-# GATED behind the protected `publish` environment, which holds the required reviewers
-# and the Docker Hub secrets DOCKER_LOGIN (username = image namespace) + DOCKER_PAT.
+# Credentials: the repository secret DOCK_PAT (a Docker Hub access token for the
+# `dlesieur` account). The username is not a secret and is spelled out below.
 #
 # P7-hardened: actions pinned by commit SHA (re-pin with `pinact run`).
 name: docker
@@ -31,11 +32,13 @@ concurrency:
   group: docker-${{ github.event.workflow_run.head_branch || inputs.tag }}
   cancel-in-progress: false
 
+env:
+  IMAGE: docker.io/dlesieur/42ctl
+
 jobs:
   build-push-sign:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    environment: publish
     env:
       TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
     steps:
@@ -51,8 +54,8 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
-          username: ${{ secrets.DOCKER_LOGIN }}
-          password: ${{ secrets.DOCKER_PAT }}
+          username: dlesieur
+          password: ${{ secrets.DOCK_PAT }}
 
       - name: Build and push (multi-arch, from the verified release assets)
         id: build
@@ -63,8 +66,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:latest
-            docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl:${{ env.TAG }}
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ env.TAG }}
           build-args: |
             VERSION=${{ env.TAG }}
           provenance: true
@@ -76,11 +79,16 @@ jobs:
       - name: Sign image (keyless OIDC)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          cosign sign --yes \
-            "docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl@${DIGEST}"
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
       - name: Generate and attach SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
-          image: docker.io/${{ secrets.DOCKER_LOGIN }}/42ctl@${{ steps.build.outputs.digest }}
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+
+      - name: Smoke-test the pushed image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          docker run --rm "${IMAGE}@${DIGEST}" version
+          echo "pushed ${IMAGE}:${TAG} and :latest @ ${DIGEST}" >> "$GITHUB_STEP_SUMMARY"

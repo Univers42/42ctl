@@ -11,16 +11,15 @@ Roles referenced below:
 - **`release.yml`** (ours, SHA-pinned) — on a `vX.Y.Z` tag: static musl binaries for x86_64 +
   aarch64, `SHA256SUMS`, SLSA provenance, GitHub Release. What `install.sh` and `42ctl update`
   consume (D11).
-- **`sign-release.yml`** (ours, gated) — cosign keyless `sign-blob` of every release artifact
+- **`sign-release.yml`** (ours) — cosign keyless `sign-blob` of every release artifact
   + a CycloneDX source SBOM.
-- **`docker.yml`** (ours, gated) — separate `buildx` job → multi-arch image on Docker Hub,
-  cosign-signed + SBOM + provenance.
+- **`docker.yml`** (ours) — multi-arch image → `docker.io/dlesieur/42ctl` from the verified
+  release assets, cosign-signed + SBOM + provenance.
 - **`ci.yml`** — per-PR gate (must be green to merge).
 
 There is no crates.io, npm or Homebrew channel — Linux binaries via GitHub Releases, plus the Docker
-image. The image / signing jobs run inside the protected `publish` GitHub Actions environment
-(required reviewers; environment-scoped secrets). Every action in every workflow is **pinned by
-commit SHA** (re-pin with `pinact run`).
+image. Both follow a green `release.yml` automatically (`workflow_run`). Every action in every
+workflow is **pinned by commit SHA** (re-pin with `pinact run`).
 
 ## Build & test (locally)
 
@@ -76,9 +75,9 @@ It prints the Actions URL to watch and the Release URL that will exist a few min
    `.github/release-notes.md` (the install one-liner + asset table).
 
 When `release.yml` succeeds (`workflow_run`), `sign-release.yml` (cosign keyless `.sig`/`.pem`
-+ CycloneDX SBOM) and `docker.yml` (multi-arch image → Docker Hub, `FROM scratch` + the verified
-release binary per arch) start and **wait for approval** in the protected `publish` environment.
-Approve them under *Actions → the run → Review deployments*; nothing is published until then.
++ CycloneDX SBOM) and `docker.yml` (multi-arch image → `docker.io/dlesieur/42ctl`, `FROM scratch`
++ the verified release binary per arch) run. `sign-release` still goes through the `publish`
+environment — add required reviewers there to gate it; `docker.yml` runs unattended.
 
 ### How users receive it
 
@@ -107,37 +106,37 @@ docker run --rm -it debian:bookworm-slim sh -c \
 
 ## Credentials
 
-`DOCKER_LOGIN` and `DOCKER_PAT` live **only** as environment-scoped GitHub Actions secrets on the
-protected `publish` environment — never printed, committed, or baked into an image. `release.yml`
-needs nothing beyond the job's own `GITHUB_TOKEN`; cosign is keyless (OIDC) and needs no key at
-all. `GH_PAT` is an **operator-local** token (`./.env`, git-ignored) used only by
-`scripts/release.sh` to push the tag — it is not a CI secret.
+`DOCK_PAT` (a Docker Hub access token for the `dlesieur` account, which is also the image
+namespace `docker.io/dlesieur/42ctl`) is a **repository** Actions secret — never printed,
+committed, or baked into an image. `release.yml` needs nothing beyond the job's own
+`GITHUB_TOKEN`; cosign is keyless (OIDC) and needs no key at all. `GH_PAT` is an
+**operator-local** token (`./.env`, git-ignored) used only by `scripts/release.sh` to push the
+tag — it is not a CI secret.
 
 | Secret | Used by | Scope | Preferred replacement |
 |---|---|---|---|
 | `GH_PAT` | `scripts/release.sh` (push `main` + tag) | operator's `.env` | fine-grained PAT, `contents:write` on this repo, short expiry |
-| `DOCKER_LOGIN` | `docker.yml` (login + image namespace) | publish env | — (username) |
-| `DOCKER_PAT` | `docker.yml` (registry auth) | publish env | short-lived PAT, rotate on schedule |
+| `DOCK_PAT` | `docker.yml` (Docker Hub push, user `dlesieur`) | repository secret | short-lived access token, rotate on schedule |
 
 ### Rotate a publish credential
 
-The rotation shape is always **revoke the old → mint the new → update the environment secret**, then
+The rotation shape is always **revoke the old → mint the new → update the secret**, then
 verify a dry-run/release picks it up. Never delete the old before the new is in place if a release is
 mid-flight; otherwise revoke-first.
 
 Set a secret (CLI):
 
 ```sh
-gh secret set DOCKER_PAT  --env publish --repo Univers42/42ctl
-gh secret set DOCKER_LOGIN --env publish --repo Univers42/42ctl
+gh secret set DOCK_PAT --repo Univers42/42ctl      # paste the new Docker Hub token
+gh secret set DOCK_PAT --repo Univers42/vault42    # the server image uses the same account
 ```
 
 - **`GH_PAT`** — revoke the old token in `github.com → Settings → Developer settings → Tokens`,
   mint a fine-grained one with `contents: write` on `Univers42/42ctl` only, put it in `./.env`.
-- **Docker Hub (`DOCKER_PAT`)** — revoke the old PAT at `hub.docker.com → Account Settings →
-  Security → Access Tokens` → create a new PAT with **Read/Write** scope → `gh secret set
-  DOCKER_PAT --env publish`. If the publishing account/namespace changed, also update
-  `DOCKER_LOGIN` (it doubles as the image namespace in `docker.yml`).
+- **Docker Hub (`DOCK_PAT`)** — revoke the old token at `hub.docker.com → Account Settings →
+  Security → Access Tokens` → create a new one with **Read/Write** scope → `gh secret set
+  DOCK_PAT` on both repos. The account (`dlesieur`) doubles as the image namespace and is
+  spelled out in `docker.yml`.
 - **cosign** — keyless (OIDC); there is **no key to rotate**. Trust is the workflow identity in the
   Fulcio certificate, which rotates automatically per run.
 
@@ -163,7 +162,7 @@ this order:
    ```sh
    # delete the tag via the Docker Hub UI, or:
    curl -s -X DELETE -H "Authorization: JWT ${HUB_JWT}" \
-     "https://hub.docker.com/v2/repositories/${DOCKER_LOGIN}/42ctl/tags/vX.Y.Z/"
+     "https://hub.docker.com/v2/repositories/dlesieur/42ctl/tags/vX.Y.Z/"
    ```
 3. **GitHub Release / advisory** — mark the GitHub Release as a security release and open a GitHub
    **Security Advisory** (GHSA) describing the affected versions and the fix:
@@ -172,7 +171,7 @@ this order:
    gh release edit vX.Y.Z --repo Univers42/42ctl --notes "SECURITY: yanked — see GHSA-xxxx"
    ```
 4. **Rotate every credential that may have leaked** — "Rotate a publish credential" above for
-   `GH_PAT` / `DOCKER_PAT`. cosign is keyless, so nothing to rotate there.
+   `GH_PAT` / `DOCK_PAT`. cosign is keyless, so nothing to rotate there.
 5. **Ship the fix** — cut `X.Y.(Z+1)` immediately through the normal gated release; the SBOM +
    provenance on the new build are the proof of what changed.
 

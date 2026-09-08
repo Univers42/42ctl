@@ -60,10 +60,10 @@ The pipeline that produces trust must itself be trustworthy.
   is pinned to a full commit SHA, not a floating tag.
 - [ ] **Least-privilege tokens** — workflow `permissions:` are minimal (`contents: read` by
   default; `id-token: write` only where cosign/provenance need it); no broad `write-all`.
-- [ ] **Protected publish environment** — all registry publishes run only on a signed semver tag
-  inside the protected `publish` GitHub Actions environment (required reviewers; environment-scoped
-  secrets `DOCKER_LOGIN`/`DOCKER_PAT`, never printed or baked in). `release.yml` needs only the
-  job's `GITHUB_TOKEN`; keyless cosign over long-lived tokens everywhere.
+- [ ] **Publishes are tag-driven and scoped** — registry publishes run only after a green
+  `release.yml` for a semver tag; the only long-lived secret is the repository `DOCK_PAT`
+  (Docker Hub, never printed or baked in). `release.yml` needs only the job's `GITHUB_TOKEN`;
+  keyless cosign over long-lived tokens everywhere.
 
 ## Documentation
 

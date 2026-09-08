@@ -124,7 +124,8 @@ the grobase **session JWT** from the GitHub device flow (`adapters/session.rs`, 
 - `release.yml` (D11) is ours: `vX.Y.Z` tag → static musl binaries for x86_64 + aarch64 on
   native runners → `SHA256SUMS` + SLSA provenance → GitHub Release with raw assets
   `42ctl-<target>`. `install.sh` (repo root) and `42ctl update` consume exactly those names.
-- `sign-release.yml` (cosign keyless) and `docker.yml` (multi-arch image) trigger on the published
-  release, gated behind the protected `publish` environment. Every action is pinned by commit SHA.
+- `sign-release.yml` (cosign keyless) and `docker.yml` (multi-arch image → `docker.io/dlesieur/42ctl`,
+  built from the verified release assets) chain on a green `release.yml` via `workflow_run` and run
+  unattended; Docker Hub auth is the repository secret `DOCK_PAT`. Every action is pinned by commit SHA.
 - A release is cut only by `scripts/release.sh`; nothing is published by hand. There is no npm,
   Homebrew or crates.io channel (git deps forbid crates.io).

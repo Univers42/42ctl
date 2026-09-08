@@ -50,13 +50,12 @@ self-updater; Docker is a separate `buildx` job.
 
 ## D5 — Docker registry (§12d) + signing (§12e) + credentials (§12f)
 
-- **Registry: Docker Hub** (the provisioned `DOCKER_LOGIN`/`DOCKER_PAT`). Multi-arch
+- **Registry: Docker Hub** (`docker.io/dlesieur/*`, pushed with the `DOCK_PAT` repository secret). Multi-arch
   (amd64+arm64), minimal runtime, non-root, cosign-signed, SBOM + provenance attached.
 - **Signing: cosign / sigstore keyless** (GitHub OIDC — no long-lived key to manage); public
   verification instructions published.
-- **Credentials: CI secrets only**, environment-scoped on a protected publish environment with
-  required reviewers; never printed, never committed, never baked into images. Prefer **npm OIDC
-  trusted publishing + `--provenance`** over the long-lived `NPM_TOKEN` where the registry allows.
+- **Credentials: CI secrets only** (the repository secret `DOCK_PAT`); never printed, never
+  committed, never baked into images. Keyless OIDC (cosign, provenance) everywhere else.
 
 ## D6 — Architecture
 
@@ -141,7 +140,9 @@ archive naming). Windows/macOS are out of scope (Linux only; Docker elsewhere).
 
 **Amendment — chaining and the image.** A release created with the job's `GITHUB_TOKEN` emits
 no `release: published` event to other workflows, so `sign-release.yml` and `docker.yml`
-chain on `release.yml` with `workflow_run` (still gated by the `publish` environment). The
+chain on `release.yml` with `workflow_run` and run unattended (the operator asked for a fully
+green, self-approving board; `sign-release` keeps `environment: publish` so reviewers can be
+re-added there). The
 Docker image no longer compiles from source under QEMU: `deploy/Dockerfile.dist` is
 `FROM scratch` + the **released** static musl binary per arch, fetched and SHA-256-verified
 against the release's `SHA256SUMS` inside the build — the image ships the exact attested
