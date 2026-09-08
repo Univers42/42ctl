@@ -39,6 +39,9 @@ jobs:
   build-push-sign:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    # The DOCK_PAT secret lives in the environment of the same name (environment secrets
+    # override repository ones); no protection rules, so the job runs unattended.
+    environment: DOCK_PAT
     env:
       TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
     steps:
