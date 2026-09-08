@@ -33,13 +33,16 @@ Each artifact ships with a detached signature (`*.sig`) and certificate (`*.pem`
 
 ```sh
 cosign verify-blob \
-  --certificate-identity-regexp "^https://github.com/Univers42/42ctl/\.github/workflows/release\.yml@refs/tags/v.*$" \
+  --certificate-identity-regexp "^https://github.com/Univers42/42ctl/\.github/workflows/sign-release\.yml@refs/.*$" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  --signature   42ctl-x86_64-unknown-linux-gnu.tar.gz.sig \
-  --certificate 42ctl-x86_64-unknown-linux-gnu.tar.gz.pem \
-  42ctl-x86_64-unknown-linux-gnu.tar.gz
+  --signature   42ctl-x86_64-unknown-linux-musl.sig \
+  --certificate 42ctl-x86_64-unknown-linux-musl.pem \
+  42ctl-x86_64-unknown-linux-musl
 # => Verified OK
 ```
+
+Release assets are raw static binaries: `42ctl-x86_64-unknown-linux-musl`,
+`42ctl-aarch64-unknown-linux-musl`, plus `SHA256SUMS` (D11).
 
 ### Docker image
 
@@ -64,7 +67,7 @@ this commit) and was not hand-built or swapped.
 ### With the GitHub CLI (`gh attestation verify`)
 
 ```sh
-gh attestation verify 42ctl-x86_64-unknown-linux-gnu.tar.gz --repo Univers42/42ctl
+gh attestation verify 42ctl-x86_64-unknown-linux-musl --repo Univers42/42ctl
 gh attestation verify oci://docker.io/<DOCKER_NS>/42ctl:vX.Y.Z --repo Univers42/42ctl
 # => the artifact's provenance was verified against Univers42/42ctl
 ```
@@ -72,8 +75,8 @@ gh attestation verify oci://docker.io/<DOCKER_NS>/42ctl:vX.Y.Z --repo Univers42/
 ### With `slsa-verifier`
 
 ```sh
-slsa-verifier verify-artifact 42ctl-x86_64-unknown-linux-gnu.tar.gz \
-  --provenance-path 42ctl-x86_64-unknown-linux-gnu.tar.gz.intoto.jsonl \
+slsa-verifier verify-artifact 42ctl-x86_64-unknown-linux-musl \
+  --provenance-path 42ctl-x86_64-unknown-linux-musl.intoto.jsonl \
   --source-uri github.com/Univers42/42ctl \
   --source-tag vX.Y.Z
 # => PASSED: verified SLSA provenance
@@ -86,9 +89,7 @@ slsa-verifier verify-artifact 42ctl-x86_64-unknown-linux-gnu.tar.gz \
 The release publishes `SHA256SUMS`. Download it alongside the artifacts and check:
 
 ```sh
-sha256sum -c SHA256SUMS            # all listed files: OK
-# or one artifact:
-sha256sum -c 42ctl-x86_64-unknown-linux-gnu.tar.gz.sha256
+sha256sum -c --ignore-missing SHA256SUMS      # every asset you downloaded: OK
 ```
 
 Checksums catch corruption and naive tampering; cosign + provenance catch a *signed* impostor.
@@ -96,29 +97,14 @@ Do all three for anything you'll trust with plaintext.
 
 ---
 
-## (d) npm provenance
+## What the installer and `42ctl update` do for you
 
-The npm package `@universe42/42ctl` is published with `--provenance`, so npmjs.com shows a
-**"Provenance"** panel on the package page linking the published tarball back to this repo, the
-release workflow, and the commit. From the CLI:
-
-```sh
-npm view @universe42/42ctl     # confirm the version + repository
-npm audit signatures           # verifies registry signatures + provenance for installed deps
-```
-
-`npm audit signatures` reports verified provenance/signatures for the installed package tree; a
-missing or failed provenance attestation is a refusal signal.
-
----
-
-## What the installers do for you
-
-The official `curl | sh` / PowerShell installers and the `42ctl update` self-updater verify the
-**signature + provenance + checksum** before placing or swapping the binary, and **refuse a tampered
-artifact** — a failed verification changes nothing on disk (`42ctl update` is verify-before-swap).
-Manual verification above is the same trust check you can run yourself; prefer the installers, but
-never disable their verification.
+`install.sh` and the `42ctl update` self-updater download the asset **and** `SHA256SUMS` from the
+GitHub Release, verify the SHA-256, and only then place or atomically swap the binary. A failed
+verification changes nothing on disk. Both resolve "latest" by following GitHub's
+`releases/latest` redirect — no API token is involved, and `42ctl update --version X.Y.Z` pins an
+exact release. Manual verification above (cosign + provenance) is the stronger check you can add on
+top; never disable the built-in one.
 
 ---
 
@@ -144,3 +130,9 @@ of how strong the server-side crypto is. That is why the 42ctl supply chain is t
 the vault threat model and why **every release is signed + provenance-attested and every installer
 verifies before executing**. Verifying your download (a–d above) closes the last gap between the
 audited build and the bytes you actually run.
+
+Verify a download in one line, from a shell that has the assets and `SHA256SUMS`:
+
+```sh
+sha256sum -c --ignore-missing SHA256SUMS && gh attestation verify 42ctl-$(uname -m)-unknown-linux-musl --repo Univers42/42ctl
+```

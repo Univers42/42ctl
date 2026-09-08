@@ -108,3 +108,35 @@ tag-pinned actions; re-pin it with `pinact run` (or `ratchet`) **after every `di
 regeneration reverts SHA pins. All registry/​image publishes are gated behind the protected
 `publish` GitHub Environment (required reviewers + environment-scoped secrets); cosign is keyless, so
 there is no signing key to leak or rotate.
+
+## D11 — Owned release engine: static Linux binaries, `install.sh`, native `update`
+
+Supersedes D4, D8, D9 for the binary channel. `cargo-dist` never shipped a release here (the
+`v0.1.0` run was cancelled; no GitHub Release ever existed), it emitted a workflow we were not
+allowed to edit, and it targeted channels (npm, Homebrew, PowerShell, Windows, macOS) the
+project does not need. Replaced by three small, owned pieces:
+
+- **`release.yml` (ours, SHA-pinned):** a `vX.Y.Z` tag builds **static musl binaries** for
+  `x86_64` and `aarch64` on native GitHub runners (`ubuntu-24.04`, `ubuntu-24.04-arm` — no
+  cross toolchain), refuses a tag whose version differs from `Cargo.toml`, attests SLSA build
+  provenance, writes `SHA256SUMS`, and publishes the GitHub Release. Static musl means one
+  binary per arch runs on every distro (Debian/Ubuntu/Fedora/Arch/Alpine/NixOS) with no libc
+  dependency. Assets are raw binaries (`42ctl-<target>`), not tarballs — one code path for the
+  installer and the updater, no archive crate in the CLI.
+- **`install.sh` (repo root, POSIX sh):** `curl -fsSL …/install.sh | sh`. Detects the arch,
+  resolves the latest tag by following GitHub's `releases/latest` redirect (no API, no rate
+  limit, no token), downloads the asset + `SHA256SUMS`, verifies, installs to `~/.local/bin`
+  (or `/usr/local/bin` as root), fixes `PATH`. A failed check leaves nothing on disk.
+- **`42ctl update` (native, `adapters/github` + `adapters/checksum`):** same discovery, same
+  verification, then an atomic rename over `current_exe()`. No install receipt is needed — it
+  works for any install location the user can write to. `--check` reports, `--version X.Y.Z`
+  pins. `axoupdater` is gone.
+- **`scripts/release.sh`:** the only way a tag is cut — bumps `Cargo.toml` + `Cargo.lock`,
+  commits `release: vX.Y.Z`, tags, pushes over HTTPS with `GH_PAT` read from the environment by a
+  one-shot credential helper (never on a command line).
+
+Consequences: `publish.yml` (npm) is deleted — it consumed a dist-generated package that no
+longer exists. `sign-release.yml` (cosign) and `docker.yml` still trigger on the published
+release and work unchanged on the new assets. The **`cargo` channel is dropped** (D9's
+`cargo binstall` relied on dist's archive naming). Windows/macOS are out of scope (Linux only;
+Docker elsewhere).

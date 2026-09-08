@@ -28,8 +28,6 @@ Every published byte is attributable to this pipeline and reproducible from the 
   release/docker workflow OIDC identity.
 - [ ] **SLSA provenance on binaries and images** — build provenance is attested and verifies with
   `gh attestation verify` / `slsa-verifier` for the binaries and the image.
-- [ ] **npm provenance** — `@universe42/42ctl` is published with `--provenance`; the npmjs.com
-  package page shows the provenance panel and `npm audit signatures` passes.
 - [ ] **SBOM per release** — a CycloneDX/SPDX SBOM is generated and attached for the release
   artifacts and the image.
 
@@ -37,16 +35,15 @@ Every published byte is attributable to this pipeline and reproducible from the 
 
 A tampered artifact must be refused before it ever runs or swaps in.
 
-- [ ] **Every installer verifies signature/checksum and refuses tampered artifacts** — the
-  `curl | sh`, PowerShell, npm, Homebrew, and cargo-binstall paths verify before placing the
-  binary. **Demonstrated** with a *deliberately corrupted* artifact: the installer refuses it and
-  leaves nothing on disk.
-- [ ] **Clean-machine install per channel yields matching version + commit** — on a fresh
-  machine/container, each v1 channel (curl|sh, GitHub Releases, npm, Docker, cargo/cargo-binstall,
-  Homebrew) installs a binary whose `42ctl version` reports the released `X.Y.Z` **and** the release
-  commit.
-- [ ] **Update verifies-before-swap** — `42ctl update` verifies signature + provenance + checksum
-  and only then atomically swaps the binary; a failed verification changes nothing.
+- [ ] **`install.sh` verifies the checksum and refuses tampered artifacts** — it downloads the
+  asset + `SHA256SUMS`, verifies, and only then places the binary. **Demonstrated** with a
+  *deliberately corrupted* artifact: the installer refuses it and leaves nothing on disk.
+- [ ] **Clean-machine install yields matching version + commit** — on a fresh container per
+  arch (x86_64, aarch64), `curl | sh` installs a binary whose `42ctl version` reports the
+  released `X.Y.Z` **and** the release commit; the Docker image does the same.
+- [ ] **Update verifies-before-swap** — `42ctl update` verifies the SHA-256 against `SHA256SUMS`
+  and only then atomically swaps the binary; a failed verification changes nothing. Demonstrated
+  by installing the previous tag (`--version`) and updating onto the new one.
 
 ## Container hardening
 
@@ -65,8 +62,8 @@ The pipeline that produces trust must itself be trustworthy.
   default; `id-token: write` only where cosign/provenance need it); no broad `write-all`.
 - [ ] **Protected publish environment** — all registry publishes run only on a signed semver tag
   inside the protected `publish` GitHub Actions environment (required reviewers; environment-scoped
-  secrets `NPM_TOKEN`/`DOCKER_LOGIN`/`DOCKER_PAT`/`CARGO_REGISTRY_TOKEN`, never printed or baked in).
-  Prefer OIDC trusted publishing (npm) and keyless cosign over long-lived tokens.
+  secrets `DOCKER_LOGIN`/`DOCKER_PAT`, never printed or baked in). `release.yml` needs only the
+  job's `GITHUB_TOKEN`; keyless cosign over long-lived tokens everywhere.
 
 ## Documentation
 
