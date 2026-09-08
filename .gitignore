@@ -5,6 +5,9 @@
 # operator-only local material (never committed)
 *.local.txt
 *.local
+.env
+.env.*
+!.env.example
 
 # editor / OS
 .DS_Store
@@ -12,3 +15,5 @@
 
 # Cargo.lock IS committed (binary crate — reproducible builds for the supply chain).
 /42ctl-bin
+/42ctl-*-unknown-linux-*
+/dist/
