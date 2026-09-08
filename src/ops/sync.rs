@@ -206,34 +206,35 @@ impl Session {
         project_id: &str,
     ) -> anyhow::Result<Option<Manifest>> {
         let vault_path = manifest_path(project_id);
-        match self.get_blob(&vault_path).await {
+        match self.fetch_blob(&vault_path).await {
             Ok(bytes) => Ok(Some(Manifest::parse(&bytes)?)),
-            Err(status) if status.code() == Code::NotFound => Ok(None),
-            Err(status) => Err(status.into()),
+            Err(error) if is_not_found(&error) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
-    /// Fetch + decrypt the blob at `vault_path` (anyhow error on any failure).
+    /// Fetch + decrypt the blob at `vault_path`. A missing blob surfaces as the gRPC
+    /// `NotFound` status inside the error chain (see `is_not_found`).
     pub(crate) async fn fetch_blob(
         &mut self,
         vault_path: &str,
     ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-        Ok(self.get_blob(vault_path).await?)
-    }
-
-    /// The raw Get → decrypt, surfacing the tonic Status so callers can match NotFound.
-    async fn get_blob(&mut self, vault_path: &str) -> Result<Zeroizing<Vec<u8>>, tonic::Status> {
         let expected = derive::secret_id(&self.principal, vault_path);
         let mut request = Request::new(GetRequest {
             path: vault_path.to_string(),
             version: 0,
         });
-        self.authorize(&mut request, "/vault.v1.Vault/Get")
-            .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        self.authorize(&mut request, "/vault.v1.Vault/Get")?;
         let resp = self.client.get(request).await?.into_inner();
         decrypt::open_envelope(&self.identity, &resp, &expected, 0)
-            .map_err(|e| tonic::Status::internal(e.to_string()))
     }
+}
+
+/// Whether `error` carries a gRPC `NotFound` status (the blob does not exist yet).
+fn is_not_found(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<tonic::Status>()
+        .is_some_and(|status| status.code() == Code::NotFound)
 }
 
 /// The opaque server path for a project file's blob (the real path never appears here).
