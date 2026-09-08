@@ -5,13 +5,18 @@
 # adds the explicit cosign keyless signature over EVERY release artifact — so the
 # `cosign verify-blob` flow in SECURITY.md is real — plus a CycloneDX source SBOM.
 #
-# Runs AFTER a release is published, GATED behind the protected `publish`
-# environment. Keyless: trust is the workflow's GitHub OIDC identity (no key).
+# Runs AFTER release.yml succeeds (workflow_run — a release created with the job's
+# GITHUB_TOKEN does not emit `release: published` to other workflows), GATED behind
+# the protected `publish` environment. Keyless: trust is the workflow's GitHub OIDC
+# identity (no key).
 #
 # P7-hardened: actions pinned by commit SHA (re-pin with `pinact run`).
 name: sign-release
 
 on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
   release:
     types: [published]
   workflow_dispatch:
@@ -30,11 +35,12 @@ concurrency:
 
 jobs:
   cosign-sign-assets:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: publish
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TAG: ${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
