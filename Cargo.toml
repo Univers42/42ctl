@@ -1,6 +1,6 @@
 [package]
 name = "c42"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.91"
 description = "42ctl — the umbrella platform CLI for the 42 stack (grobase + vault42)"
