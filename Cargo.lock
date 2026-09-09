@@ -2280,7 +2280,7 @@ dependencies = [
 [[package]]
 name = "vault42-core"
 version = "0.1.0"
-source = "git+https://github.com/Univers42/vault42?rev=91c7c47#91c7c4792618bf1cf3422db5f9619c617c9b4527"
+source = "git+https://github.com/Univers42/vault42?rev=0a49b17#0a49b17990d57f5294dc0d590c8c134584da4377"
 dependencies = [
  "argon2",
  "base64",
@@ -2301,7 +2301,7 @@ dependencies = [
 [[package]]
 name = "vault42-proto"
 version = "0.1.0"
-source = "git+https://github.com/Univers42/vault42?rev=91c7c47#91c7c4792618bf1cf3422db5f9619c617c9b4527"
+source = "git+https://github.com/Univers42/vault42?rev=0a49b17#0a49b17990d57f5294dc0d590c8c134584da4377"
 dependencies = [
  "prost",
  "protoc-bin-vendored",

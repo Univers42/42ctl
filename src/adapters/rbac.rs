@@ -117,6 +117,10 @@ pub struct ProjectGrant {
     pub id: String,
     #[serde(default)]
     pub env_id: Option<String>,
+    /// What this grant lets its holders do. Defaulted rather than required so a control
+    /// plane that stops sending it degrades to the weakest role instead of failing to parse.
+    #[serde(default)]
+    pub project_role: String,
 }
 
 /// A grant's fulfilment for ONE environment at ONE epoch (`GET .../fulfilled`).

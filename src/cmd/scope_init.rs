@@ -25,7 +25,7 @@ use crate::cmd::scope_pubkey;
 use crate::ui;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use vault42_core::{generate_keyset, grant_scope_key, ScopeKeyset};
+use vault42_core::{generate_keyset, grant_scope_key, GrantTerms, ScopeKeyset, ScopeRole};
 use zeroize::Zeroizing;
 
 /// Bootstrap the env scope at epoch 1: derive the scope id, generate the keyset, publish
@@ -73,12 +73,17 @@ async fn self_wrap(
     scope_id: [u8; 16],
 ) -> anyhow::Result<()> {
     let member_pub = session.identity.encryption_public();
+    // The admin creating the scope is a writer by construction: they hold the secret because
+    // they generated it, so a Reader wrap here would only lock them out of what they made.
     let grant = grant_scope_key(
         scope_secret,
         &member_pub,
         session.identity.signing_key(),
-        scope_id,
-        1,
+        GrantTerms {
+            scope_id,
+            epoch: 1,
+            role: ScopeRole::Writer,
+        },
     )?;
     let principal = session.principal.clone();
     let granter_pubkey = session.identity.author_public().to_bytes().to_vec();

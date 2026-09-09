@@ -148,8 +148,20 @@ async fn resolve(profile: &str, org: &str, project: &str, env: &str) -> anyhow::
 /// re-wrapped when the scope key changes. Rotating from the worklist re-wraps nobody once
 /// provisioning has converged, which strands the environment.
 pub struct EnvMembers {
-    pub pending: Vec<(String, Vec<String>)>,
-    pub authorized: Vec<(String, Vec<String>)>,
+    pub pending: Vec<Member>,
+    pub authorized: Vec<Member>,
+}
+
+/// One member of an environment: who they are, which grants put them there, and the
+/// strongest project role any of those grants carries.
+///
+/// The role travels with the member because it decides what their WRAP will say they may do,
+/// and a member under two grants must get the stronger of the two rather than whichever was
+/// read last.
+pub struct Member {
+    pub user: String,
+    pub grant_ids: Vec<String>,
+    pub project_role: String,
 }
 
 /// Read the env's grants and ask each one who it authorizes and who still lacks a wrap at the
@@ -162,8 +174,17 @@ pub async fn env_members(ctx: &Ctx) -> anyhow::Result<EnvMembers> {
     let (mut pending, mut authorized) = (Vec::new(), Vec::new());
     for g in grants.iter().filter(|g| applies(g, &ctx.env_id)) {
         let f = grant::fulfilled(&scope, &g.id).await?;
-        pending.extend(f.missing.into_iter().map(|user| (g.id.clone(), user)));
-        authorized.extend(f.members.into_iter().map(|user| (g.id.clone(), user)));
+        let role = g.project_role.clone();
+        pending.extend(
+            f.missing
+                .into_iter()
+                .map(|user| (g.id.clone(), user, role.clone())),
+        );
+        authorized.extend(
+            f.members
+                .into_iter()
+                .map(|user| (g.id.clone(), user, role.clone())),
+        );
     }
     Ok(EnvMembers {
         pending: group_by_user(pending),
@@ -171,17 +192,46 @@ pub async fn env_members(ctx: &Ctx) -> anyhow::Result<EnvMembers> {
     })
 }
 
-/// Group `(grant_id, user_id)` pairs into `(user_id, [grant_id…])`, preserving first
-/// occurrence — so one vault42 wrap per user is recorded against each of that user's grants.
-fn group_by_user(pairs: Vec<(String, String)>) -> Vec<(String, Vec<String>)> {
-    let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
-    for (grant_id, user) in pairs {
-        match grouped.iter_mut().find(|(u, _)| *u == user) {
-            Some((_, ids)) => ids.push(grant_id),
-            None => grouped.push((user, vec![grant_id])),
+/// Group `(grant_id, user_id, role)` triples by user, preserving first occurrence — so one
+/// vault42 wrap per user is recorded against each of that user's grants, carrying the
+/// STRONGEST role any of them gives. A member holding both a read grant and a write grant is
+/// a writer; taking whichever arrived last would make that depend on row order.
+fn group_by_user(triples: Vec<(String, String, String)>) -> Vec<Member> {
+    let mut grouped: Vec<Member> = Vec::new();
+    for (grant_id, user, role) in triples {
+        match grouped.iter_mut().find(|m| m.user == user) {
+            Some(member) => {
+                member.grant_ids.push(grant_id);
+                member.project_role = stronger(&member.project_role, &role).to_string();
+            }
+            None => grouped.push(Member {
+                user,
+                grant_ids: vec![grant_id],
+                project_role: role,
+            }),
         }
     }
     grouped
+}
+
+/// The stronger of two project roles. Anything unrecognised ranks below `read`, so an
+/// unknown role can never outrank a known one and widen what a member is wrapped for.
+fn stronger<'a>(a: &'a str, b: &'a str) -> &'a str {
+    if rank(a) >= rank(b) {
+        a
+    } else {
+        b
+    }
+}
+
+/// Where a project role sits in the ordering. Unknown is 0 on purpose.
+fn rank(role: &str) -> u8 {
+    match role {
+        "admin" => 3,
+        "write" => 2,
+        "read" => 1,
+        _ => 0,
+    }
 }
 
 /// Whether a grant applies to `env_id`: a grant scoped to this env, or a project-wide grant.
@@ -200,16 +250,50 @@ mod tests {
     /// in first-seen order, so one vault42 wrap is recorded against all of them.
     #[test]
     fn a_user_under_several_grants_is_grouped_once() {
-        let pairs = vec![
-            ("g1".to_string(), "alice".to_string()),
-            ("g2".to_string(), "bob".to_string()),
-            ("g3".to_string(), "alice".to_string()),
+        let triples = vec![
+            ("g1".to_string(), "alice".to_string(), "read".to_string()),
+            ("g2".to_string(), "bob".to_string(), "read".to_string()),
+            ("g3".to_string(), "alice".to_string(), "read".to_string()),
         ];
-        let grouped = group_by_user(pairs);
+        let grouped = group_by_user(triples);
         assert_eq!(grouped.len(), 2, "one entry per distinct user");
-        assert_eq!(grouped[0].0, "alice", "first-seen order is preserved");
-        assert_eq!(grouped[0].1, vec!["g1".to_string(), "g3".to_string()]);
-        assert_eq!(grouped[1].1, vec!["g2".to_string()]);
+        assert_eq!(grouped[0].user, "alice", "first-seen order is preserved");
+        assert_eq!(
+            grouped[0].grant_ids,
+            vec!["g1".to_string(), "g3".to_string()]
+        );
+        assert_eq!(grouped[1].grant_ids, vec!["g2".to_string()]);
+    }
+
+    /// A member under both a read grant and a write grant is a WRITER, whichever order the
+    /// rows arrive in. Taking the last one read would make what a member may do depend on
+    /// how the control plane happened to sort its answer.
+    #[test]
+    fn the_strongest_role_wins_in_either_order() {
+        for pair in [("read", "write"), ("write", "read")] {
+            let grouped = group_by_user(vec![
+                ("g1".to_string(), "alice".to_string(), pair.0.to_string()),
+                ("g2".to_string(), "alice".to_string(), pair.1.to_string()),
+            ]);
+            assert_eq!(grouped[0].project_role, "write", "{pair:?}");
+        }
+    }
+
+    /// An unknown role never outranks a known one. A control plane inventing a role must not
+    /// be able to widen a member's wrap by naming something this client cannot interpret.
+    #[test]
+    fn an_unknown_role_never_outranks_a_known_one() {
+        let grouped = group_by_user(vec![
+            ("g1".to_string(), "alice".to_string(), "read".to_string()),
+            (
+                "g2".to_string(),
+                "alice".to_string(),
+                "superuser".to_string(),
+            ),
+        ]);
+        assert_eq!(grouped[0].project_role, "read");
+        assert_eq!(stronger("admin", "write"), "admin");
+        assert_eq!(stronger("write", "admin"), "admin");
     }
 
     /// An env-scoped grant reaches only its own environment; a project-wide grant reaches
@@ -219,10 +303,12 @@ mod tests {
         let scoped = crate::adapters::rbac::ProjectGrant {
             id: "g1".into(),
             env_id: Some("env-prod".into()),
+            project_role: "read".into(),
         };
         let wide = crate::adapters::rbac::ProjectGrant {
             id: "g2".into(),
             env_id: None,
+            project_role: "write".into(),
         };
         assert!(applies(&scoped, "env-prod"));
         assert!(!applies(&scoped, "env-staging"));

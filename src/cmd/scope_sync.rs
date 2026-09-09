@@ -35,9 +35,13 @@ pub async fn sync_keys(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
         epoch: ctx.epoch(),
     };
     let (mut provisioned, mut skipped) = (0usize, 0usize);
-    for (user, grant_ids) in orch::env_members(ctx).await?.pending {
-        if scope_wrap::provision(session, ctx, &sref, &user).await? {
-            scope_wrap::record(ctx, &user, &grant_ids).await?;
+    for member in orch::env_members(ctx).await?.pending {
+        let terms = scope_wrap::MemberTerms {
+            user: &member.user,
+            role: crypto::scope_role(&member.project_role),
+        };
+        if scope_wrap::provision(session, ctx, &sref, &terms).await? {
+            scope_wrap::record(ctx, &member.user, &member.grant_ids).await?;
             provisioned += 1;
         } else {
             skipped += 1;

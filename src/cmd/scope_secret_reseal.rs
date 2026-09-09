@@ -30,7 +30,7 @@ use crate::adapters::scope_env_grpc::EnvSecretPut;
 use crate::adapters::{decrypt, derive};
 use crate::cmd::scope::{self as orch, Ctx};
 use crate::cmd::scope_pubkey;
-use vault42_core::{grant_scope_key, Identity, ReadScope, ScopeKeyset};
+use vault42_core::{grant_scope_key, GrantTerms, Identity, ReadScope, ScopeKeyset, ScopeRole};
 use vault42_proto::vault::v1::WrapScopeKeyRequest;
 use zeroize::Zeroizing;
 
@@ -125,10 +125,11 @@ pub async fn rewrap_remaining(
 ) -> anyhow::Result<usize> {
     let mut rewraps: Vec<WrapScopeKeyRequest> = Vec::new();
     let mut wrapped: Vec<(String, Vec<String>)> = Vec::new();
-    for (user, grant_ids) in orch::env_members(ctx).await?.authorized {
-        if let Some(rewrap) = build_rewrap(session, ctx, state, &user).await? {
+    for member in orch::env_members(ctx).await?.authorized {
+        let role = scope::scope_role(&member.project_role);
+        if let Some(rewrap) = build_rewrap(session, ctx, state, (&member.user, role)).await? {
             rewraps.push(rewrap);
-            wrapped.push((user, grant_ids));
+            wrapped.push((member.user, member.grant_ids));
         }
     }
     push_self_rewrap(&session.identity, &session.principal, state, &mut rewraps)?;
@@ -157,12 +158,17 @@ fn push_self_rewrap(
     if rewraps.iter().any(|r| r.member_id == principal) {
         return Ok(());
     }
+    // The administrator running the rotation holds the new secret because they generated it,
+    // so a Reader wrap here would lock them out of the environment they just re-keyed.
     let grant = grant_scope_key(
         state.new_secret,
         &identity.encryption_public(),
         identity.signing_key(),
-        state.scope_id,
-        state.new_epoch,
+        GrantTerms {
+            scope_id: state.scope_id,
+            epoch: state.new_epoch,
+            role: ScopeRole::Writer,
+        },
     )?;
     rewraps.push(WrapScopeKeyRequest {
         member_id: principal.to_string(),
@@ -197,8 +203,9 @@ async fn build_rewrap(
     session: &Session,
     ctx: &Ctx,
     state: &RotateState<'_>,
-    user: &str,
+    who: (&str, ScopeRole),
 ) -> anyhow::Result<Option<WrapScopeKeyRequest>> {
+    let (user, role) = who;
     let Ok(pk) = pubkey::get(&ctx.grobase, &ctx.token, &ctx.org, user).await else {
         return Ok(None);
     };
@@ -211,8 +218,11 @@ async fn build_rewrap(
         state.new_secret,
         &member_pub,
         granter,
-        state.scope_id,
-        state.new_epoch,
+        GrantTerms {
+            scope_id: state.scope_id,
+            epoch: state.new_epoch,
+            role,
+        },
     )?;
     Ok(Some(WrapScopeKeyRequest {
         member_id: scope::member_id(&pk.ed25519_pub)?,

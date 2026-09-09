@@ -27,10 +27,11 @@ dirs = "5"
 # git deps on the public vault42 repo, never copied (DECISIONS D1). Pinned to develop
 # 91c7c47, which carries the standalone authority plus the two pieces this crate needs from
 # it: `pop_message`, the single definition of the proof-of-possession framing that both this
-# signer and the authority's verifier must agree on, and `verify_request` hardened to
-# `verify_strict` so a small-order key cannot authenticate.
-vault42-core = { git = "https://github.com/Univers42/vault42", rev = "91c7c47" }
-vault42-proto = { git = "https://github.com/Univers42/vault42", rev = "91c7c47" }
+# signer and the authority's verifier must agree on, `verify_request` hardened to
+# `verify_strict` so a small-order key cannot authenticate, and ScopeRole in the grant blob so
+# a wrap says whether its holder may write rather than only that they are a member.
+vault42-core = { git = "https://github.com/Univers42/vault42", rev = "0a49b17" }
+vault42-proto = { git = "https://github.com/Univers42/vault42", rev = "0a49b17" }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

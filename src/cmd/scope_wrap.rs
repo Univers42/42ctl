@@ -22,7 +22,7 @@ use crate::adapters::scope;
 use crate::adapters::scope_grpc::ScopeDeposit;
 use crate::cmd::scope::Ctx;
 use crate::cmd::scope_pubkey;
-use vault42_core::grant_scope_key;
+use vault42_core::{grant_scope_key, GrantTerms, ScopeRole};
 use zeroize::Zeroizing;
 
 /// The scope identity a wrap is bound to (keeps `provision` ≤4 args).
@@ -32,6 +32,12 @@ pub struct ScopeRef<'a> {
     pub epoch: u32,
 }
 
+/// What one member's wrap will say they may do, taken from their project grant.
+pub struct MemberTerms<'a> {
+    pub user: &'a str,
+    pub role: ScopeRole,
+}
+
 /// Provision `user`: fetch + verify their pubkey, then wrap the scope secret to it and
 /// deposit it at vault42. Returns `false` (skipped) when the member has no registered or
 /// no verifiable pubkey; `true` once the wrap is deposited.
@@ -39,15 +45,15 @@ pub async fn provision(
     session: &mut Session,
     ctx: &Ctx,
     sref: &ScopeRef<'_>,
-    user: &str,
+    terms: &MemberTerms<'_>,
 ) -> anyhow::Result<bool> {
-    let Some(pk) = fetch_pubkey(ctx, user).await? else {
+    let Some(pk) = fetch_pubkey(ctx, terms.user).await? else {
         return Ok(false);
     };
     if !scope_pubkey::verify_member(&pk, &ctx.org_id) {
         return Ok(false);
     }
-    deposit(session, sref, &pk).await?;
+    deposit(session, sref, &pk, terms.role).await?;
     Ok(true)
 }
 
@@ -57,10 +63,16 @@ async fn deposit(
     session: &mut Session,
     sref: &ScopeRef<'_>,
     pk: &crate::adapters::rbac::MemberPubkey,
+    role: ScopeRole,
 ) -> anyhow::Result<()> {
     let member_pub = scope::x25519_pub(&pk.x25519_pub)?;
     let granter = session.identity.signing_key();
-    let g = grant_scope_key(sref.secret, &member_pub, granter, sref.id, sref.epoch)?;
+    let terms = GrantTerms {
+        scope_id: sref.id,
+        epoch: sref.epoch,
+        role,
+    };
+    let g = grant_scope_key(sref.secret, &member_pub, granter, terms)?;
     let granter_pubkey = session.identity.author_public().to_bytes().to_vec();
     session
         .wrap_scope_key(ScopeDeposit {

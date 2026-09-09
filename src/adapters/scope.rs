@@ -18,7 +18,24 @@
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use vault42_core::{fingerprint, RecipientPublicKey};
+use vault42_core::{fingerprint, RecipientPublicKey, ScopeRole};
+
+/// The scope role a project role earns inside a wrap.
+///
+/// The wrap has to say what its holder may DO, because membership cannot: reading an
+/// environment requires a wrap, so a read-only member holds one exactly as a writer does. The
+/// role is covered by the granter's signature, so a member editing their own grant to claim
+/// Writer invalidates it.
+///
+/// Anything unrecognised is a Reader. A role string this client does not know can only come
+/// from an authority newer than it, and guessing Writer for a role we cannot interpret hands
+/// out more than was granted — the one direction a default must never take.
+pub fn scope_role(project_role: &str) -> ScopeRole {
+    match project_role {
+        "admin" | "write" => ScopeRole::Writer,
+        _ => ScopeRole::Reader,
+    }
+}
 
 /// Derive the deterministic 16-byte scope id for `(project_uuid, env_name)` as
 /// `blake3(project_uuid_bytes ‖ env_name_bytes)[..16]`, where `project_uuid_bytes` is the
@@ -63,6 +80,34 @@ fn decode32(b64: &str, field: &str) -> anyhow::Result<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the two roles that mean "may change things" earn a Writer wrap.
+    #[test]
+    fn write_roles_earn_a_writer_wrap() {
+        assert!(matches!(scope_role("admin"), ScopeRole::Writer));
+        assert!(matches!(scope_role("write"), ScopeRole::Writer));
+    }
+
+    /// Everything else is a Reader, INCLUDING a role this client has never heard of. A newer
+    /// authority inventing a role must not be able to widen an old client's wraps by naming
+    /// something it cannot interpret.
+    #[test]
+    fn every_other_role_including_an_unknown_one_is_a_reader() {
+        for role in [
+            "read",
+            "viewer",
+            "",
+            "WRITE",
+            "owner",
+            "superuser",
+            "admin ",
+        ] {
+            assert!(
+                matches!(scope_role(role), ScopeRole::Reader),
+                "{role:?} must not earn a writer wrap"
+            );
+        }
+    }
 
     const PROJECT: &str = "11111111-1111-1111-1111-111111111111";
 

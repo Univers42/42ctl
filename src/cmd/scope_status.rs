@@ -29,8 +29,8 @@ pub async fn scope_status(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let epoch = ctx.epoch();
     let mut rows: Vec<Vec<String>> = Vec::new();
-    for (user, _) in orch::env_members(ctx).await?.pending {
-        rows.push(pending_row(ctx, &user).await?);
+    for member in orch::env_members(ctx).await?.pending {
+        rows.push(pending_row(ctx, &member.user).await?);
     }
     for member in session
         .list_scope_members(&hex::encode(scope_id), epoch)
