@@ -25,11 +25,15 @@
 #   `get-env` are shared but carry one value under one name, with no manifest, no paths and
 #   no modes. Nothing joins the two, so the tree half is red.
 #
-#   WRITE IS NOT PROTECTED AT ALL. Reading is gated by the seal; writing is gated by nothing.
-#   The server checks only that an envelope is authored by whoever sent it, so any account
-#   that can reach the port can overwrite any environment's secrets — a read-only member, a
-#   member of another organisation, anyone. That is asserted below as an attack that
-#   currently SUCCEEDS, and it belongs to vault42-server rather than to this client.
+#   WRITE IS GATED BY A ROLE, and getting there took three findings. Writing was originally
+#   authorised by nothing at all, so any account that could reach the port could overwrite any
+#   environment. Closing that left read and write indistinguishable, because reading requires a
+#   wrap and so a read-only member holds one exactly as a writer does — which needed a
+#   granter-signed role inside the wrap. And when THAT landed, the read-only assertion went
+#   green while every wrap was still being minted Reader, because the control plane did not
+#   report a grant's role: a permission test's negative half is satisfied by a system that
+#   refuses everybody, and it reads as extra safety rather than as a fault. The positive
+#   control below is the only reason that was caught.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/harness.sh"
 source "$QA_LIB_DIR/server.sh"
@@ -112,10 +116,17 @@ assert_green "carol is in the organisation but NOT in the team" \
 
 # ── access is granted to the TEAM, not to the people ─────────────────────────
 # The point of a team is that membership carries the grant. Nobody names bob or dave here.
-assert_green "the team is granted write access to the project" \
+assert_green "the team is granted READ access to the project" \
 	-- bash -c '[ "$(qa_code POST "/v1/orgs/$2/projects/$3/grants" "$1" \
-		"{\"grantee_kind\":\"team\",\"grantee_id\":\"$4\",\"project_role\":\"write\"}")" = 201 ]' \
+		"{\"grantee_kind\":\"team\",\"grantee_id\":\"$4\",\"project_role\":\"read\"}")" = 201 ]' \
 	_ "$A_TOK" "$ORG" "$PUUID" "$TEAM_ID"
+# Bob additionally, and directly, as a writer. Two people in the same team with different
+# rights is the only way to tell a role apart from mere membership, and it exercises the rule
+# that a member under two grants gets the stronger of them.
+assert_green "bob is additionally granted WRITE directly" \
+	-- bash -c '[ "$(qa_code POST "/v1/orgs/$2/projects/$3/grants" "$1" \
+		"{\"grantee_kind\":\"user\",\"grantee_id\":\"$4\",\"project_role\":\"write\"}")" = 201 ]' \
+	_ "$A_TOK" "$ORG" "$PUUID" "$B_ID"
 
 for who in alice bob carol dave; do
 	qa_actor "$who" "$W" "keys enroll --org $ORG" >/dev/null 2>&1
@@ -238,30 +249,56 @@ assert_green "somebody outside the organisation cannot overwrite an environment 
 # a wrap, so a read-only member holds one exactly as a writer does, and membership cannot
 # tell them apart. Separating them needs a granter-signed ROLE inside the wrap, which is a
 # change across the crypto core, this client and the server — not a missing check.
-assert_spec "a member with only read access cannot overwrite an environment secret" \
-	-- bash -c 'qa_actor dave "$1" "vault set-env --org $2 --project $3 --env prod app/db < /project/poison.txt" >/dev/null 2>&1 && exit 1
+# THE CONTROL, and it was missing. Without it "a reader cannot write" is satisfied by a system
+# in which NOBODY can write — which is what was happening: the control plane does not return a
+# grant's role in its listing, so every wrap was minted Reader and the read-only assertion
+# passed for a reason with nothing to do with roles.
+BOBS_WRITE='MYSQL_ROOT_PASSWORD=written-by-a-writer-0004'
+printf '%s\n' "$BOBS_WRITE" >"$W/bobs.txt"
+assert_green "a member granted write CAN overwrite an environment secret" \
+	-- bash -c 'qa_actor bob "$1" "vault set-env --org $2 --project $3 --env prod app/db < /project/bobs.txt" >/dev/null 2>&1 || exit 1
 		qa_actor alice "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -qF "$4"' \
-	_ "$W" "$ORG" "$PUUID" "$CANARY"
+	_ "$W" "$ORG" "$PUUID" "$BOBS_WRITE"
+# This one has to prove a writer CAN write in the same breath, or it is satisfied by a system
+# where nobody can — and that is not a hypothetical, it is the state this spec found. A green
+# here while the assertion above is red would be the most misleading result in the battery:
+# "roles are enforced" reported by a vault that refuses everybody.
+assert_green "a member with only read access cannot overwrite an environment secret" \
+	-- bash -c 'qa_actor alice "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -qF "$5" ||
+			{ printf "no writer has written, so a reader being refused proves nothing\n"; exit 1; }
+		qa_actor dave "$1" "vault set-env --org $2 --project $3 --env prod app/db < /project/poison.txt" >/dev/null 2>&1 && exit 1
+		qa_actor alice "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -qF "$5"' \
+	_ "$W" "$ORG" "$PUUID" "$CANARY" "$BOBS_WRITE"
 
 # ── leaving the team ends the access ─────────────────────────────────────────
-# Removal alone cannot un-tell somebody a secret they already hold; rotation is what closes
-# it. The assertion is that after both, the old member is outside.
-assert_green "bob is removed from the team" \
+# DAVE is the one removed, not bob. Bob now holds a direct grant as well as the team's, so
+# taking him off the team would leave him authorised and the assertion would be measuring the
+# direct grant rather than the removal. Dave holds nothing but the team's grant, so he is the
+# only one whose access the team decides.
+#
+# No route lists a team's members, so membership is asserted through its EFFECT: dave reads
+# before, and does not read after removal plus rotation. That is the property anyway — a
+# member list agreeing while the keys disagree would be the worse outcome.
+assert_green "dave reads the environment while he is on the team" \
+	-- bash -c 'qa_actor dave "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -q MYSQL_ROOT_PASSWORD' \
+	_ "$W" "$ORG" "$PUUID"
+assert_green "dave is removed from the team" \
 	-- bash -c 'c=$(qa_code DELETE "/v1/orgs/$2/teams/$4/members/$3" "$1")
 		case "$c" in 200|204) ;; *) printf "removal returned %s\n" "$c"; exit 1 ;; esac' \
-	_ "$A_TOK" "$ORG" "$B_ID" "$TEAM_ID"
-assert_green "the removed member no longer holds the team's grant" \
-	-- bash -c '! qa_api GET "/v1/orgs/$2/projects/$3/grants" "$1" | grep -qF "$4"' \
-	_ "$A_TOK" "$ORG" "$PUUID" "\"grantee_id\":\"$B_ID\""
+	_ "$A_TOK" "$ORG" "$D_ID" "$TEAM_ID"
+
+# Removal alone cannot un-tell somebody a secret they already hold; rotation closes it.
 assert_green "after rotation the removed member cannot read the new secret" \
-	-- bash -c 'qa_actor alice "$1" "vault rotate-scope --org $2 --project $3 --env prod" >/dev/null 2>&1
+	-- bash -c 'rot=$(qa_actor alice "$1" "vault rotate-scope --org $2 --project $3 --env prod" 2>&1) || { printf "rotation itself failed:\n%s\n" "$rot"; exit 1; }
 		printf "MYSQL_ROOT_PASSWORD=rotated-value-0002\n" >"$1/rotated.txt"
-		qa_actor alice "$1" "vault set-env --org $2 --project $3 --env prod app/db < /project/rotated.txt" >/dev/null 2>&1
-		! qa_actor bob "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -q "rotated-value-0002"' \
+		w=$(qa_actor alice "$1" "vault set-env --org $2 --project $3 --env prod app/db < /project/rotated.txt" 2>&1) || { printf "the write after rotation failed:\n%s\n" "$w"; exit 1; }
+		out=$(qa_actor dave "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>&1)
+		grep -q "rotated-value-0002" <<<"$out" && { printf "the removed member STILL READS it\n"; exit 1; }
+		exit 0' \
 	_ "$W" "$ORG" "$PUUID"
-assert_green "dave, still on the team, reads the rotated secret" \
+assert_green "bob, who holds a grant of his own, still reads it" \
 	-- bash -c 'qa_actor alice "$1" "vault sync-keys --org $2 --project $3 --env prod" >/dev/null 2>&1
-		qa_actor dave "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -q "rotated-value-0002"' \
+		qa_actor bob "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -q "rotated-value-0002"' \
 	_ "$W" "$ORG" "$PUUID"
 
 spec_end

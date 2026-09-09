@@ -15,7 +15,7 @@ set -uo pipefail
 # edits that tree continuously, so building from it makes every result depend on what
 # someone else happened to have saved — a red that cannot be reproduced tomorrow. The
 # pin is a detached read-only clone, so their checkout is never touched.
-: "${QA_VAULT42_REV:=0a49b17}"
+: "${QA_VAULT42_REV:=c365e0d}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"

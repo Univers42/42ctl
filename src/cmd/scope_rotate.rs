@@ -27,6 +27,17 @@ use vault42_core::generate_keyset;
 
 /// Rotate the env scope one epoch forward: re-seal all secrets, re-wrap to remaining members,
 /// publish the new public key. Prints the new epoch and the re-seal / re-wrap counts.
+/// The order of the three steps is load-bearing.
+///
+/// Wraps go first because a write at the new epoch is now authorised by holding a WRAP at
+/// that epoch, and each epoch has its own keyset — so an administrator re-sealing into E+1
+/// before granting themselves E+1 is refused by the rule they are meant to satisfy. Re-sealing
+/// second, and publishing the new epoch last, means nothing is live until every secret has
+/// moved: readers keep using E until the control plane says otherwise.
+///
+/// The failure directions are not symmetric, which is why this is the right way round. Wraps
+/// without secrets is an epoch that is simply empty, and re-running fixes it. Secrets without
+/// wraps is data at an epoch nobody can open, including the administrator who wrote it.
 pub async fn rotate_scope(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let old_epoch = ctx.epoch();
@@ -42,8 +53,8 @@ pub async fn rotate_scope(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()
         new_secret: &new_secret,
         keyset: &keyset,
     };
-    let resealed = scope_secret_reseal::reseal_all(session, &state).await?;
     let rewrapped = scope_secret_reseal::rewrap_remaining(session, ctx, &state).await?;
+    let resealed = scope_secret_reseal::reseal_all(session, &state).await?;
     publish(ctx, keyset.public.to_bytes(), new_epoch).await?;
     report(new_epoch, resealed, rewrapped);
     Ok(())
