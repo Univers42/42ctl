@@ -12,18 +12,23 @@
 
 //! Profiles & endpoints — the multi-org/environment config, stored as JSON at
 //! `$FT_CONFIG` or `~/.config/42ctl/config.json`. No globals: a caller loads a `Config`,
-//! resolves a profile to its `Endpoint`, and threads it down. The default profile points
-//! at the public trio: vault42 (secrets), grobase-nano (contract authority / `/v1/register`),
-//! and grobase-stack (the email-OTP routes `/v1/auth/otp/*` + escrow).
+//! resolves a profile to its `Endpoint`, and threads it down.
+//!
+//! The default profile points at a DUO, not a trio. vault42 serves secrets, and
+//! vault42-authority serves everything else: contract issuance, accounts, orgs, teams, groups,
+//! grants, member keys, one-time codes and escrow. grobase used to be a third host and is
+//! rejected — its stack cannot run inside the fly.io budget it was meant to protect.
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// A profile's endpoints: the vault42 data plane, the contract authority, and the
-/// grobase URL that serves the email-OTP routes (`#[serde(default)]` so older configs
-/// without it still load — an empty value falls back to the authority host).
+/// A profile's endpoints: the vault42 data plane and the authority that serves everything else.
+///
+/// `grobase` survives as a field only so a saved config written before the cutover still loads.
+/// It is `#[serde(default)]`, and both empty and a retired grobase host resolve to the authority.
+/// Do not add a new caller: `otp_base` is the only reader and it exists to retire this field.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Endpoint {
     pub server: String,
@@ -32,16 +37,31 @@ pub struct Endpoint {
     pub grobase: String,
 }
 
+/// Hosts that used to serve the control plane and no longer answer.
+///
+/// A config saved before the cutover still names one of these. Treating it as unset sends the
+/// caller to the authority instead of at a host that is switched off, which is the difference
+/// between the CLI working and the CLI reporting a connection error on every org verb.
+const RETIRED_CONTROL_PLANE: [&str; 2] = ["grobase-stack.fly.dev", "grobase-nano.fly.dev"];
+
 impl Endpoint {
-    /// The base URL serving the email-OTP routes — the grobase URL, or the authority
-    /// host when grobase is unset (single-host deployments).
+    /// The base URL of the control plane: the authority, unless a profile overrides it.
+    ///
+    /// An override that names a retired grobase host is ignored rather than honoured, because
+    /// grobase is rejected and that value can only have come from a config written before the
+    /// cutover. A genuine override to some other host is still respected.
     pub fn otp_base(&self) -> &str {
-        if self.grobase.is_empty() {
+        if self.grobase.is_empty() || retired(&self.grobase) {
             &self.authority
         } else {
             &self.grobase
         }
     }
+}
+
+/// Whether `url` names a host that used to serve the control plane.
+fn retired(url: &str) -> bool {
+    RETIRED_CONTROL_PLANE.iter().any(|host| url.contains(host))
 }
 
 /// The active profile name plus the named profiles.
@@ -58,8 +78,8 @@ impl Default for Config {
             "default".to_string(),
             Endpoint {
                 server: "https://vault42.fly.dev".to_string(),
-                authority: "https://grobase-nano.fly.dev".to_string(),
-                grobase: "https://grobase-stack.fly.dev".to_string(),
+                authority: "https://vault42-authority.fly.dev".to_string(),
+                grobase: String::new(),
             },
         );
         Self {
@@ -109,13 +129,55 @@ impl Config {
 mod tests {
     use super::*;
 
+    /// The default names the authority for the control plane and no grobase at all.
     #[test]
     fn default_points_at_the_public_duo() {
         let endpoint = Config::default()
             .endpoint("default")
             .expect("default profile");
-        assert!(endpoint.server.contains("vault42"));
-        assert!(endpoint.authority.contains("grobase-nano"));
+        assert!(endpoint.server.contains("vault42.fly.dev"));
+        assert!(endpoint.authority.contains("vault42-authority"));
+        assert!(
+            endpoint.grobase.is_empty(),
+            "grobase is retired, not repointed"
+        );
+        assert_eq!(endpoint.otp_base(), endpoint.authority);
+    }
+
+    /// A config saved before the cutover still names grobase, and must not be sent there.
+    ///
+    /// This is the upgrade path for the only person who has one. Without it every org, team,
+    /// grant and one-time-code call would go to a host that is switched off, and the CLI would
+    /// report a connection error rather than reaching the authority that now serves those routes.
+    #[test]
+    fn a_saved_config_naming_a_retired_grobase_falls_back_to_the_authority() {
+        for stale in [
+            "https://grobase-stack.fly.dev",
+            "https://grobase-nano.fly.dev",
+            "http://grobase-stack.fly.dev:8000",
+        ] {
+            let endpoint = Endpoint {
+                server: "https://vault42.fly.dev".into(),
+                authority: "https://vault42-authority.fly.dev".into(),
+                grobase: stale.into(),
+            };
+            assert_eq!(
+                endpoint.otp_base(),
+                "https://vault42-authority.fly.dev",
+                "{stale} is retired and must not be honoured"
+            );
+        }
+    }
+
+    /// A deliberate override to a host that is not retired is still respected.
+    #[test]
+    fn a_real_override_is_still_honoured() {
+        let endpoint = Endpoint {
+            server: "https://vault42.fly.dev".into(),
+            authority: "https://vault42-authority.fly.dev".into(),
+            grobase: "http://127.0.0.1:8444".into(),
+        };
+        assert_eq!(endpoint.otp_base(), "http://127.0.0.1:8444");
     }
 
     #[test]

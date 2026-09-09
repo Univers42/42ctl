@@ -11,7 +11,7 @@
 /* ************************************************************************** */
 
 //! The clap command surface for `42ctl` — the umbrella CLI. Command *groups* mirror the
-//! stack: `auth` (grobase/contract), `keys` + `vault`/`secrets` (zero-knowledge, all
+//! stack: `auth` (authority/contract), `keys` + `vault`/`secrets` (zero-knowledge, all
 //! plaintext crypto local), `db` (RBAC-checked encrypted records), `config` (profiles),
 //! `version`, `update` (verify-before-swap), and operator-only `unseal`. This file is
 //! types only — handlers live under `cmd/`.
@@ -27,11 +27,11 @@ logs you in to the platform with email-OTP, and pushes/pulls your project's *.en
 the vault — encrypted on YOUR machine, so the server stores only opaque blobs (zero-knowledge).
 
 FIRST RUN (a fresh machine):
-  # 1. Point the profile at your platform (these are the live endpoints):
+  # 1. Point the profile at your platform. These are the defaults, so a fresh install needs
+  #    this only to override them:
   42ctl config endpoint \\
-      --server    https://vault42.fly.dev \\        # vault42-server (gRPC store)
-      --authority https://grobase-nano.fly.dev \\   # contract authority (issues login contracts)
-      --grobase   https://grobase-stack.fly.dev     # grobase (mails the OTP, escrow)
+      --server    https://vault42.fly.dev \\           # vault42-server (gRPC store)
+      --authority https://vault42-authority.fly.dev  # accounts, orgs, grants, codes, escrow
   42ctl config show
 
   # 2. Create your local zero-knowledge identity (prompts for a NEW passphrase):
@@ -148,7 +148,7 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum Auth {
     /// Register/log in and obtain a contract for this identity. With `--github`, log in to
-    /// grobase via the GitHub device flow instead (saves a session token, no contract).
+    /// the authority via the GitHub device flow instead (saves a session token, no contract).
     Login {
         #[arg(long, required_unless_present = "github")]
         tenant: Option<String>,
@@ -157,7 +157,7 @@ pub enum Auth {
         /// Account email — when set, require an email OTP (6-digit code) before login.
         #[arg(long, env = "FT_LOGIN_EMAIL")]
         email: Option<String>,
-        /// Log in to grobase via the GitHub device flow (no browser callback).
+        /// Log in to the authority via the GitHub device flow (no browser callback).
         #[arg(long)]
         github: bool,
     },
@@ -179,14 +179,14 @@ pub enum Keys {
     },
     /// Print this identity's shareable public address.
     ExportPub,
-    /// Publish this identity's public keys to grobase (`PUT /v1/orgs/{org}/pubkey`) so a
+    /// Publish this identity's public keys to the authority (`PUT /v1/orgs/{org}/pubkey`) so a
     /// scope admin's `sync-keys` can wrap environment keys to you. Run once per org after
     /// joining; the private key never leaves the machine.
     Enroll {
         #[arg(long)]
         org: String,
     },
-    /// Escrow the passphrase-wrapped keystore to grobase (multi-device), gated by an
+    /// Escrow the passphrase-wrapped keystore to the authority (multi-device), gated by an
     /// email OTP. The server stores only ciphertext — your passphrase never leaves.
     Escrow {
         #[arg(long, env = "FT_LOGIN_EMAIL")]
@@ -242,7 +242,7 @@ pub enum Vault {
         #[arg(long, default_value = "")]
         prefix: String,
     },
-    /// Admin bootstrap: generate an env scope keyset, publish its public key to grobase,
+    /// Admin bootstrap: generate an env scope keyset, publish its public key to the authority,
     /// and self-wrap the scope secret to the admin (so it can later reconcile members).
     EnvInit {
         #[arg(long)]
@@ -531,7 +531,8 @@ pub enum Config {
         server: Option<String>,
         #[arg(long)]
         authority: Option<String>,
-        /// grobase URL that serves the email-OTP routes (for `auth login --email`).
+        /// Override the control-plane URL. Normally unset: the authority serves these routes.
+        /// A value naming a retired grobase host is ignored, since grobase is switched off.
         #[arg(long)]
         grobase: Option<String>,
     },

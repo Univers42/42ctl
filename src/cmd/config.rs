@@ -43,7 +43,7 @@ fn show(profile: &str) -> anyhow::Result<()> {
     ui::field("profile", profile);
     ui::field("server", &endpoint.server);
     ui::field("authority", &endpoint.authority);
-    ui::field("grobase", endpoint.otp_base());
+    ui::field("control-plane", endpoint.otp_base());
     Ok(())
 }
 
@@ -72,7 +72,7 @@ fn profile_cmd(name: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Set `profile`'s server/authority/grobase endpoints in place.
+/// Set `profile`'s server, authority and control-plane-override endpoints in place.
 fn set_endpoint(
     profile: &str,
     server: Option<&str>,
