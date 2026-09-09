@@ -108,6 +108,11 @@ the authority is a real, already-fixed bug class — the OTP routes 404 there.
 
 `ops/sync.rs` seals each `*.env*` file under an **opaque** vault path; the real relative paths exist
 only inside the encrypted manifest (`core/manifest.rs`), so the server never learns them.
+`core/manifest.rs::VERSION` is the reader's fail-closed gate: a manifest from a newer client is
+REFUSED, because serde drops an unknown field silently and a reader that ignores `chunked`
+writes the chunk list to disk as the file and reports success. Bump it whenever a field changes
+what an entry MEANS, not merely what it carries.
+
 `core/projpath.rs::validate_stored` is the load-bearing Zip-Slip guard — a **pure string check** that
 refuses any stored path that could escape the project root; a violating path is an error, never
 sanitized. `core/syncstate.rs` (`.42ctl/sync.json`) is the merge base, exactly as git uses the index,

@@ -139,6 +139,14 @@ the deletion side), never touches a chunk younger than a grace period (an interr
 already uploaded chunks no manifest names yet, and collecting them is what makes a resumable
 upload unresumable), and is a dry run unless `--apply`.
 
+**The manifest reader fails closed on a version it does not know.** `Manifest.version` existed
+from the first commit and was read by nothing — a field with no reader is a gate that cannot
+fail. serde drops an unknown field silently, so a manifest from a newer client parses cleanly and
+the reader carries on with a partial understanding of what each entry MEANS: a chunked entry read
+by a client that does not know the flag writes the chunk list to disk in place of the file and
+reports it restored. `parse` now refuses a version above `manifest::VERSION`. This does nothing
+for clients already released, whose damage is unfixable; it decides whether the class recurs.
+
 **History has to be reachable to count.** `Entry.rev` records which blob revision a manifest
 version was written against, and `pull --at <version>` fetches each file at that revision.
 Reading an old manifest while fetching the latest blobs reproduces a tree that never existed —

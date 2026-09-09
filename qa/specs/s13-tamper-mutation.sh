@@ -30,6 +30,36 @@ ORIG="$FLAT/.env"
 
 assert_green "the victim project pushes" -- qa_actor mallory "$FLAT" "push --project qa-tamper"
 
+# ── 0. the manifest is from a client that knows more than this one ───────────
+# Not tampering, but the same requirement: fail closed on data you cannot fully read. FIRST,
+# because everything below deliberately breaks the server's database, and a push that fails
+# with "storage error" would report this as a manifest problem it is not.
+# serde drops an unknown field silently, so a manifest from a newer client parses cleanly
+# and the reader carries on with a partial understanding of what each entry MEANS. For a
+# chunked entry that means writing a few hundred bytes of chunk list to disk in place of the
+# file and reporting it restored. Before the reader checked the version, this exact sequence
+# exited 0 having restored nothing at all.
+#
+# The control comes first: an ordinary pull of the same project must succeed, or "the pull
+# failed" would prove nothing about the version.
+FUT="$WORK/future"; rm -rf "$FUT"; mkdir -p "$FUT/src" "$FUT/dst" "$FUT/dst2"
+fixture_project_marker "$FUT/src" qa-future '"*"'
+printf 'KEY=value-0001\n' >"$FUT/src/.env"
+assert_green "the future-manifest fixture pushes" \
+	-- bash -c 'out=$(qa_actor mallory "$1" "push" 2>&1) || { printf "%s\n" "$out"; exit 1; }' _ "$FUT/src"
+assert_green "it pulls back normally BEFORE the manifest is replaced" \
+	-- bash -c 'qa_actor mallory "$2" "pull --project qa-future --apply" >/dev/null 2>&1
+		cmp -s "$1/.env" "$2/.env"' _ "$FUT/src" "$FUT/dst"
+printf '{"version":99,"project_id":"qa-future","entries":[]}' >"$FUT/src/future.json"
+assert_green "a manifest claiming a newer version can be planted" \
+	-- bash -c 'qa_actor mallory "$1" "vault set __42ctl/m/qa-future --file /project/future.json" >/dev/null 2>&1' _ "$FUT/src"
+assert_green "pulling a manifest from a newer client fails instead of restoring nothing" \
+	-- bash -c 'out=$(qa_actor mallory "$1" "pull --project qa-future --apply" 2>&1) && exit 1
+		grep -q 99 <<<"$out" || { printf "%s\n" "$out"; exit 1; }
+		grep -qi "update" <<<"$out"' _ "$FUT/dst2"
+assert_green "and it writes nothing while refusing" \
+	-- bash -c '[ ! -f "$1/.env" ]' _ "$FUT/dst2"
+
 # ── 1. the server's stored bytes are mutated ─────────────────────────────────
 # Stop the server so SQLite is not holding the file, flip one byte deep in the
 # payload region, and bring it back up on the same database.
@@ -89,5 +119,6 @@ if [ -f "$SYNC" ]; then
 	assert_green "a tampered sync base does not corrupt the working file" \
 		-- bash -c '[ ! -f "$2" ] || cmp -s "$1" "$2"' _ "$WORK/env.orig" "$ORIG"
 fi
+
 
 spec_end
