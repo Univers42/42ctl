@@ -1,0 +1,3 @@
+[submodule "qa/fixtures/inception"]
+	path = qa/fixtures/inception
+	url = git@github.com:Univers42/Inception.git
