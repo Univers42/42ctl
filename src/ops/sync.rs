@@ -19,17 +19,24 @@
 use crate::adapters::api::Session;
 use crate::adapters::compose::{self, ProjectSeal};
 use crate::adapters::{decrypt, derive};
+use crate::core::chunk::{self, ChunkSet};
 use crate::core::manifest::{Entry, Manifest};
 use crate::core::syncstate::{self, SyncState};
 use crate::core::{materialize, merge, project, projpath};
-use crate::ops::reconcile;
+use crate::ops::{largeobj, reconcile};
 use crate::ui;
 use tonic::{Code, Request};
 use vault42_core::Kind;
 use vault42_proto::vault::v1::{GetRequest, PushRequest};
 use zeroize::Zeroizing;
 
-pub(crate) const MAX_BLOB: usize = 64 * 1024 * 1024;
+/// The largest plaintext one envelope can carry, which is the chunk size.
+///
+/// The old value here was 64 MiB, sixteen times what the wire accepts: the server decodes
+/// with tonic's 4 MiB default and never raises it, so anything between the two passed the
+/// client guard, sealed, and died at the transport with a message about the protocol rather
+/// than about the file. A file above this goes to the object store as chunks instead.
+pub(crate) const MAX_BLOB: usize = chunk::CHUNK_BYTES;
 
 impl Session {
     /// Scan the project, seal + push each matched file under an opaque vault path, and
@@ -50,34 +57,10 @@ impl Session {
         for file in &files {
             let rel = projpath::canonicalize_for_storage(file, &proj.root)?;
             scanned.insert(rel.as_str().to_string());
-            let vault_path = blob_path(&proj.project_id, &self.principal, rel.as_str());
-            let mode = file_mode(file);
-            let plaintext = Zeroizing::new(std::fs::read(file)?);
-            if plaintext.len() > MAX_BLOB {
-                anyhow::bail!("{} exceeds the 64 MiB blob ceiling", rel.as_str());
-            }
-            let rev = self.current_version(&vault_path).await?;
-            let env = compose::project_envelope(
-                &self.identity,
-                &ProjectSeal {
-                    owner: &self.principal,
-                    vault_path: &vault_path,
-                    project_id: &proj.project_id,
-                    kind: Kind::EnvFile,
-                    mode,
-                    rev: rev + 1,
-                    plaintext: plaintext.as_slice(),
-                },
-            )?;
-            self.push_blob(&vault_path, env, rev, "/vault.v1.Vault/Push")
+            let entry = self
+                .push_file(&proj, rel.as_str(), file, &mut state)
                 .await?;
-            state.set(rel.as_str(), rev + 1, syncstate::hash(&plaintext));
-            manifest.upsert(Entry {
-                relative_path: rel.as_str().to_string(),
-                vault_path,
-                mode,
-                kind: Kind::EnvFile as u8,
-            });
+            manifest.upsert(entry);
         }
         let pruned = if prune {
             let before = manifest.entries.len();
@@ -101,6 +84,102 @@ impl Session {
             proj.project_id
         ));
         Ok(())
+    }
+
+    /// Seal and upload one file, record its new merge base, and return its manifest entry.
+    ///
+    /// A file above the transport ceiling goes to the object store as chunks and the vault
+    /// receives only the chunk list, so a volume never crosses a gRPC message limit. The
+    /// merge base is the hash of the file's own bytes either way, so a chunked file
+    /// reconciles on a later pull exactly as a small one does.
+    async fn push_file(
+        &mut self,
+        proj: &project::Project,
+        rel: &str,
+        file: &std::path::Path,
+        state: &mut SyncState,
+    ) -> anyhow::Result<Entry> {
+        let vault_path = blob_path(&proj.project_id, &self.principal, rel);
+        let mode = file_mode(file);
+        let plaintext = Zeroizing::new(std::fs::read(file)?);
+        let hash = syncstate::hash(&plaintext);
+        let chunked = chunk::needs_chunking(plaintext.len() as u64);
+        let body = if chunked {
+            self.upload_chunks(&proj.project_id, rel, &plaintext)
+                .await?
+        } else {
+            plaintext
+        };
+        let rev = self
+            .seal_and_push(&vault_path, &proj.project_id, mode, &body)
+            .await?;
+        state.set(rel, rev, hash);
+        Ok(Entry {
+            relative_path: rel.to_string(),
+            vault_path,
+            mode,
+            kind: Kind::EnvFile as u8,
+            chunked,
+        })
+    }
+
+    /// Send a file's chunks to the object store and return the list that stands in for it.
+    ///
+    /// Without a configured store the file is refused, naming what to configure. Refusing is
+    /// the right answer rather than a fallback: there is nowhere else for the bytes to go,
+    /// and a push that reports success while carrying nothing is discovered only at restore.
+    async fn upload_chunks(
+        &self,
+        project_id: &str,
+        rel: &str,
+        plaintext: &[u8],
+    ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+        let store = self.store.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{rel} is {} bytes, above the {MAX_BLOB} byte transport ceiling, and this \
+                 profile names no object store — set one with `42ctl config endpoint \
+                 --blobstore <url> --bucket <name>` and export FT_S3_KEY and FT_S3_SECRET",
+                plaintext.len()
+            )
+        })?;
+        store.ensure_bucket().await?;
+        let owner = largeobj::Owner {
+            identity: &self.identity,
+            principal: &self.principal,
+        };
+        let object = blob_id(project_id, &self.principal, rel);
+        let set = largeobj::put_object(&owner, store, &object, plaintext).await?;
+        ui::field(
+            rel,
+            &format!("{} chunk(s) in the object store", set.chunks.len()),
+        );
+        Ok(Zeroizing::new(set.to_bytes()?))
+    }
+
+    /// Seal `plaintext` as a project file and push it at `vault_path`; returns the new rev.
+    async fn seal_and_push(
+        &mut self,
+        vault_path: &str,
+        project_id: &str,
+        mode: u32,
+        plaintext: &[u8],
+    ) -> anyhow::Result<u64> {
+        let rev = self.current_version(vault_path).await?;
+        let env = compose::project_envelope(
+            &self.identity,
+            &ProjectSeal {
+                owner: &self.principal,
+                vault_path,
+                project_id,
+                kind: Kind::EnvFile,
+                mode,
+                rev: rev + 1,
+                plaintext,
+            },
+        )?;
+        self.push_blob(vault_path, env, rev, "/vault.v1.Vault/Push")
+            .await?;
+        Ok(rev + 1)
     }
 
     /// Fetch the manifest, then reconcile each file 3-way (local-on-disk vs remote-in-vault
@@ -161,7 +240,7 @@ impl Session {
         opts: &materialize::Opts,
     ) -> anyhow::Result<bool> {
         let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
-        let remote = self.fetch_blob(&entry.vault_path).await?;
+        let remote = self.fetch_entry(entry).await?;
         let rev = self.current_version(&entry.vault_path).await?;
         let local = std::fs::read(projpath::to_native(root, &rel)).ok();
         let base = state.bases.get(rel.as_str());
@@ -171,6 +250,28 @@ impl Session {
             reconcile::update_base(state, rel.as_str(), &action, &remote, rev);
         }
         Ok(conflict)
+    }
+
+    /// The entry's real bytes: the vault blob itself, or the object its chunk list names.
+    ///
+    /// A chunked entry's vault blob is a list, never the file, so returning it unread would
+    /// materialise a few hundred bytes of JSON in place of the archive. The list is parsed
+    /// before a single chunk is fetched, which is what turns a store that dropped or
+    /// reordered a chunk into an error rather than into plausible wrong bytes.
+    async fn fetch_entry(&mut self, entry: &Entry) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+        let stored = self.fetch_blob(&entry.vault_path).await?;
+        if !entry.chunked {
+            return Ok(stored);
+        }
+        let set = ChunkSet::from_bytes(&stored)?;
+        let store = self.store.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} is stored as {} chunk(s) and this profile names no object store",
+                entry.relative_path,
+                set.chunks.len()
+            )
+        })?;
+        largeobj::get_object(&self.identity, &self.principal, store, &set).await
     }
 
     /// Push one opaque envelope at `vault_path` with optimistic concurrency.
@@ -254,8 +355,13 @@ impl Session {
 
 /// The opaque server path for a project file's blob (the real path never appears here).
 fn blob_path(project_id: &str, principal: &str, rel: &str) -> String {
-    let id = derive::secret_id(principal, &format!("{project_id}/{rel}"));
+    let id = blob_id(project_id, principal, rel);
     format!("{}/b/{project_id}/{id}", projpath::RESERVED_PREFIX)
+}
+
+/// The opaque id a project file is known by, on the server and in the object store alike.
+fn blob_id(project_id: &str, principal: &str, rel: &str) -> String {
+    derive::secret_id(principal, &format!("{project_id}/{rel}"))
 }
 
 /// The reserved server path for a project's manifest.

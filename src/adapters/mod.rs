@@ -19,6 +19,7 @@
 pub mod address;
 pub mod api;
 pub mod authority;
+pub mod blobstore;
 pub mod compose;
 pub mod creds;
 pub mod decrypt;
@@ -34,3 +35,4 @@ pub mod scope;
 pub mod scope_env_grpc;
 pub mod scope_grpc;
 pub mod session;
+pub mod sigv4;

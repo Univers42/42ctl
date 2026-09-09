@@ -14,7 +14,7 @@
 //! inherits the active profile's endpoints; `endpoint` edits the named profile in place;
 //! `show` prints the resolved endpoints. The config is a plain JSON file (no secrets).
 
-use crate::cli::Config as ConfigCmd;
+use crate::cli::{Config as ConfigCmd, EndpointArgs};
 use crate::profile::Config;
 use crate::ui;
 use anyhow::Context;
@@ -24,16 +24,7 @@ pub fn run(cmd: &ConfigCmd, profile: &str) -> anyhow::Result<()> {
     match cmd {
         ConfigCmd::Show => show(profile),
         ConfigCmd::Profile { name } => profile_cmd(name.as_deref()),
-        ConfigCmd::Endpoint {
-            server,
-            authority,
-            grobase,
-        } => set_endpoint(
-            profile,
-            server.as_deref(),
-            authority.as_deref(),
-            grobase.as_deref(),
-        ),
+        ConfigCmd::Endpoint(args) => set_endpoint(profile, args),
     }
 }
 
@@ -44,6 +35,11 @@ fn show(profile: &str) -> anyhow::Result<()> {
     ui::field("server", &endpoint.server);
     ui::field("authority", &endpoint.authority);
     ui::field("control-plane", endpoint.otp_base());
+    if endpoint.blobs.is_set() {
+        ui::field("object-store", &endpoint.blobs.endpoint);
+        ui::field("bucket", &endpoint.blobs.bucket);
+        ui::field("region", endpoint.blobs.signing_region());
+    }
     Ok(())
 }
 
@@ -72,28 +68,31 @@ fn profile_cmd(name: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Set `profile`'s server, authority and control-plane-override endpoints in place.
-fn set_endpoint(
-    profile: &str,
-    server: Option<&str>,
-    authority: Option<&str>,
-    grobase: Option<&str>,
-) -> anyhow::Result<()> {
+/// Apply every endpoint the caller named, leaving the rest of the profile as it was.
+///
+/// Each setting is optional and independent, so `config endpoint --bucket x` changes the
+/// bucket and nothing else. That matters because the QA battery and real operators both
+/// call this repeatedly to add one setting at a time.
+fn set_endpoint(profile: &str, args: &EndpointArgs) -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let endpoint = cfg
         .profiles
         .get_mut(profile)
         .with_context(|| format!("unknown profile '{profile}'"))?;
-    if let Some(server) = server {
-        endpoint.server = server.to_string();
-    }
-    if let Some(authority) = authority {
-        endpoint.authority = authority.to_string();
-    }
-    if let Some(grobase) = grobase {
-        endpoint.grobase = grobase.to_string();
-    }
+    assign(&mut endpoint.server, args.server.as_deref());
+    assign(&mut endpoint.authority, args.authority.as_deref());
+    assign(&mut endpoint.grobase, args.grobase.as_deref());
+    assign(&mut endpoint.blobs.endpoint, args.blobstore.as_deref());
+    assign(&mut endpoint.blobs.bucket, args.bucket.as_deref());
+    assign(&mut endpoint.blobs.region, args.region.as_deref());
     cfg.save()?;
     ui::success(&format!("updated endpoints for '{profile}'"));
     Ok(())
+}
+
+/// Overwrite `slot` only when the caller supplied a value.
+fn assign(slot: &mut String, value: Option<&str>) {
+    if let Some(value) = value {
+        *slot = value.to_string();
+    }
 }

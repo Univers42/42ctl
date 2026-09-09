@@ -14,6 +14,7 @@
 //! discovery + scan, the encrypted manifest, the traversal-defended path model, and
 //! byte-exact materialization. The `ops` layer orchestrates these over a gRPC session.
 
+pub mod chunk;
 pub mod manifest;
 pub mod materialize;
 pub mod merge;

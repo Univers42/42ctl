@@ -16,7 +16,7 @@
 //! `version`, `update` (verify-before-swap), and operator-only `unseal`. This file is
 //! types only — handlers live under `cmd/`.
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 /// The complete how-to, shown on `42ctl --help` (after_long_help).
 const HOWTO: &str = "\
@@ -30,7 +30,7 @@ FIRST RUN (a fresh machine):
   # 1. Point the profile at your platform. These are the defaults, so a fresh install needs
   #    this only to override them:
   42ctl config endpoint \\
-      --server    https://vault42.fly.dev \\           # vault42-server (gRPC store)
+      --server    https://vault42-server.fly.dev \\           # vault42-server (gRPC store)
       --authority https://vault42-authority.fly.dev  # accounts, orgs, grants, codes, escrow
   42ctl config show
 
@@ -222,6 +222,18 @@ pub enum Vault {
     },
     /// Remove a secret.
     Rm { path: String },
+    /// Remove stored chunks that no version of any manifest still references.
+    ///
+    /// A dry run unless --apply, and never touches a chunk younger than the grace period:
+    /// an interrupted push has already uploaded chunks no manifest names yet, and resuming
+    /// it is exactly what collecting them too early would make impossible.
+    Gc {
+        #[arg(long)]
+        apply: bool,
+        /// Hours a chunk must have existed before it can be collected (default 24).
+        #[arg(long)]
+        grace_hours: Option<i64>,
+    },
     /// Re-seal a secret under a fresh data key.
     Rotate { path: String },
     /// Re-seal a secret for another identity's address.
@@ -520,22 +532,42 @@ pub enum OrgGithub {
     Sync { org: String },
 }
 
+/// The endpoints a profile can name. A struct rather than six loose arguments because the
+/// object-store settings arrived after the first three and a setter taking six parameters
+/// one at a time is how the wrong one gets passed.
+///
+/// There is deliberately no flag for the object store's SECRET. The config file is plain
+/// JSON with no protection, so the credential is read from `FT_S3_KEY` / `FT_S3_SECRET` at
+/// the moment of use and never written anywhere.
+#[derive(Args)]
+pub struct EndpointArgs {
+    #[arg(long)]
+    pub server: Option<String>,
+    #[arg(long)]
+    pub authority: Option<String>,
+    /// Override the control-plane URL. Normally unset: the authority serves these routes.
+    /// A value naming a retired grobase host is ignored, since grobase is switched off.
+    #[arg(long)]
+    pub grobase: Option<String>,
+    /// Object store for large files: the S3-compatible service root, without the bucket.
+    /// A file above the transport ceiling is chunked to this store; without it, refused.
+    #[arg(long)]
+    pub blobstore: Option<String>,
+    /// The bucket that holds those chunks.
+    #[arg(long)]
+    pub bucket: Option<String>,
+    /// The signing region for that object store (default us-east-1).
+    #[arg(long)]
+    pub region: Option<String>,
+}
+
 /// `config` subcommands.
 #[derive(Subcommand)]
 pub enum Config {
     /// Show or switch/create the active profile.
     Profile { name: Option<String> },
     /// Set this profile's endpoints.
-    Endpoint {
-        #[arg(long)]
-        server: Option<String>,
-        #[arg(long)]
-        authority: Option<String>,
-        /// Override the control-plane URL. Normally unset: the authority serves these routes.
-        /// A value naming a retired grobase host is ignored, since grobase is switched off.
-        #[arg(long)]
-        grobase: Option<String>,
-    },
+    Endpoint(EndpointArgs),
     /// Print the resolved configuration.
     Show,
 }

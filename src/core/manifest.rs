@@ -28,6 +28,11 @@ pub struct Manifest {
 /// One file in the manifest: the real path, its opaque server (vault) path, mode, and
 /// `kind` (the `vault42_core::Kind` repr — 1=EnvFile, 2=Note; defaults to 0 for
 /// pre-`kind` manifests, which `pull` still treats as a non-note file).
+///
+/// `chunked` says what the vault blob at `vault_path` actually holds. False, the default,
+/// means the file's own bytes, which is every manifest written before large objects
+/// existed. True means a chunk list, and the bytes are in the object store. Defaulting to
+/// false is what lets a new client read an old manifest unchanged.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
     pub relative_path: String,
@@ -35,6 +40,8 @@ pub struct Entry {
     pub mode: u32,
     #[serde(default)]
     pub kind: u8,
+    #[serde(default)]
+    pub chunked: bool,
 }
 
 impl Manifest {
@@ -79,5 +86,38 @@ impl Manifest {
     /// Parse from decrypted JSON bytes.
     pub fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
         Ok(serde_json::from_slice(bytes)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A manifest written before large objects existed must still load, and its entries
+    /// must read as ordinary files rather than as chunk lists. Getting this backwards would
+    /// send `pull` to an object store for a file whose bytes are in the vault.
+    #[test]
+    fn a_manifest_without_the_chunked_flag_still_loads_as_whole_files() {
+        let legacy = br#"{"version":1,"project_id":"p","entries":[
+            {"relative_path":".env","vault_path":"__42ctl/b/p/id","mode":384}]}"#;
+        let manifest = Manifest::parse(legacy).expect("a pre-chunking manifest must load");
+        assert_eq!(manifest.entries.len(), 1);
+        assert!(!manifest.entries[0].chunked);
+        assert_eq!(manifest.entries[0].kind, 0);
+    }
+
+    /// The flag survives a round trip, so a chunked entry is still chunked after a pull.
+    #[test]
+    fn the_chunked_flag_round_trips() {
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(Entry {
+            relative_path: "big.bin".into(),
+            vault_path: "__42ctl/b/p/id".into(),
+            mode: 0o600,
+            kind: 1,
+            chunked: true,
+        });
+        let back = Manifest::parse(&manifest.to_bytes().expect("encode")).expect("decode");
+        assert!(back.entries[0].chunked);
     }
 }

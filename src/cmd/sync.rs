@@ -24,7 +24,7 @@ pub(in crate::cmd) async fn open_session(profile: &str) -> anyhow::Result<Sessio
     let endpoint = Config::load()?.endpoint(profile)?;
     let identity = passphrase::unlock()?;
     let contract = creds::load(profile);
-    Session::connect(&endpoint.server, identity, contract).await
+    Session::connect(&endpoint, identity, contract).await
 }
 
 /// `push` — scan + seal + upload the project's tree and its encrypted manifest.

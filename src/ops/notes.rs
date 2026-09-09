@@ -40,7 +40,7 @@ impl Session {
         }
         let rel = projpath::validate_stored(rel_raw)?; // sec: notes are path-addressed too
         if bytes.len() > MAX_BLOB {
-            anyhow::bail!("note exceeds the 64 MiB blob ceiling");
+            anyhow::bail!("note exceeds the {MAX_BLOB} byte transport ceiling");
         }
         let id = derive::secret_id(
             &self.principal,
@@ -76,6 +76,7 @@ impl Session {
             vault_path,
             mode: 0o600,
             kind: Kind::Note as u8,
+            chunked: false,
         });
         self.push_manifest(&proj.project_id, &manifest).await?;
         ui::success(&format!(

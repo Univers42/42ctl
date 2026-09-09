@@ -17,7 +17,9 @@
 //! `Session::authorize`. The command layer wires these; the methods own the logic.
 
 mod audit;
+mod gc;
 mod io;
+mod largeobj;
 mod manage;
 mod notes;
 mod reconcile;

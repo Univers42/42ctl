@@ -20,7 +20,7 @@ async fn open_session(profile: &str) -> anyhow::Result<Session> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let identity = passphrase::unlock()?;
     let contract = creds::load(profile);
-    Session::connect(&endpoint.server, identity, contract).await
+    Session::connect(&endpoint, identity, contract).await
 }
 
 /// Route the unlocked session to the requested verb. The scope-key orchestration verbs
@@ -32,6 +32,7 @@ async fn dispatch(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::
         Vault::Set { path, file } => session.cmd_set(path, read_input(file.as_deref())?).await,
         Vault::Ls { prefix } => session.cmd_ls(prefix).await,
         Vault::Rm { path } => session.cmd_rm(path).await,
+        Vault::Gc { apply, grace_hours } => session.cmd_gc(*grace_hours, *apply).await,
         Vault::Rotate { path } => session.cmd_rotate(path).await,
         Vault::Share { path, to } => session.cmd_share(path, to).await,
         Vault::Audit { since } => session.cmd_audit(*since).await,

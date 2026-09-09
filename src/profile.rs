@@ -24,17 +24,51 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+/// Where an object too large for one envelope keeps its chunks.
+///
+/// The location is configuration and lives here; the CREDENTIAL never does. It is read from
+/// `FT_S3_KEY` / `FT_S3_SECRET` at the moment of use, because this file is a plain JSON file
+/// the user is invited to read, copy and share, and a bucket credential in it would be a
+/// secret stored in the one place the whole product exists to avoid.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct BlobLocation {
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub bucket: String,
+    #[serde(default)]
+    pub region: String,
+}
+
+impl BlobLocation {
+    /// Whether this profile names somewhere for large objects to go.
+    pub fn is_set(&self) -> bool {
+        !self.endpoint.is_empty() && !self.bucket.is_empty()
+    }
+
+    /// The signing region, defaulting to the one every S3-compatible server accepts.
+    pub fn signing_region(&self) -> &str {
+        if self.region.is_empty() {
+            "us-east-1"
+        } else {
+            &self.region
+        }
+    }
+}
+
 /// A profile's endpoints: the vault42 data plane and the authority that serves everything else.
 ///
 /// `grobase` survives as a field only so a saved config written before the cutover still loads.
 /// It is `#[serde(default)]`, and both empty and a retired grobase host resolve to the authority.
 /// Do not add a new caller: `otp_base` is the only reader and it exists to retire this field.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Endpoint {
     pub server: String,
     pub authority: String,
     #[serde(default)]
     pub grobase: String,
+    #[serde(default)]
+    pub blobs: BlobLocation,
 }
 
 /// Hosts that used to serve the control plane and no longer answer.
@@ -98,9 +132,9 @@ impl Default for Config {
         profiles.insert(
             "default".to_string(),
             Endpoint {
-                server: "https://vault42.fly.dev".to_string(),
+                server: "https://vault42-server.fly.dev".to_string(),
                 authority: "https://vault42-authority.fly.dev".to_string(),
-                grobase: String::new(),
+                ..Default::default()
             },
         );
         Self {
@@ -156,7 +190,7 @@ mod tests {
         let endpoint = Config::default()
             .endpoint("default")
             .expect("default profile");
-        assert!(endpoint.server.contains("vault42.fly.dev"));
+        assert!(endpoint.server.contains("vault42-server.fly.dev"));
         assert!(endpoint.authority.contains("vault42-authority"));
         assert!(
             endpoint.grobase.is_empty(),
@@ -178,9 +212,10 @@ mod tests {
             "http://grobase-stack.fly.dev:8000",
         ] {
             let endpoint = Endpoint {
-                server: "https://vault42.fly.dev".into(),
+                server: "https://vault42-server.fly.dev".into(),
                 authority: "https://vault42-authority.fly.dev".into(),
                 grobase: stale.into(),
+                ..Default::default()
             };
             assert_eq!(
                 endpoint.otp_base(),
@@ -203,9 +238,10 @@ mod tests {
             "not a url at all",
         ] {
             let endpoint = Endpoint {
-                server: "https://vault42.fly.dev".into(),
+                server: "https://vault42-server.fly.dev".into(),
                 authority: "https://vault42-authority.fly.dev".into(),
                 grobase: honoured.into(),
+                ..Default::default()
             };
             assert_eq!(
                 endpoint.otp_base(),
@@ -219,11 +255,41 @@ mod tests {
     #[test]
     fn a_real_override_is_still_honoured() {
         let endpoint = Endpoint {
-            server: "https://vault42.fly.dev".into(),
+            server: "https://vault42-server.fly.dev".into(),
             authority: "https://vault42-authority.fly.dev".into(),
             grobase: "http://127.0.0.1:8444".into(),
+            ..Default::default()
         };
         assert_eq!(endpoint.otp_base(), "http://127.0.0.1:8444");
+    }
+
+    /// Large objects are opt-in: an untouched profile names nowhere for chunks to go, so
+    /// push keeps refusing an oversized file rather than silently inventing a destination.
+    #[test]
+    fn a_fresh_profile_names_no_object_store() {
+        let endpoint = Config::default().endpoint("default").expect("default");
+        assert!(!endpoint.blobs.is_set());
+        assert_eq!(endpoint.blobs.signing_region(), "us-east-1");
+    }
+
+    /// The config file is plain JSON the user may read and share. A bucket credential must
+    /// never be written into it, so the serialised profile has no field that could hold one.
+    #[test]
+    fn the_saved_profile_has_nowhere_to_put_a_credential() {
+        let mut cfg = Config::default();
+        let endpoint = cfg.profiles.get_mut("default").expect("default");
+        endpoint.blobs = BlobLocation {
+            endpoint: "https://s3.example.com".into(),
+            bucket: "chunks".into(),
+            region: "eu-west-3".into(),
+        };
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        for forbidden in ["secret", "access_key", "password", "credential", "token"] {
+            assert!(
+                !json.contains(forbidden),
+                "the profile must have no field named {forbidden}"
+            );
+        }
     }
 
     #[test]

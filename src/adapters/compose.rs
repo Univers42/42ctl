@@ -106,6 +106,41 @@ pub fn project_envelope(identity: &Identity, spec: &ProjectSeal) -> anyhow::Resu
     Ok(seal(spec.plaintext, meta, &recipients, identity.signing_key())?.to_bytes()?)
 }
 
+/// One chunk of a large object: who owns it and the store name it must be served from.
+pub struct ChunkSeal<'a> {
+    pub owner: &'a str,
+    pub name: &'a str,
+    pub plaintext: &'a [u8],
+}
+
+/// Seal one chunk of a large object for the caller's own identity.
+///
+/// A chunk lives outside the vault, in a store somebody else runs, so its metadata says
+/// less than a vault blob's: no project, no path and no owner. The secret id still binds
+/// the chunk to BOTH the owner and the name it must be served from, because it is derived
+/// from the pair — so a chunk cannot be served in another's place, and the store operator
+/// still cannot read an owner off the bytes.
+pub fn chunk_envelope(identity: &Identity, spec: &ChunkSeal) -> anyhow::Result<Vec<u8>> {
+    let meta = Metadata {
+        version: 2,
+        secret_id: derive::secret_id(spec.owner, spec.name),
+        tenant: "self".to_string(),
+        owner: String::new(), // sec: ZK — the secret id already binds the owner
+        rev: 1,
+        content_type: "chunk".to_string(),
+        recovery_optin: false,
+        project_id: String::new(), // sec: ZK — the store learns nothing about grouping
+        relative_path: String::new(), // sec: ZK — the real path lives only in the manifest
+        kind: Kind::Generic,
+        mode: DEFAULT_MODE,
+    };
+    let recipients = Recipients {
+        users: &[identity.encryption_public()],
+        recovery: None,
+    };
+    Ok(seal(spec.plaintext, meta, &recipients, identity.signing_key())?.to_bytes()?)
+}
+
 /// The scope-sealed env-secret spec: like `ProjectSeal`, but the sole recipient is the
 /// env's X25519 SCOPE public key (`scope_pub`) — never the caller — so any holder of the
 /// scope SECRET (a wrapped member) can open it. `owner`/`project_id` are both the hex

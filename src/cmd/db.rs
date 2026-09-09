@@ -22,5 +22,5 @@ async fn open_session(profile: &str) -> anyhow::Result<Session> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let identity = passphrase::unlock()?;
     let contract = creds::load(profile);
-    Session::connect(&endpoint.server, identity, contract).await
+    Session::connect(&endpoint, identity, contract).await
 }

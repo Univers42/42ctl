@@ -42,6 +42,12 @@ base64 = "0.22"
 blake3 = "1"
 uuid = { version = "1", features = ["v5"] }
 rpassword = "7"
+# AWS SigV4 request signing for the S3-compatible chunk store. This is request
+# authentication, not content encryption: content encryption stays in vault42-core, which
+# owns it. Both crates are already compiled in this tree as transitive dependencies of
+# vault42-core, so making them direct adds no new supply-chain surface.
+sha2 = "0.10"
+hmac = "0.12"
 # Self-update engine — reads the cargo-dist install receipt, verifies the
 # release artifact's checksum from the signed dist-manifest, and only then
 # swaps the running binary (verify-before-swap, P7).

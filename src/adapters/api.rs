@@ -16,6 +16,8 @@
 //! registered contract (managed multi-tenancy — the vault gate requires it). The channel
 //! uses TLS for `https://` URLs (the fly edge cert) and plaintext for local `http://`.
 
+use crate::adapters::blobstore::BlobStore;
+use crate::profile::Endpoint;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, ClientTlsConfig};
@@ -24,36 +26,42 @@ use vault42_core::Identity;
 use vault42_proto::vault::v1::vault_client::VaultClient;
 
 /// An authenticated client session: the gRPC client, the unlocked identity, the derived
-/// principal id, and the profile's contract token (if registered).
+/// principal id, the profile's contract token (if registered), and the object store that
+/// carries anything too large for one envelope (`None` when the profile names none).
 pub struct Session {
     pub client: VaultClient<Channel>,
     pub identity: Identity,
     pub principal: String,
     pub contract: Option<String>,
+    pub store: Option<BlobStore>,
 }
 
 impl Session {
-    /// Connect to `server_url` with the unlocked `identity` and the profile's `contract`.
+    /// Connect to `profile`'s vault server with the unlocked `identity` and its `contract`.
+    ///
+    /// Takes the whole endpoint rather than the URL because a session also needs to know
+    /// where large objects go, and a caller that resolved the profile already has it.
     pub async fn connect(
-        server_url: &str,
+        profile: &Endpoint,
         identity: Identity,
         contract: Option<String>,
     ) -> anyhow::Result<Self> {
         let principal = hex::encode(vault42_core::fingerprint(
             &identity.author_public().to_bytes(),
         ));
-        let endpoint = if server_url.starts_with("https") {
-            Channel::from_shared(server_url.to_string())?
+        let transport = if profile.server.starts_with("https") {
+            Channel::from_shared(profile.server.clone())?
                 .tls_config(ClientTlsConfig::new().with_native_roots())?
         } else {
-            Channel::from_shared(server_url.to_string())?
+            Channel::from_shared(profile.server.clone())?
         };
-        let channel = endpoint.connect().await?;
+        let channel = transport.connect().await?;
         Ok(Self {
             client: VaultClient::new(channel),
             identity,
             principal,
             contract,
+            store: BlobStore::from_profile(&profile.blobs),
         })
     }
 

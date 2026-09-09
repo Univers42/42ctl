@@ -85,10 +85,23 @@ impl Session {
         &mut self,
         path: &str,
     ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+        self.fetch_version(path, 0).await
+    }
+
+    /// Fetch and locally decrypt one version of the caller's own `path` (`0` ⇒ latest).
+    ///
+    /// The read scope pins the derived secret id but not the revision, because collection
+    /// walks history deliberately: an older version is the thing it must not mistake for
+    /// garbage, so asking for one cannot be treated as a stale read.
+    pub(crate) async fn fetch_version(
+        &mut self,
+        path: &str,
+        version: u64,
+    ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
         let expected = derive::secret_id(&self.principal, path);
         let mut request = Request::new(GetRequest {
             path: path.to_string(),
-            version: 0,
+            version,
         });
         self.authorize(&mut request, "/vault.v1.Vault/Get")?;
         let resp = self.client.get(request).await?.into_inner();
