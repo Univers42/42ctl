@@ -27,9 +27,9 @@ use crate::ui;
 /// presence) and a row per already-provisioned (active) member.
 pub async fn scope_status(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
-    let epoch = ctx.scope_epoch.max(1);
+    let epoch = ctx.epoch();
     let mut rows: Vec<Vec<String>> = Vec::new();
-    for user in dedup_users(orch::env_pending(ctx).await?) {
+    for (user, _) in orch::env_members(ctx).await?.pending {
         rows.push(pending_row(ctx, &user).await?);
     }
     for member in session
@@ -61,15 +61,4 @@ async fn pending_row(ctx: &Ctx, user: &str) -> anyhow::Result<Vec<String>> {
         "no".into(),
         state.into(),
     ])
-}
-
-/// Dedup the pending `(grant_id, user)` pairs down to the distinct user ids, preserving order.
-fn dedup_users(pairs: Vec<(String, String)>) -> Vec<String> {
-    let mut users: Vec<String> = Vec::new();
-    for (_, user) in pairs {
-        if !users.contains(&user) {
-            users.push(user);
-        }
-    }
-    users
 }

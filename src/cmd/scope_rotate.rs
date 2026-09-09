@@ -12,9 +12,9 @@
 
 //! `vault rotate-scope` — forward-secure scope rotation. Recover the CURRENT scope secret,
 //! generate a fresh keyset at `epoch+1`, re-seal every env secret to the new scope public key
-//! (opened with the old secret, sealed to the new), re-wrap the new scope key to the REMAINING
-//! authorized members (grobase effective minus revoked — a removed member gets no new-epoch
-//! wrap, so it loses access by absence), and publish the new public key/epoch to grobase.
+//! (opened with the old secret, sealed to the new), re-wrap the new scope key to every member
+//! the env's grants still authorize — a removed member gets no new-epoch wrap, so it loses
+//! access by absence — and publish the new public key/epoch to the control plane.
 
 use crate::adapters::api::Session;
 use crate::adapters::rbac::{pubkey, ScopeKeyRequest};
@@ -29,9 +29,10 @@ use vault42_core::generate_keyset;
 /// publish the new public key. Prints the new epoch and the re-seal / re-wrap counts.
 pub async fn rotate_scope(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
-    let old_epoch = ctx.scope_epoch.max(1);
+    let old_epoch = ctx.epoch();
     let new_epoch = old_epoch + 1;
-    let old_secret = recover_scope_secret(session, scope_id, old_epoch).await?;
+    let advertised = ctx.scope_pubkey.as_deref();
+    let old_secret = recover_scope_secret(session, scope_id, old_epoch, advertised).await?;
     let (keyset, new_secret) = generate_keyset(scope_id, new_epoch);
     let state = RotateState {
         scope_id,

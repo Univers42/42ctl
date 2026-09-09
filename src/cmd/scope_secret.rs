@@ -66,7 +66,8 @@ pub async fn get_env(session: &mut Session, ctx: &Ctx, path: &str) -> anyhow::Re
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let epoch = ctx.scope_epoch.max(1);
     let owner = hex::encode(scope_id);
-    let secret = recover_scope_secret(session, scope_id, epoch).await?;
+    let secret =
+        recover_scope_secret(session, scope_id, epoch, ctx.scope_pubkey.as_deref()).await?;
     let (envelope, author) = session
         .get_env_secret(&owner, epoch, path)
         .await?

@@ -118,12 +118,34 @@ pub struct ProjectGrant {
     pub env_id: Option<String>,
 }
 
-/// The members still awaiting a wrap for a grant (`GET .../fulfilled`); an empty list means
-/// the grant is fully provisioned.
+/// A grant's fulfilment for ONE environment at ONE epoch (`GET .../fulfilled`).
+///
+/// The two lists answer different questions and are not interchangeable. `missing` is the
+/// provisioning worklist and empties as members are wrapped, so it is what `sync-keys` reads.
+/// `members` is everyone the grant authorizes and does not empty, so it is what rotation must
+/// read: re-wrapping from `missing` re-wraps to nobody once provisioning has converged, which
+/// is exactly the state an environment is in when someone rotates it.
 #[derive(Deserialize)]
 pub struct Fulfilled {
     #[serde(default)]
+    pub members: Vec<String>,
+    #[serde(default)]
     pub missing: Vec<String>,
+}
+
+/// Everything a grant call needs to address one environment's scope: where the control plane
+/// is, who is asking, and which project/environment/epoch the question is about.
+///
+/// The epoch is not optional. A wrap is only meaningful for the scope key it wrapped, and
+/// every rotation replaces that key, so a fulfilment answer without an epoch describes a
+/// scope that may no longer exist.
+pub struct GrantScope<'a> {
+    pub grobase: &'a str,
+    pub token: &'a str,
+    pub org: &'a str,
+    pub project: &'a str,
+    pub env_id: &'a str,
+    pub epoch: u32,
 }
 
 /// A member's registered public keys (`GET .../users/{userId}/pubkey`). All PUBLIC material;

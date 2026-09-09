@@ -27,14 +27,15 @@ use crate::ui;
 /// newly provisioned and how many were skipped (pending-enrollment).
 pub async fn sync_keys(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
-    let secret = recover_scope_secret(session, scope_id, ctx.scope_epoch.max(1)).await?;
+    let advertised = ctx.scope_pubkey.as_deref();
+    let secret = recover_scope_secret(session, scope_id, ctx.epoch(), advertised).await?;
     let sref = ScopeRef {
         secret: &secret,
         id: scope_id,
-        epoch: ctx.scope_epoch.max(1),
+        epoch: ctx.epoch(),
     };
     let (mut provisioned, mut skipped) = (0usize, 0usize);
-    for (user, grant_ids) in group_by_user(orch::env_pending(ctx).await?) {
+    for (user, grant_ids) in orch::env_members(ctx).await?.pending {
         if scope_wrap::provision(session, ctx, &sref, &user).await? {
             scope_wrap::record(ctx, &user, &grant_ids).await?;
             provisioned += 1;
@@ -46,17 +47,4 @@ pub async fn sync_keys(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     ui::field("skipped", &format!("{skipped} (no registered pubkey)"));
     ui::success(&format!("reconciled scope keys for env '{}'", ctx.env_name));
     Ok(())
-}
-
-/// Group `(grant_id, user_id)` pending pairs into `(user_id, [grant_id…])`, preserving first
-/// occurrence — so one vault42 wrap per user is recorded against each of that user's grants.
-fn group_by_user(pairs: Vec<(String, String)>) -> Vec<(String, Vec<String>)> {
-    let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
-    for (grant_id, user) in pairs {
-        match grouped.iter_mut().find(|(u, _)| *u == user) {
-            Some((_, ids)) => ids.push(grant_id),
-            None => grouped.push((user, vec![grant_id])),
-        }
-    }
-    grouped
 }

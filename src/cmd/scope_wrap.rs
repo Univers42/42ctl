@@ -73,18 +73,12 @@ async fn deposit(
         .await
 }
 
-/// Record a member's now-deposited wrap against every grant id in `grant_ids` (grobase
-/// `POST .../grants/{grantId}/wraps`).
+/// Record a member's now-deposited wrap against every grant id in `grant_ids`, at the env's
+/// current epoch (grobase `POST .../grants/{grantId}/wraps`).
 pub async fn record(ctx: &Ctx, user: &str, grant_ids: &[String]) -> anyhow::Result<()> {
+    let scope = ctx.grant_scope(ctx.epoch());
     for grant_id in grant_ids {
-        grant::record_wrap(
-            &ctx.grobase,
-            &ctx.token,
-            (&ctx.org, &ctx.project),
-            grant_id,
-            user,
-        )
-        .await?;
+        grant::record_wrap(&scope, grant_id, user).await?;
     }
     Ok(())
 }
