@@ -108,3 +108,37 @@ tag-pinned actions; re-pin it with `pinact run` (or `ratchet`) **after every `di
 regeneration reverts SHA pins. All registry/​image publishes are gated behind the protected
 `publish` GitHub Environment (required reviewers + environment-scoped secrets); cosign is keyless, so
 there is no signing key to leak or rotate.
+
+## D11 — Large objects: the vault keeps the keys, an object store keeps the bytes
+
+A file above the transport ceiling is split into chunks that go to an S3-compatible store, and
+the vault receives only the chunk list, sealed as an ordinary blob. The author signature already
+covers that list, so the count, the order and every chunk's length are signed with no new object
+type and **no change to the frozen envelope format**. The store never sees a key. Configured per
+profile (`config endpoint --blobstore --bucket --region`); the **credential is read from
+`FT_S3_KEY` / `FT_S3_SECRET` and is never written to the config file**, which is plain JSON.
+
+**A chunk is named by its content, not its position.** `chunks/<blinded-namespace>/<keyed BLAKE3
+of the plaintext>`. This is a correctness rule before it is an optimisation: an upload skips any
+chunk the store already holds, and with a positional name that skip silently drops changed bytes
+— the list still validates and the read returns the previous version. Naming by content also
+makes a second version cost only the chunks that differ, which is what makes keeping full history
+affordable. The hash is **keyed** so the store operator cannot test whether we hold a file they
+already have; the namespace is a one-way function of the principal so collection can walk one
+identity's objects without a listing naming its owner.
+
+Dedup reaches across one identity's own objects and versions. Sharing chunks **between members of
+one environment** needs identical plaintext to seal to identical ciphertext, which is
+`vault42_core::seal_chunk` — per-environment by our user's choice, because tenant-scoped
+convergent encryption leaks which parts of a file changed between versions.
+
+**Collection is mandatory, not optional.** Chunks are never overwritten, so every edit leaves its
+predecessors behind. `vault gc` walks **every version of every manifest**, refuses outright when
+it found no manifests at all (an unread reference set and an empty one are indistinguishable from
+the deletion side), never touches a chunk younger than a grace period (an interrupted push has
+already uploaded chunks no manifest names yet, and collecting them is what makes a resumable
+upload unresumable), and is a dry run unless `--apply`.
+
+`MAX_BLOB` is the chunk size. It previously read 64 MiB while the server decodes with tonic's
+4 MiB default and never raises it, so every payload between the two passed the client's own guard
+and then died at the transport — a guard that converted a clear refusal into a protocol error.
