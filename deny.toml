@@ -1,7 +1,7 @@
 # cargo-deny policy for 42ctl. Vulnerability advisories are denied (a vulnerable dep fails CI);
 # two *unmaintained* (informational, no-fix) advisories are explicitly ignored with rationale.
 # Licenses are allowlisted to OSI-permissive + the project's own AGPL. Wildcard versions are
-# tolerated only because our two intra-platform deps are git deps pinned to an immutable tag.
+# tolerated only because our two intra-platform deps are git deps pinned to an immutable commit.
 
 [advisories]
 version = 2
@@ -37,8 +37,14 @@ confidence-threshold = 0.9
 # Transitive version churn (thiserror 1+2, windows-sys, …) is a warning, not a failure.
 multiple-versions = "warn"
 # Our vault42-core/-proto git deps carry no version requirement, so cargo-deny sees them as
-# wildcards — but they are pinned to an immutable git tag (v0.1.2), so the unpinned-version risk
-# the check guards against does not apply. Warn, don't fail.
+# wildcards — but they are pinned to `rev = "91c7c47"`, a content-addressed commit that cannot be
+# moved, so the unpinned-version risk the check guards against does not apply. Warn, don't fail.
+#
+# This used to claim an "immutable git tag (v0.1.2)", which was wrong twice over: that tag exists
+# but nothing is pinned to it, and a tag is a movable ref anyway — a force-push relocates it, so a
+# tag pin is strictly weaker than the rev pin actually in use. `pin-91c7c47` exists to keep that
+# commit reachable from a ref so a rebase cannot garbage-collect it, which is reachability rather
+# than immutability. Do not "fix" the manifest to track the tag; that would weaken the pin.
 wildcards = "warn"
 
 [sources]
