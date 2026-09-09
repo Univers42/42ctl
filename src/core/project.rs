@@ -13,7 +13,8 @@
 //! Project discovery + file scan. A project is rooted where a `.42ctl/` marker lives;
 //! the stable `project_id` (shared across machines to pull) is kept in
 //! `.42ctl/project.json`. `scan` walks the tree for files matching the configured
-//! patterns (`*.env*`, `*.secrets`), skipping `.42ctl/` and symlinks.
+//! patterns (`*.env*`, `*.secrets`), skipping `.42ctl/` and symlinks, and takes EVERY
+//! regular file under a directory named `secrets/` regardless of the patterns.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -61,6 +62,13 @@ pub fn open(start: &Path, explicit_id: Option<&str>) -> anyhow::Result<(Project,
     Ok((mk(root, &project_id, default_patterns()), true))
 }
 
+/// Whether the project root is itself a secret directory, so `scan` starts with `all` set.
+fn is_secret_dir_root(root: &Path) -> bool {
+    root.file_name()
+        .map(|n| is_secret_dir(&n.to_string_lossy()))
+        .unwrap_or(false)
+}
+
 /// Construct a Project value.
 fn mk(root: PathBuf, project_id: &str, patterns: Vec<String>) -> Project {
     Project {
@@ -78,7 +86,12 @@ pub fn default_patterns() -> Vec<String> {
 /// Scan the project tree for matching files (skips `.42ctl/` + symlinks), path-sorted.
 pub fn scan(project: &Project) -> anyhow::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
-    walk(&project.root, &project.patterns, &mut out)?;
+    walk(
+        &project.root,
+        &project.patterns,
+        is_secret_dir_root(&project.root),
+        &mut out,
+    )?;
     out.sort();
     Ok(out)
 }
@@ -108,6 +121,25 @@ fn skip_dir(name: &str) -> bool {
     name == MARKER_DIR || SKIP_DIRS.contains(&name)
 }
 
+/// Directories whose every regular file is a secret, matched by directory name at any depth.
+///
+/// The patterns are file-NAME globs, so they cannot see these files at all. Docker Compose
+/// mounts secrets by path out of a `secrets/` directory, and those files are named for what
+/// they hold — `db_password.txt`, `server.crt`, `server.key` — never for the fact that they
+/// are secret. Nothing about a name-only scan can be widened to cover that, because there is
+/// no name to widen to.
+///
+/// Measured against the real Inception project on the deployed vault: `push` sealed two files,
+/// skipped six including a TLS private key, printed `pushed 2 file(s)` and exited 0. The pull
+/// on the other machine then restored a project that could not start, and no step of that
+/// reported an error.
+const SECRET_DIRS: &[&str] = &["secrets", ".secrets"];
+
+/// Whether every regular file under a directory called `name` is a secret.
+fn is_secret_dir(name: &str) -> bool {
+    SECRET_DIRS.contains(&name)
+}
+
 /// Whether a *matched* file should still be skipped: deliberately-stale (`*.stale`)
 /// or backup (`*.bak*`) copies that shadow a real env file and are not real secrets.
 fn skip_file(name: &str) -> bool {
@@ -115,7 +147,11 @@ fn skip_file(name: &str) -> bool {
 }
 
 /// Recursively collect matching files, skipping the marker + build/dep dirs + symlinks.
-fn walk(dir: &Path, patterns: &[String], out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+///
+/// `all` is set once the walk is inside a secret directory and stays set below it, so a
+/// `secrets/tls/server.key` is taken as surely as a `secrets/db_password.txt`. The skip list
+/// still applies underneath, so a `secrets/node_modules` is not swept into the vault.
+fn walk(dir: &Path, patterns: &[String], all: bool, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let meta = entry.metadata()?;
@@ -125,9 +161,9 @@ fn walk(dir: &Path, patterns: &[String], out: &mut Vec<PathBuf>) -> anyhow::Resu
         }
         if meta.is_dir() {
             if !skip_dir(&name) {
-                walk(&entry.path(), patterns, out)?;
+                walk(&entry.path(), patterns, all || is_secret_dir(&name), out)?;
             }
-        } else if matches(&name, patterns) && !skip_file(&name) {
+        } else if (all || matches(&name, patterns)) && !skip_file(&name) {
             out.push(entry.path());
         }
     }
@@ -148,5 +184,118 @@ fn glob_match(name: &str, pattern: &str) -> bool {
         (true, false) => name.ends_with(core),
         (false, true) => name.starts_with(core),
         (false, false) => name == core,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a throwaway tree and return its root.
+    fn tree(tag: &str, files: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("42ctl-scan-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for rel in files {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().expect("has a parent")).expect("mkdir");
+            std::fs::write(&path, b"x").expect("write");
+        }
+        root
+    }
+
+    fn scan_names(root: &Path) -> Vec<String> {
+        let project = mk(root.to_path_buf(), "test", default_patterns());
+        let mut names: Vec<String> = scan(&project)
+            .expect("scan")
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .expect("under root")
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The whole `secrets/` tree is taken, and this is the case that was silently lost.
+    ///
+    /// These are Inception's six real secret files. Not one of them matches `*.env*` or
+    /// `*.secrets`, because they are named for what they hold. Before this, `push` sealed
+    /// `srcs/.env`, skipped all six, printed `pushed 2 file(s)` and exited 0.
+    #[test]
+    fn every_file_under_a_secrets_directory_is_scanned() {
+        let root = tree(
+            "secrets",
+            &[
+                "srcs/.env",
+                "secrets/credentials.txt",
+                "secrets/db_password.txt",
+                "secrets/db_root_password.txt",
+                "secrets/ftp_password.txt",
+                "secrets/server.crt",
+                "secrets/server.key",
+            ],
+        );
+        let found = scan_names(&root);
+        for want in [
+            "secrets/credentials.txt",
+            "secrets/db_password.txt",
+            "secrets/db_root_password.txt",
+            "secrets/ftp_password.txt",
+            "secrets/server.crt",
+            "secrets/server.key",
+        ] {
+            assert!(found.iter().any(|f| f == want), "{want} was not scanned");
+        }
+        assert!(
+            found.iter().any(|f| f == "srcs/.env"),
+            "positive control: the pattern-matched file must still be found, \
+             or this test proves nothing about the directory rule"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Nested directories under `secrets/` stay covered, and the skip list still applies
+    /// underneath so a dependency tree that happens to sit there is not swept into the vault.
+    #[test]
+    fn a_secrets_directory_covers_its_subtree_but_not_the_skip_list() {
+        let root = tree(
+            "nested",
+            &[
+                "secrets/tls/server.key",
+                "secrets/node_modules/pkg/leftover.pem",
+            ],
+        );
+        let found = scan_names(&root);
+        assert!(
+            found.iter().any(|f| f == "secrets/tls/server.key"),
+            "a nested secret must still be scanned, got {found:?}"
+        );
+        assert!(
+            !found.iter().any(|f| f.contains("node_modules")),
+            "a dependency tree under secrets/ must not be swept in, got {found:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file that merely mentions the word is not a secret directory, and an ordinary
+    /// directory is still scanned by pattern alone.
+    #[test]
+    fn only_a_directory_named_secrets_widens_the_scan() {
+        assert!(is_secret_dir("secrets"));
+        assert!(is_secret_dir(".secrets"));
+        for other in ["secret", "secretsx", "my-secrets", "Secrets", "SECRETS"] {
+            assert!(!is_secret_dir(other), "{other} must not widen the scan");
+        }
+        let root = tree("plain", &["conf/db_password.txt", "conf/app.env"]);
+        let found = scan_names(&root);
+        assert_eq!(
+            found,
+            vec!["conf/app.env".to_string()],
+            "outside a secrets/ directory the name patterns still decide"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
