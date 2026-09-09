@@ -4,6 +4,7 @@
 //! whether a contract is bound), `status` reports whether this profile is logged in, and
 //! `logout` clears the saved contract. The private key never leaves the machine.
 
+use crate::adapters::rbac::account;
 use crate::adapters::{address, authority, creds, github_device, otp, passphrase, session};
 use crate::cli::Auth;
 use crate::profile::Config;
@@ -28,10 +29,50 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
                 login(profile, tenant, token.as_deref(), email.as_deref()).await
             }
         }
+        Auth::Signup { email } => signup(profile, email).await,
+        Auth::Passwd => passwd(profile).await,
+        Auth::Me => me(profile).await,
         Auth::Whoami => whoami(profile),
         Auth::Status => status(profile),
         Auth::Logout => logout(profile),
     }
+}
+
+/// Create an account on the authority. The password is prompted twice and never echoed.
+///
+/// Signup does not log in: the account exists afterwards and the caller still has to log in
+/// for a session, so a failed signup never leaves a half-authenticated profile behind.
+async fn signup(profile: &str, email: &str) -> anyhow::Result<()> {
+    let base = Config::load()?.endpoint(profile)?.otp_base().to_string();
+    let password = passphrase::prompt_new_secret("password")?;
+    let created = account::signup(&base, email, &password).await?;
+    ui::field("account", &created.account_id);
+    ui::success(&format!("registered {email} — log in to obtain a session"));
+    Ok(())
+}
+
+/// Change this account's password, which revokes every session including this one.
+async fn passwd(profile: &str) -> anyhow::Result<()> {
+    let (base, token) = session::connect(profile)?;
+    let current = passphrase::prompt_secret("current password")?;
+    let fresh = passphrase::prompt_new_secret("new password")?;
+    account::passwd(&base, &token, &current, &fresh).await?;
+    session::clear(profile)?;
+    ui::success("password changed — every session was revoked, log in again");
+    Ok(())
+}
+
+/// Show the account the saved session belongs to.
+async fn me(profile: &str) -> anyhow::Result<()> {
+    let (base, token) = session::connect(profile)?;
+    let who = account::me(&base, &token).await?;
+    ui::field("account", &who.account_id);
+    ui::field("email", &who.email);
+    ui::field(
+        "second factor",
+        if who.mfa_required { "required" } else { "off" },
+    );
+    Ok(())
 }
 
 /// Log in to grobase via the GitHub device flow and save the minted session token. No

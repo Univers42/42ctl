@@ -175,6 +175,7 @@ qa_actor() {
 		-e FT_SESSION=/state/session.tok \
 		-e FT_S3_KEY="$QA_S3_KEY" \
 		-e FT_S3_SECRET="$QA_S3_SECRET" \
+		-e FT_PASSWORD="${QA_ACCOUNT_PASSWORD:-}" \
 		"$QA_IMG" sh -c "
 			set -e
 			B=/work/target/debug/42ctl

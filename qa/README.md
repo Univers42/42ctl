@@ -109,7 +109,7 @@ asserts it is left git-clean.
 | `s14-large-payloads` | the payload ceiling, oversize refusal, chunked sizes, archives |
 | `s15-submodule-orchestrator` | a root repo with submodules, restored into each submodule |
 | `s16-multi-user-transfer` | handing a credential to a teammate, and who cannot read it |
-| `s20-accounts-and-passwords` | accounts, passwords, irreversible account deletion |
+| `s20-accounts-and-passwords` | accounts, passwords, irreversible account deletion, end to end |
 | `s21-org-team-invites` | the standalone org model, route by route |
 | `s22-pop-injectivity` | signature-message injectivity |
 | `s23-org-lifecycle-scenario` | sign up, found an org, invite, join, and every refusal |

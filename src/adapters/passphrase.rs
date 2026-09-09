@@ -27,6 +27,33 @@ pub fn prompt_passphrase() -> anyhow::Result<Zeroizing<String>> {
     Ok(Zeroizing::new(rpassword::prompt_password("passphrase: ")?))
 }
 
+/// Prompt once for a secret that is not the keystore passphrase, labelled by `what`.
+///
+/// A separate environment variable from `FT_PASSPHRASE` on purpose: an account password and
+/// a keystore passphrase are different secrets, and one variable serving both would silently
+/// make them the same in every automated run.
+pub fn prompt_secret(what: &str) -> anyhow::Result<Zeroizing<String>> {
+    if let Ok(secret) = std::env::var("FT_PASSWORD") {
+        return Ok(Zeroizing::new(secret));
+    }
+    Ok(Zeroizing::new(rpassword::prompt_password(format!(
+        "{what}: "
+    ))?))
+}
+
+/// Prompt twice for a new secret labelled by `what` and require the two to match.
+pub fn prompt_new_secret(what: &str) -> anyhow::Result<Zeroizing<String>> {
+    if let Ok(secret) = std::env::var("FT_PASSWORD") {
+        return Ok(Zeroizing::new(secret));
+    }
+    let first = rpassword::prompt_password(format!("{what}: "))?;
+    let second = rpassword::prompt_password(format!("confirm {what}: "))?;
+    if first != second {
+        anyhow::bail!("the two entries do not match");
+    }
+    Ok(Zeroizing::new(first))
+}
+
 /// Prompt twice for a new passphrase and require a match (`$FT_PASSPHRASE` bypasses).
 pub fn prompt_new_passphrase() -> anyhow::Result<Zeroizing<String>> {
     if let Ok(passphrase) = std::env::var("FT_PASSPHRASE") {

@@ -53,14 +53,18 @@ $C42 cargo test adapters::scope       # scope-id + member-id derivation
 Before tagging: `sh scripts/release-dryrun.sh vX.Y.Z` — read-only except for a containerized release
 build, and it hard-fails if the `Cargo.toml` version does not equal the tag minus its `v`.
 
-### The verify gates
+### The QA battery, and the older verify gates
 
-`scripts/verify/v10-secret-sync.sh` … `v13-github-cli.sh` are the real end-to-end coverage: they
-stand up a `vault42-server` in Docker and drive push/pull, notes, merge, and the GitHub verbs against
-it. **Both of their defaults are wrong on this machine** — they need
-`RUST_TOOLCHAIN_IMG` (the default `mini-baas-rust-toolchain:latest` is absent) and `VAULT42_DIR`
-(the hardcoded default path does not exist; the sibling checkout is `../vault42`). Unlike vault42's
-gates these **exit 1 rather than skip**, so a missing prerequisite reads as a failure.
+`./qa/run.sh` is the real end-to-end coverage: 22 specs standing up vault42-server, the authority
+and a MinIO chunk store in Docker. Its exit status counts REGRESSIONS ONLY, so it works as a merge
+gate while `assert_spec` assertions stay red on purpose. `QA_SHUFFLE=1` randomises the order —
+use it, because two specs have already passed only because of what ran before them. `qa/README.md`
+has the rules; the one that matters most is that an absence assertion must prove its haystack.
+
+`scripts/verify/v10-secret-sync.sh` … `v13-github-cli.sh` predate it and still work, but **both
+their defaults are wrong on this machine**: they need `RUST_TOOLCHAIN_IMG` (the default image is
+absent) and `VAULT42_DIR` (the sibling checkout is `../vault42`), and they **exit 1 rather than
+skip**, so a missing prerequisite reads as a failure.
 
 ## Architecture
 
@@ -125,6 +129,18 @@ skip into silent corruption, since the changed bytes never upload and the read r
 previous version. `vault gc` walks **every** manifest version, refuses when it found none, and
 never collects a chunk inside its grace period. See `DECISIONS.md` D11.
 
+### Accounts (`auth signup` / `passwd` / `me`, `account delete`)
+
+Password-backed accounts on the authority, distinct from the local Ed25519 identity. Passwords
+are prompted through `adapters/passphrase.rs` and never echoed; `FT_PASSWORD` is the CI knob and
+is deliberately NOT `FT_PASSPHRASE`, which is the keystore secret — one variable serving both
+would silently make them the same in every automated run.
+
+`account delete` is the only irreversible verb. It refuses without `--yes`, and the refusal
+names both what is lost and the flag, since a refusal an operator cannot act on is one they work
+around. The request carries no account id, so there is no way to spell somebody else's; removing
+another person is an org membership decision under `org`, where the role check lives.
+
 ### Scope keys — the grobase ↔ vault42 bridge
 
 Shared per-environment secrets. The admin runs `vault env-init` (generate the scope keyset at epoch
@@ -182,9 +198,9 @@ Vendored rules live in `.claude/rules/`; there is no `.claude/AGENTS.md` in this
 
 ### Env knobs
 
-`FT_PROFILE`, `FT_CONFIG`, `FT_KEYSTORE`, `FT_CONTRACT`, `FT_SESSION`, `FT_PASSPHRASE`,
-`FT_LOGIN_EMAIL`, `FT_REGISTER_TOKEN`. `FT_GIT_SHA` is stamped at build time by `build.rs` and is
-what `42ctl version` reports alongside `CARGO_PKG_VERSION`.
+`cli.rs::HOWTO` lists the operator-facing ones. Two more matter here: `FT_GIT_SHA` is stamped by
+`build.rs` and is what `42ctl version` reports, and `FT_PASSWORD` (account) is deliberately not
+`FT_PASSPHRASE` (keystore) — one variable for both would make them the same secret in CI.
 
 ### Git
 

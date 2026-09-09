@@ -19,6 +19,7 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+pub mod account;
 pub mod env;
 pub mod grant;
 pub mod group;
@@ -243,6 +244,35 @@ pub async fn get_json<R: DeserializeOwned>(
         .await?;
     fail_on_error(&resp, path)?;
     Ok(resp.json::<R>().await?)
+}
+
+/// POST `path` with `body` on a route that takes no credential, decoding the JSON reply.
+///
+/// Separate from `post_json` rather than passing an empty token: `bearer_auth("")` sends a
+/// malformed Authorization header, which a stricter server is entitled to reject and which
+/// would fail as an authentication error on a route that never wanted one.
+pub async fn post_public<B: Serialize, R: DeserializeOwned>(
+    base: &str,
+    path: &str,
+    body: &B,
+) -> anyhow::Result<R> {
+    let resp = reqwest::Client::new()
+        .post(url(base, path))
+        .json(body)
+        .send()
+        .await?;
+    fail_on_error(&resp, path)?;
+    Ok(resp.json::<R>().await?)
+}
+
+/// DELETE `path` for its side effect only — error on a non-2xx, ignore the body.
+pub async fn delete_unit(grobase: &str, token: &str, path: &str) -> anyhow::Result<()> {
+    let resp = reqwest::Client::new()
+        .delete(url(grobase, path))
+        .bearer_auth(token)
+        .send()
+        .await?;
+    fail_on_error(&resp, path)
 }
 
 /// Join `grobase` and `path` into one URL, collapsing a trailing slash on the base.

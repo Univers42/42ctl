@@ -54,9 +54,26 @@ A SECOND MACHINE (carry your identity, no file copy):
 NOTES (small encrypted project notes that ride the same vault):
   42ctl note add --project <name> <title>     # then note get/ls/rm
 
+BIG FILES (anything over ~4 MiB — archives, dumps, certificates, data volumes):
+  # The vault keeps the keys; the bytes go to object storage as encrypted chunks.
+  export FT_S3_KEY=... FT_S3_SECRET=...       # never written to the config file
+  42ctl config endpoint --blobstore https://<s3-host> --bucket <name>
+  42ctl push                                  # large files are chunked and resumable
+  42ctl vault gc                              # DRY-RUN: chunks no version still needs
+  42ctl vault gc --apply                      # remove them
+  # Without --blobstore an oversized file is REFUSED, never half-transferred.
+
+ACCOUNT:
+  42ctl auth signup --email you@example.com   # prompts for a password, never echoed
+  42ctl auth me                               # who the saved session belongs to
+  42ctl auth passwd                           # revokes every session, including this one
+  42ctl account delete --yes                  # IRREVERSIBLE; refuses without --yes
+
 ENV KNOBS:
   FT_PROFILE      select an org/environment (also --profile)
   FT_PASSPHRASE   non-interactive passphrase (CI); otherwise prompted, never echoed
+  FT_PASSWORD     non-interactive ACCOUNT password (CI) — a different secret to the above
+  FT_S3_KEY/FT_S3_SECRET   object-store credential for large files
   FT_CONFIG       config path (default ~/.config/42ctl/config.json); tokens sit beside it
 
 SECURITY: all plaintext crypto is LOCAL. The server never sees a key or a plaintext secret.
@@ -98,6 +115,9 @@ pub enum Command {
     /// Profiles and endpoints (orgs / environments).
     #[command(subcommand)]
     Config(Config),
+    /// The calling account itself, including its irreversible deletion.
+    #[command(subcommand)]
+    Account(Account),
     /// Org-scoped operations (create, members, invites, GitHub App connect / link / sync).
     #[command(subcommand)]
     Org(Org),
@@ -161,12 +181,39 @@ pub enum Auth {
         #[arg(long)]
         github: bool,
     },
+    /// Create an account on the authority with an email and a password.
+    Signup {
+        #[arg(long, env = "FT_LOGIN_EMAIL")]
+        email: String,
+    },
+    /// Change this account's password, which revokes every session it has.
+    Passwd,
+    /// Show the account the saved session belongs to.
+    Me,
     /// Clear the saved contract/token for this profile.
     Logout,
     /// Show the current principal + tenant.
     Whoami,
     /// Show authentication status for this profile.
     Status,
+}
+
+/// `account` subcommands.
+#[derive(Subcommand)]
+pub enum Account {
+    /// Show the calling account: its id, its email and whether a second factor is required.
+    Show,
+    /// Permanently delete the calling account.
+    ///
+    /// IRREVERSIBLE. This erases the account, every session it holds and its organization
+    /// memberships, and nothing restores it afterwards. Secrets sealed to the local identity
+    /// stay sealed to a key the account no longer authorises, so they become unreachable.
+    /// Refuses unless --yes is given.
+    Delete {
+        /// Confirm that the deletion is irreversible and should proceed.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// `keys` subcommands.
