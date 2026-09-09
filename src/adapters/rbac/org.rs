@@ -24,6 +24,14 @@ pub async fn create(grobase: &str, token: &str, slug: &str, name: &str) -> anyho
 }
 
 /// List `org`'s members (`GET /v1/orgs/{org}/members`).
+/// Read one organization, resolving a slug to its canonical id (`GET /v1/orgs/{org}`).
+///
+/// Proof of possession is signed over the organization's ID, never over the alias the user
+/// typed, so a caller must resolve first or its signature will not verify.
+pub async fn show(grobase: &str, token: &str, org: &str) -> anyhow::Result<Org> {
+    rbac::get_json(grobase, token, &format!("/v1/orgs/{org}")).await
+}
+
 pub async fn members(grobase: &str, token: &str, org: &str) -> anyhow::Result<Vec<Member>> {
     let path = format!("/v1/orgs/{org}/members");
     rbac::get_json(grobase, token, &path).await

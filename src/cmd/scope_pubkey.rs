@@ -12,16 +12,24 @@
 
 //! Member pubkey registration + proof-of-possession.
 //!
-//! `pubkey_sig` is an Ed25519 signature over a canonical, LENGTH-FRAMED message binding the
-//! user id, the organization id, and the X25519 public key being registered.
+//! `pubkey_sig` is an Ed25519 signature over `vault42_core::pop_message`, a canonical
+//! LENGTH-FRAMED message binding the user id, the organization id, and the X25519 public key
+//! being registered.
 //!
-//! The framing is load-bearing. The previous message was a bare concatenation of the three
-//! values, which is not injective: user_id "alice" in org "acme" and user_id "alicea" in org
-//! "cme" produce identical bytes, so one member's proof verified as another's. Organization
-//! slugs are user-chosen, so an attacker could pick a slug that made their pairing collide
-//! with a victim's. Each field is now length-prefixed, exactly as `vault42-core`'s canonical
-//! AAD frames its fields and for the same reason, and the message carries a domain tag so a
-//! proof-of-possession signature can never be replayed as an envelope-author signature.
+//! The framing is load-bearing. The message was once a bare concatenation of the three values,
+//! which is not injective: user "alice" in org "acme" and user "alicea" in org "cme" produce
+//! identical bytes, so one member's proof verified as another's. Organization slugs are
+//! user-chosen, so an attacker could pick a slug that made their pairing collide with a
+//! victim's. Every field now carries its own length, and a domain tag stops a proof of
+//! possession verifying as an envelope-author signature.
+//!
+//! The message is built by `vault42-core`, not here. This signer and the authority's verifier
+//! call one definition, so they cannot drift apart — which a copy on each side eventually
+//! would, silently, each half internally consistent while no longer agreeing.
+//!
+//! It binds the organization's canonical **id**, resolved via `GET /v1/orgs/{org}`, never the
+//! alias the user typed. Two aliases for one organization would otherwise yield two different
+//! valid proofs for the same key, and the authority verifies against the id.
 //!
 //! The caller's user id comes from `GET /v1/auth/me`, not from decoding a `sub` claim out of
 //! the session token. The identity is asserted by the server that issued the session rather
@@ -31,31 +39,7 @@ use crate::adapters::rbac::{self, pubkey, MemberPubkey};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use serde_json::json;
-use vault42_core::{sign_request, verify_request, Identity};
-
-/// Domain tag: a proof of possession must never verify as any other kind of signature.
-const POP_DOMAIN: &[u8] = b"vault42/pop/v1";
-
-/// Append one length-prefixed field: `<len> ':' <value> '\n'`.
-fn frame(out: &mut Vec<u8>, value: &[u8]) {
-    out.extend_from_slice(value.len().to_string().as_bytes());
-    out.push(b':');
-    out.extend_from_slice(value);
-    out.push(b'\n');
-}
-
-/// The canonical proof-of-possession message, injectively framed.
-///
-/// Every field carries its own length, so no choice of values can shift bytes across a
-/// field boundary and no two distinct triples can produce the same message.
-fn pop_message(user_id: &str, org_id: &str, x25519_pub_b64: &str) -> Vec<u8> {
-    let mut msg = Vec::with_capacity(64 + user_id.len() + org_id.len() + x25519_pub_b64.len());
-    frame(&mut msg, POP_DOMAIN);
-    frame(&mut msg, user_id.as_bytes());
-    frame(&mut msg, org_id.as_bytes());
-    frame(&mut msg, x25519_pub_b64.as_bytes());
-    msg
-}
+use vault42_core::{pop_message, sign_request, verify_request, Identity};
 
 /// Register the caller's OWN public keys (idempotent). Signs the canonical
 /// proof-of-possession with the identity's Ed25519 key so `sync-keys` can verify it.
@@ -68,7 +52,11 @@ pub async fn register_self(
     let x25519 = STANDARD.encode(identity.encryption_public().to_bytes());
     let ed25519 = STANDARD.encode(identity.author_public().to_bytes());
     let user_id = rbac::me(grobase, token).await?.account_id;
-    let sig = sign_request(identity.signing_key(), &pop_message(&user_id, org, &x25519));
+    let org_id = rbac::org::show(grobase, token, org).await?.id;
+    let sig = sign_request(
+        identity.signing_key(),
+        &pop_message(&user_id, &org_id, &x25519),
+    );
     let body = json!({
         "x25519_pub": x25519,
         "ed25519_pub": ed25519,
@@ -79,8 +67,9 @@ pub async fn register_self(
     Ok(())
 }
 
-/// Verify a fetched member's proof-of-possession: the `pubkey_sig` must be a valid Ed25519
-/// signature by `ed25519_pub` over `user_id ‖ org_id ‖ x25519_pub`. Returns `false` on any
+/// Verify a fetched member's proof of possession against the organization's canonical id.
+///
+/// `org_id` must be the id, not a slug — the same value the signer used. Returns `false` on any
 /// malformed field so a bad pubkey is skipped, never wrapped to.
 pub fn verify_member(pk: &MemberPubkey, org_id: &str) -> bool {
     let (Ok(ed), Ok(sig)) = (

@@ -142,7 +142,7 @@ async fn build_rewrap(
     let Ok(pk) = pubkey::get(&ctx.grobase, &ctx.token, &ctx.org, user).await else {
         return Ok(None);
     };
-    if !scope_pubkey::verify_member(&pk, &ctx.org) {
+    if !scope_pubkey::verify_member(&pk, &ctx.org_id) {
         return Ok(None);
     }
     let member_pub = scope::x25519_pub(&pk.x25519_pub)?;

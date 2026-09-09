@@ -17,17 +17,23 @@
 //! init flow lives in `scope_init`, the sync/status flows in `scope_sync`.
 
 use crate::adapters::api::Session;
-use crate::adapters::rbac::{grant, pubkey};
+use crate::adapters::rbac::{grant, org, pubkey};
 use crate::adapters::session;
 use crate::cli::Vault;
 use crate::cmd::{scope_init, scope_rotate, scope_secret, scope_status, scope_sync};
 
-/// The resolved orchestration context: the grobase base URL + session token and the
-/// project/env identifiers a scope verb operates on (org id, project UUID, env id, name).
+/// The resolved orchestration context: the base URL + session token and the project/env
+/// identifiers a scope verb operates on.
+///
+/// `org` is the reference the user typed and is what goes into REST paths, which accept either
+/// a slug or an id. `org_id` is the canonical id, resolved once here, and is the ONLY value
+/// valid in a proof-of-possession message: the authority verifies against the id, so signing
+/// or verifying over a slug produces bytes it never builds.
 pub struct Ctx {
     pub grobase: String,
     pub token: String,
     pub org: String,
+    pub org_id: String,
     pub project: String,
     pub env_id: String,
     pub env_name: String,
@@ -81,10 +87,12 @@ async fn resolve(profile: &str, org: &str, project: &str, env: &str) -> anyhow::
         .into_iter()
         .find(|e| e.name == env)
         .ok_or_else(|| anyhow::anyhow!("no environment '{env}' in project '{project}'"))?;
+    let org_id = org::show(&grobase, &token, org).await?.id;
     Ok(Ctx {
         grobase,
         token,
         org: org.to_string(),
+        org_id,
         project: project.to_string(),
         env_id: found.id,
         env_name: env.to_string(),

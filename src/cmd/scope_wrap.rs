@@ -44,7 +44,7 @@ pub async fn provision(
     let Some(pk) = fetch_pubkey(ctx, user).await? else {
         return Ok(false);
     };
-    if !scope_pubkey::verify_member(&pk, &ctx.org) {
+    if !scope_pubkey::verify_member(&pk, &ctx.org_id) {
         return Ok(false);
     }
     deposit(session, sref, &pk).await?;
