@@ -110,8 +110,22 @@ assert_green "the authority refuses to start rather than minting a new signing k
 # something that cannot work; it needs a tcp check or a gRPC health service instead.
 assert_green "the control plane's deployment configures a health check" \
 	-- bash -c 'grep -q "checks" "$1/fly.authority.toml"' _ "$V42"
-assert_spec "the gRPC server's deployment configures a liveness check" \
-	-- bash -c 'grep -qE "tcp_checks|grpc_checks|\[\[services.tcp_checks\]\]" "$1/fly.toml"' _ "$V42"
+# Pinned to the REQUIREMENT, not to a spelling. The first version grepped for `tcp_checks`,
+# fly's older syntax; the check that landed uses a top-level [checks] block, so a real check
+# read as no check at all. A check block alone proves nothing either — one polling a port
+# nothing serves passes forever and reports healthy — so it must poll the port the service
+# declares.
+#
+# The port match is anchored. Unanchored, `port = 8443` was satisfied by the very
+# `internal_port = 8443` line the number came from, so moving the check to a dead port left
+# the assertion green. Broken on purpose both ways before being trusted.
+assert_green "the gRPC server's deployment configures a liveness check on the port it serves" \
+	-- bash -c 'grep -qE "^\[checks\]|tcp_checks|grpc_checks|type *= *\"tcp\"" "$1/fly.toml" ||
+			{ printf "no check block at all\n"; exit 1; }
+		port=$(grep -oE "internal_port *= *[0-9]+" "$1/fly.toml" | grep -oE "[0-9]+" | head -1)
+		[ -n "$port" ] || { printf "no internal_port to check the check against\n"; exit 1; }
+		grep -qE "^[[:space:]]*port *= *$port" "$1/fly.toml" ||
+			{ printf "a check exists but does not poll port %s\n" "$port"; exit 1; }' _ "$V42"
 assert_spec "a storage failure carries its cause instead of being discarded" \
 	-- bash -c '! grep -q "map_err(|_| StoreError::Sql)" "$1/crates/vault42-server/src/store.rs"' _ "$V42"
 

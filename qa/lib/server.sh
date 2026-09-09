@@ -23,10 +23,25 @@ set -uo pipefail
 # Pick a free host port rather than hardcoding one. Docker can leak a docker-proxy
 # process that keeps holding a published port after its container is gone, and a fixed
 # port turns that daemon-level leak into a permanent, confusing red.
+# Whether something is already listening on a port.
+#
+# `ss` when it is available, and a connect attempt through bash's own /dev/tcp when it is
+# not. Without the fallback a missing `ss` makes every probe report "free", so every suite
+# picks the same first port and the collision surfaces as docker's "port is already
+# allocated" — which reads as an infrastructure fault rather than as a port conflict, and
+# costs whoever hits it the time to work out it was neither.
+qa_port_taken() {
+	if command -v ss >/dev/null 2>&1; then
+		ss -ltn 2>/dev/null | grep -q ":$1 "
+		return
+	fi
+	(exec 3<>/dev/tcp/127.0.0.1/"$1") >/dev/null 2>&1
+}
+
 qa_pick_host_port() {
 	local p
 	for p in $(seq "${1:-18443}" $(( ${1:-18443} + 80 ))); do
-		ss -ltn 2>/dev/null | grep -q ":$p " && continue
+		qa_port_taken "$p" && continue
 		printf '%s' "$p"
 		return 0
 	done
@@ -375,7 +390,7 @@ qa_probe_route() {
 # negated call — `! qa_actor ...` — becomes a false GREEN, because the missing command
 # also exits non-zero. Exporting them centrally is the fix; adding them one at a time
 # as each bites is not.
-export -f qa_probe_route qa_base qa_adopt_running_ports
+export -f qa_probe_route qa_base qa_adopt_running_ports qa_port_taken qa_pick_host_port
 export -f qa_actor qa_actor_reset qa_server_is_up qa_authority_is_up qa_dump_server_db
 export -f qa_api qa_json qa_signup qa_login qa_code qa_actor_token qa_actor_account
 export QA_HOST_PORT QA_AUTH_HOST_PORT QA_AUTHORITY_BASE QA_IMG C42_ROOT
