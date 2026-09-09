@@ -137,15 +137,56 @@ assert_green "the mismatch is reported to the operator with what to do about it"
 # compares the key against what the environment advertises and names the problem. What
 # remains is that anyone with an account can overwrite a member's wrap and lock them out
 # until an administrator reconciles.
+# The first version asserted the ABSENCE of a comment saying the caller need not own the
+# member id, so the way to clear the red was to delete the comment. That is the purest form
+# of an assertion testing text near a property instead of the property: the honest note
+# describing the gap was the only thing holding the red, and removing it changed nothing
+# about who may deposit.
+#
+# It now looks for the guard, with comments stripped: the handler must relate the caller to
+# the member id it is writing under. Verified against three versions — today's, today's with
+# that comment reworded away, and one carrying an ownership check — and only the last is
+# green.
+#
+# The behavioural version would have actor A deposit a wrap into actor B's namespace and
+# require a refusal, and it is NOT written because 42ctl offers no verb that makes that
+# request. `sync-keys` is the only path and it needs the scope secret, which a non-member
+# cannot recover — so the test would go red for the missing secret and prove nothing about
+# the deposit check. Building the hostile request into the product to test for it would be
+# worse than the static assertion.
+assert_green "the wrap-deposit handler is where this spec looks for it" \
+	-- bash -c 'sed -n "/async fn op_wrap_scope_key/,/^    }/p" "$1/crates/vault42-server/src/ops_scope.rs" |
+		grep -q "store_one_rewrap"' _ "${VAULT42_DIR:-$C42_ROOT/qa/.cache/vault42}"
 assert_spec "depositing a wrap into another member's namespace is authorized" \
-	-- bash -c '! grep -q "the caller need not own .member_id" "$1/crates/vault42-server/src/ops_scope.rs"' \
+	-- bash -c 'body=$(sed -n "/async fn op_wrap_scope_key/,/^    }/p" "$1/crates/vault42-server/src/ops_scope.rs" | sed "s|//.*||")
+		grep -qE "caller.*member_id|member_id.*caller" <<<"$body"' \
 	_ "${VAULT42_DIR:-$C42_ROOT/qa/.cache/vault42}"
 
-# The derivation takes the project UUID and the environment name only.
-# Defence in depth. Today the derivation is safe only because project ids are globally
-# unique; putting the organisation into the hash would make it safe by construction, so
-# that relaxing project-id uniqueness later could never silently merge two scopes.
+# The derivation takes the project UUID and the environment name only. Defence in depth:
+# today it is safe because project ids are globally unique, and hashing the organisation
+# would make it safe by construction, so relaxing that uniqueness later could never merge
+# two environments' key material under one id. The server cannot detect such a collision —
+# the scope id arrives as an opaque key and every write under it is legitimate.
+#
+# The first version of this grepped the function body for the substring "org", which a
+# COMMENT satisfies. A note reading "the org is deliberately NOT part of this derivation"
+# would have turned it green while documenting the opposite of what it asserts, so someone
+# tidying the function could clear the red by explaining why it is not done. Comments are
+# stripped before the search now, and the search is for the derivation itself: an org in the
+# signature and an org fed to the hasher. Verified against three versions of the function —
+# today's, one carrying exactly that comment, and a plausible fixed one — and only the last
+# is green.
+#
+# The control is a separate GREEN assertion rather than a line inside this one. A spec
+# assertion that is red because the file moved looks exactly like one red because the
+# feature is unbuilt, and that is the failure mode this battery keeps producing.
+assert_green "the scope id derivation is where this spec looks for it" \
+	-- bash -c 'body=$(sed -n "/pub fn scope_id/,/^}/p" "$1/src/adapters/scope.rs")
+		grep -q "pub fn scope_id" <<<"$body" || { printf "scope_id was not found, so the spec below reads nothing\n"; exit 1; }
+		grep -q "hasher.update" <<<"$body"' _ "$C42_ROOT"
 assert_spec "the scope id is namespaced by organisation rather than relying on unique project ids" \
-	-- bash -c 'sed -n "/pub fn scope_id/,/^}/p" "$1/src/adapters/scope.rs" | grep -q "org"' _ "$C42_ROOT"
+	-- bash -c 'body=$(sed -n "/pub fn scope_id/,/^}/p" "$1/src/adapters/scope.rs" | sed "s|//.*||")
+		grep -qE "pub fn scope_id\(.*org" <<<"$body" || exit 1
+		grep -qE "hasher\.update\([^)]*org" <<<"$body"' _ "$C42_ROOT"
 
 spec_end

@@ -134,8 +134,19 @@ assert_green "the deployed server enables the scope-key surface" \
 	-- bash -c 'grep -q "VAULT42_SCOPE_KEYS_ENABLED" "$1/fly.toml"' _ "$V42"
 assert_green "the control plane has a deployment artifact" \
 	-- bash -c 'ls "$1"/deploy/Dockerfile.authority >/dev/null 2>&1 || grep -rql "vault42-authority" "$1"/fly*.toml 2>/dev/null' _ "$V42"
+# Comments stripped, and matched on the ARM rather than the word. `grep "Unimplemented"`
+# over the whole file was satisfiable by a comment or by prose mentioning it, which is the
+# same weakness as asserting a property by the text near it. The control is separate, so a
+# red cannot mean "the hint table moved" while reading as "the hint is missing".
+#
+# The behavioural version would run a scope verb against a server started with
+# VAULT42_SCOPE_KEYS_ENABLED unset and require a hint in the output. Not written: it needs a
+# second server on the opposite flag, and s31's server has the surface on for everything
+# else in this spec.
+assert_green "the CLI's hint table is where this spec looks for it" \
+	-- bash -c 'grep -q "tonic::Code::NotFound" "$1/src/ui.rs"' _ "$C42_ROOT"
 assert_spec "an unimplemented server feature gets an explanatory hint in the CLI" \
-	-- bash -c 'grep -q "Unimplemented" "$1/src/ui.rs"' _ "$C42_ROOT"
+	-- bash -c 'sed "s|//.*||" "$1/src/ui.rs" | grep -qE "Code::Unimplemented *=>"' _ "$C42_ROOT"
 
 # ── build reproducibility ────────────────────────────────────────────────────
 # The client pins the crypto core by commit. If that commit is only reachable from a
