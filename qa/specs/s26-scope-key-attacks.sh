@@ -162,11 +162,16 @@ assert_spec "depositing a wrap into another member's namespace is authorized" \
 		grep -qE "caller.*member_id|member_id.*caller" <<<"$body"' \
 	_ "${VAULT42_DIR:-$C42_ROOT/qa/.cache/vault42}"
 
-# The derivation takes the project UUID and the environment name only. Defence in depth:
-# today it is safe because project ids are globally unique, and hashing the organisation
-# would make it safe by construction, so relaxing that uniqueness later could never merge
-# two environments' key material under one id. The server cannot detect such a collision —
-# the scope id arrives as an opaque key and every write under it is legitimate.
+# The derivation takes the project UUID and the environment name only, so anyone who knows
+# both can COMPUTE a scope id. A derivation an attacker can compute is a namespace an
+# attacker can squat: creating a scope has to be allowed for somebody, and at that instant
+# nobody holds a wrap, so a self-wrap into an unclaimed scope is accepted. Hashing the
+# organisation puts the namespace behind something the attacker must be inside.
+#
+# The server cannot detect a collision either — the scope id arrives as an opaque key and
+# every write under it is legitimate. That also covers the older argument for this: today
+# the derivation is safe only because project ids are globally unique, and relaxing that
+# later would merge two environments' key material under one id with nothing to notice it.
 #
 # The first version of this grepped the function body for the substring "org", which a
 # COMMENT satisfies. A note reading "the org is deliberately NOT part of this derivation"
