@@ -81,7 +81,9 @@ impl Session {
         }
         let pruned = if prune {
             let before = manifest.entries.len();
-            manifest.entries.retain(|e| scanned.contains(&e.relative_path));
+            manifest
+                .entries
+                .retain(|e| scanned.contains(&e.relative_path));
             before - manifest.entries.len()
         } else {
             0
