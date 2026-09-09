@@ -162,8 +162,15 @@ assert_green "the threat model does not claim key rotation that does not exist" 
 	-- bash -c '! grep -q "revocable via key rotation" "$1/THREAT-MODEL.md"' _ "$V42"
 assert_spec "the runbook does not document a seal state that does not exist" \
 	-- bash -c '! grep -q "VAULT42_UNSEAL_SEED" "$1/RUNBOOK.md"' _ "$V42"
+# The CLI half of this reads src/cli/vault.rs, where the Audit variant moved when cli.rs was
+# split. It used to read src/cli.rs: with that file gone, sed errors, the fallback finds
+# nothing, and the assertion fails — in the SAFE direction, but for the wrong reason. A
+# control asserts the variant is where this looks, so "the file moved" cannot masquerade as
+# "the flag is missing".
+assert_green "the audit command is where this spec looks for it" \
+	-- bash -c 'sed -n "/^    Audit {/,/^    }/p" "$1/src/cli/vault.rs" | grep -q since' _ "$C42_ROOT"
 assert_green "the runbook does not document an audit --verify that does not exist" \
 	-- bash -c '! grep -q "audit --verify" "$1/RUNBOOK.md" ||
-		sed -n "/^    Audit {/,/^    }/p" "$2/src/cli.rs" | grep -q verify' _ "$V42" "$C42_ROOT"
+		sed -n "/^    Audit {/,/^    }/p" "$2/src/cli/vault.rs" | grep -q verify' _ "$V42" "$C42_ROOT"
 
 spec_end

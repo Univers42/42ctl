@@ -50,13 +50,12 @@ self-updater; Docker is a separate `buildx` job.
 
 ## D5 — Docker registry (§12d) + signing (§12e) + credentials (§12f)
 
-- **Registry: Docker Hub** (the provisioned `DOCKER_LOGIN`/`DOCKER_PAT`). Multi-arch
+- **Registry: Docker Hub** (`docker.io/dlesieur/*`, pushed with the `DOCK_PAT` repository secret). Multi-arch
   (amd64+arm64), minimal runtime, non-root, cosign-signed, SBOM + provenance attached.
 - **Signing: cosign / sigstore keyless** (GitHub OIDC — no long-lived key to manage); public
   verification instructions published.
-- **Credentials: CI secrets only**, environment-scoped on a protected publish environment with
-  required reviewers; never printed, never committed, never baked into images. Prefer **npm OIDC
-  trusted publishing + `--provenance`** over the long-lived `NPM_TOKEN` where the registry allows.
+- **Credentials: CI secrets only** (the repository secret `DOCK_PAT`); never printed, never
+  committed, never baked into images. Keyless OIDC (cosign, provenance) everywhere else.
 
 ## D6 — Architecture
 
@@ -109,7 +108,48 @@ regeneration reverts SHA pins. All registry/​image publishes are gated behind 
 `publish` GitHub Environment (required reviewers + environment-scoped secrets); cosign is keyless, so
 there is no signing key to leak or rotate.
 
-## D11 — Large objects: the vault keeps the keys, an object store keeps the bytes
+## D11 — Owned release engine: static Linux binaries, `install.sh`, native `update`
+
+Supersedes D4, D8, D9 for the binary channel. `cargo-dist` never shipped a release here (the
+`v0.1.0` run was cancelled; no GitHub Release ever existed), it emitted a workflow we were not
+allowed to edit, and it targeted channels (npm, Homebrew, PowerShell, Windows, macOS) the
+project does not need. Replaced by three small, owned pieces:
+
+- **`release.yml` (ours, SHA-pinned):** a `vX.Y.Z` tag builds **static musl binaries** for
+  `x86_64` and `aarch64` on native GitHub runners (`ubuntu-24.04`, `ubuntu-24.04-arm` — no
+  cross toolchain), refuses a tag whose version differs from `Cargo.toml`, attests SLSA build
+  provenance, writes `SHA256SUMS`, and publishes the GitHub Release. Static musl means one
+  binary per arch runs on every distro (Debian/Ubuntu/Fedora/Arch/Alpine/NixOS) with no libc
+  dependency. Assets are raw binaries (`42ctl-<target>`), not tarballs — one code path for the
+  installer and the updater, no archive crate in the CLI.
+- **`install.sh` (repo root, POSIX sh):** `curl -fsSL …/install.sh | sh`. Detects the arch,
+  resolves the latest tag by following GitHub's `releases/latest` redirect (no API, no rate
+  limit, no token), downloads the asset + `SHA256SUMS`, verifies, installs to `~/.local/bin`
+  (or `/usr/local/bin` as root), fixes `PATH`. A failed check leaves nothing on disk.
+- **`42ctl update` (native, `adapters/github` + `adapters/checksum`):** same discovery, same
+  verification, then an atomic rename over `current_exe()`. No install receipt is needed — it
+  works for any install location the user can write to. `--check` reports, `--version X.Y.Z`
+  pins. `axoupdater` is gone.
+- **`scripts/release.sh`:** the only way a tag is cut — bumps `Cargo.toml` + `Cargo.lock`,
+  commits `release: vX.Y.Z`, tags, pushes over HTTPS with `GH_PAT` read from the environment by a
+  one-shot credential helper (never on a command line).
+
+Consequences: `publish.yml` (npm) is deleted — it consumed a dist-generated package that no
+longer exists. The **`cargo` channel is dropped** (D9's `cargo binstall` relied on dist's
+archive naming). Windows/macOS are out of scope (Linux only; Docker elsewhere).
+
+**Amendment — chaining and the image.** A release created with the job's `GITHUB_TOKEN` emits
+no `release: published` event to other workflows, so `sign-release.yml` and `docker.yml`
+chain on `release.yml` with `workflow_run` and run unattended (the operator asked for a fully
+green, self-approving board; `sign-release` keeps `environment: publish` so reviewers can be
+re-added there). The
+Docker image no longer compiles from source under QEMU: `deploy/Dockerfile.dist` is
+`FROM scratch` + the **released** static musl binary per arch, fetched and SHA-256-verified
+against the release's `SHA256SUMS` inside the build — the image ships the exact attested
+bytes and builds in seconds. The repo-root `Dockerfile` stays the from-source reproducible
+build proven in `ci.yml`.
+
+## D12 — Large objects: the vault keeps the keys, an object store keeps the bytes
 
 A file above the transport ceiling is split into chunks that go to an S3-compatible store, and
 the vault receives only the chunk list, sealed as an ordinary blob. The author signature already
@@ -156,3 +196,4 @@ restoring over local edits is `--at N --apply --force` rather than a silent over
 `MAX_BLOB` is the chunk size. It previously read 64 MiB while the server decodes with tonic's
 4 MiB default and never raises it, so every payload between the two passed the client's own guard
 and then died at the transport — a guard that converted a clear refusal into a protocol error.
+

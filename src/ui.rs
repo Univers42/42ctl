@@ -71,6 +71,55 @@ pub fn dim(text: &str) -> String {
     paint(DIM, text)
 }
 
+/// Bold text for titles.
+pub fn bold(text: &str) -> String {
+    paint(BOLD, text)
+}
+
+/// Bold cyan — section titles and the overview card.
+pub fn title(text: &str) -> String {
+    paint(&format!("{BOLD}{CYAN}"), text)
+}
+
+/// A framed card: `title` in bold over `lines`, all padded to one width. Plain indented
+/// lines when not styled, so piped output stays greppable.
+pub fn boxed(title: &str, lines: &[&str]) -> String {
+    let all = std::iter::once(title).chain(lines.iter().copied());
+    let width = all.clone().map(|l| l.chars().count()).max().unwrap_or(0);
+    if !styled() {
+        return all.map(|l| format!("  {l}\n")).collect();
+    }
+    let bar = "─".repeat(width + 4);
+    let side = accent("│");
+    let mut out = format!("  {}\n", accent(&format!("╭{bar}╮")));
+    out.push_str(&format!(
+        "  {side}  {}  {side}\n",
+        bold(&format!("{title:<width$}"))
+    ));
+    for line in lines {
+        out.push_str(&format!("  {side}  {line:<width$}  {side}\n"));
+    }
+    out.push_str(&format!("  {}\n", accent(&format!("╰{bar}╯"))));
+    out
+}
+
+/// A section heading: `▸ Title` in bold cyan over a dim rule, with a blank line before.
+pub fn section(text: &str) -> String {
+    let rule = "─".repeat(text.chars().count() + 2);
+    format!("\n  {}\n  {}\n", title(&format!("▸ {text}")), dim(&rule))
+}
+
+/// Write a block of text to stdout, treating a closed pipe (`42ctl help | head`) as done
+/// rather than a panic — the reader chose to stop, nothing is lost.
+pub fn emit(text: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        other => Ok(other?),
+    }
+}
+
 /// Print a success line — a green check plus `message` on a TTY, plain `message` when piped.
 pub fn success(message: &str) {
     if styled() {

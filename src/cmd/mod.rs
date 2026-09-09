@@ -19,6 +19,8 @@ mod config;
 mod db;
 mod env;
 mod group;
+mod help;
+mod help_topics;
 mod invite;
 mod keys;
 mod notes;
@@ -44,44 +46,45 @@ mod version;
 
 use crate::cli::{Cli, Command};
 
-/// Route a parsed CLI invocation. Offline verbs run synchronously; the network verbs
-/// (auth/vault/db) run on a multi-thread tokio runtime.
+/// Route a parsed CLI invocation. No verb shows the guided overview; offline verbs run
+/// synchronously; the network verbs (auth/vault/db/update/…) run on a tokio runtime.
 pub fn dispatch(cli: &Cli) -> anyhow::Result<()> {
-    match &cli.command {
+    let Some(command) = &cli.command else {
+        return help::run(None);
+    };
+    match command {
         Command::Version => version::run(),
-        Command::Update => update::run(),
+        Command::Help { topic } => help::run(topic.as_deref()),
         Command::Unseal => unseal::run(&cli.profile),
         Command::Config(cmd) => config::run(cmd, &cli.profile),
-        _ => block_on_net(cli),
+        _ => block_on_net(command, &cli.profile),
     }
 }
 
 /// Drive the async network verbs on a fresh runtime.
-fn block_on_net(cli: &Cli) -> anyhow::Result<()> {
+fn block_on_net(command: &Command, profile: &str) -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(net(cli))
+        .block_on(net(command, profile))
 }
 
 /// The async dispatch for the network verbs.
-async fn net(cli: &Cli) -> anyhow::Result<()> {
-    match &cli.command {
-        Command::Auth(cmd) => auth::run(cmd, &cli.profile).await,
-        Command::Account(cmd) => account::run(cmd, &cli.profile).await,
-        Command::Keys(cmd) => keys::run(cmd, &cli.profile).await,
-        Command::Vault(cmd) => vault::run(cmd, &cli.profile).await,
-        Command::Db(cmd) => db::run(cmd, &cli.profile).await,
-        Command::Note(cmd) => notes::run(cmd, &cli.profile).await,
-        Command::Org(cmd) => org::run(cmd, &cli.profile).await,
-        Command::Team(cmd) => team::run(cmd, &cli.profile).await,
-        Command::Group(cmd) => group::run(cmd, &cli.profile).await,
-        Command::Env(cmd) => env::run(cmd, &cli.profile).await,
-        Command::Project(cmd) => project::run(cmd, &cli.profile).await,
-        Command::Invite(cmd) => invite::run(cmd, &cli.profile).await,
-        Command::Push { project, prune } => {
-            sync::push(&cli.profile, project.as_deref(), *prune).await
-        }
+async fn net(command: &Command, profile: &str) -> anyhow::Result<()> {
+    match command {
+        Command::Auth(cmd) => auth::run(cmd, profile).await,
+        Command::Account(cmd) => account::run(cmd, profile).await,
+        Command::Keys(cmd) => keys::run(cmd, profile).await,
+        Command::Vault(cmd) => vault::run(cmd, profile).await,
+        Command::Db(cmd) => db::run(cmd, profile).await,
+        Command::Note(cmd) => notes::run(cmd, profile).await,
+        Command::Org(cmd) => org::run(cmd, profile).await,
+        Command::Team(cmd) => team::run(cmd, profile).await,
+        Command::Group(cmd) => group::run(cmd, profile).await,
+        Command::Env(cmd) => env::run(cmd, profile).await,
+        Command::Project(cmd) => project::run(cmd, profile).await,
+        Command::Invite(cmd) => invite::run(cmd, profile).await,
+        Command::Push { project, prune } => sync::push(profile, project.as_deref(), *prune).await,
         Command::Pull {
             project,
             apply,
@@ -94,8 +97,9 @@ async fn net(cli: &Cli) -> anyhow::Result<()> {
                 force: *force,
                 backup: *backup,
             };
-            sync::pull(&cli.profile, project.as_deref(), *at, opts).await
+            sync::pull(profile, project.as_deref(), *at, opts).await
         }
+        Command::Update { check, version } => update::run(*check, version.as_deref()).await,
         _ => unreachable!("offline verbs are handled before block_on_net"),
     }
 }

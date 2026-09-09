@@ -60,15 +60,6 @@ check_on_tag() {
 	fi
 }
 
-# cargo-dist config presence is a soft check — P4 wires it; warn if absent.
-check_dist_config() {
-	if grep -q 'metadata.dist' "$REPO_ROOT/Cargo.toml"; then
-		ready "cargo-dist config present in Cargo.toml"
-	else
-		warn "no [workspace.metadata.dist] in Cargo.toml (wired in P4)"
-	fi
-}
-
 # Report whether $1 (a secret name) is NAMED in any of the remaining workflow
 # path arguments; warn (not hard-fail) since publish is wired in P4-P6.
 report_secret() {
@@ -94,7 +85,7 @@ check_publish_secrets() {
 		warn "no publish workflow found (release/docker/publish/sign-release)"
 		return
 	fi
-	for secret in NPM_TOKEN DOCKER_LOGIN DOCKER_PAT HOMEBREW_TAP_TOKEN; do
+	for secret in DOCKER_LOGIN DOCKER_PAT; do
 		report_secret "$secret" "$@"
 	done
 }
@@ -137,7 +128,6 @@ main() {
 	check_semver_tag "$tag"
 	check_clean_tree
 	check_on_tag "$tag"
-	check_dist_config
 	check_publish_secrets
 	check_build_and_version "$tag"
 	if [ "$HARD_FAILS" -ne 0 ]; then

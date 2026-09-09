@@ -349,14 +349,14 @@ impl Session {
         version: u64,
     ) -> anyhow::Result<Option<Manifest>> {
         let vault_path = manifest_path(project_id);
-        match self.get_blob(&vault_path, version).await {
+        match self.fetch_blob_at(&vault_path, version).await {
             Ok(bytes) => Ok(Some(Manifest::parse(&bytes)?)),
-            Err(status) if status.code() == Code::NotFound => Ok(None),
-            Err(status) => Err(status.into()),
+            Err(error) if is_not_found(&error) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
-    /// Fetch + decrypt the latest blob at `vault_path` (anyhow error on any failure).
+    /// Fetch + decrypt the latest blob at `vault_path`.
     pub(crate) async fn fetch_blob(
         &mut self,
         vault_path: &str,
@@ -365,30 +365,23 @@ impl Session {
     }
 
     /// Fetch + decrypt one revision of `vault_path` (`0` ⇒ latest).
+    ///
+    /// A missing blob surfaces as the gRPC `NotFound` status inside the error chain (see
+    /// `is_not_found`) rather than as a second error type, because a `tonic::Status` is large
+    /// enough that returning it by value trips `result_large_err` at every caller.
     pub(crate) async fn fetch_blob_at(
         &mut self,
         vault_path: &str,
         version: u64,
     ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-        Ok(self.get_blob(vault_path, version).await?)
-    }
-
-    /// The raw Get → decrypt, surfacing the tonic Status so callers can match NotFound.
-    async fn get_blob(
-        &mut self,
-        vault_path: &str,
-        version: u64,
-    ) -> Result<Zeroizing<Vec<u8>>, tonic::Status> {
         let expected = derive::secret_id(&self.principal, vault_path);
         let mut request = Request::new(GetRequest {
             path: vault_path.to_string(),
             version,
         });
-        self.authorize(&mut request, "/vault.v1.Vault/Get")
-            .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        self.authorize(&mut request, "/vault.v1.Vault/Get")?;
         let resp = self.client.get(request).await?.into_inner();
         decrypt::open_envelope(&self.identity, &resp, &expected, 0)
-            .map_err(|e| tonic::Status::internal(e.to_string()))
     }
 }
 
@@ -419,6 +412,13 @@ fn ensure_revisions_recorded(manifest: &Manifest, version: u64) -> anyhow::Resul
         missing.len(),
         missing[0]
     )
+}
+
+/// Whether `error` carries a gRPC `NotFound` status (the blob does not exist yet).
+fn is_not_found(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<tonic::Status>()
+        .is_some_and(|status| status.code() == Code::NotFound)
 }
 
 /// The opaque server path for a project file's blob (the real path never appears here).

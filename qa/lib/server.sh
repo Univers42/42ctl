@@ -150,8 +150,34 @@ qa_server_up() {
 }
 
 # One attempt at starting the server container.
+#
+# A host port that cannot be bound is retried on a FRESH port rather than reported. The
+# port is chosen once when this library is sourced, or adopted from a container that was
+# already running, and either can go stale: a removed container can leave its docker-proxy
+# holding the port, and every later start then fails with "port is already allocated" — a
+# message about networking, on every spec, for the rest of the run. That is how a whole
+# battery turns red without a single assertion being wrong.
 _qa_server_start() {
 	docker rm -fv "$QA_SRV" >/dev/null 2>&1 || true
+	local out
+	out="$(_qa_server_run 2>&1)" && return 0
+	case "$out" in
+	*"already allocated"* | *"address already in use"*)
+		QA_HOST_PORT="$(qa_pick_host_port $((QA_HOST_PORT + 1)))"
+		export QA_HOST_PORT
+		printf '# host port was taken, retrying on %s\n' "$QA_HOST_PORT" >&2
+		docker rm -fv "$QA_SRV" >/dev/null 2>&1 || true
+		_qa_server_run >/dev/null 2>&1
+		;;
+	*)
+		printf '%s\n' "$out" >&2
+		return 1
+		;;
+	esac
+}
+
+# The docker invocation itself, so a failed start can be retried on another port.
+_qa_server_run() {
 	docker run -d --name "$QA_SRV" --network "$QA_NET" \
 		-v "$VAULT42_DIR":/work -w /work $QA_V42_VOLS \
 		-e VAULT42_HOST=0.0.0.0 -e VAULT42_PORT="$QA_PORT" \
