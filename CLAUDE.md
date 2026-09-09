@@ -168,6 +168,13 @@ The refusal is cryptographic, not advisory: an unauthorised member holds ciphert
 wrap, so they fail to decrypt rather than being told no. `s34` proves the refusal tracks the
 grant by granting the refused member and watching the same command return the same tree.
 
+**The manifest is hostile input on this path**, which it is not on the personal one: anyone who
+may write the environment may write the manifest a colleague's machine then acts on. The
+traversal guard already covered where files land; the MODE did not, and a manifest asking for
+0777 on a private key restored it world-readable with correct bytes, so nothing downstream
+would have noticed. `pull-env` clamps every restored mode to the owner alone. `s35` is the
+spec for that whole surface.
+
 ### Scope keys — the grobase ↔ vault42 bridge
 
 Shared per-environment secrets. The admin runs `vault env-init` (generate the scope keyset at epoch

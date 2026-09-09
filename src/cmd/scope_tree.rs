@@ -190,9 +190,29 @@ async fn restore_one(
         ui::field(rel.as_str(), &format!("{} byte(s)", bytes.len()));
         return Ok(());
     }
-    materialize::write_one(root, &rel, &bytes, entry.mode, opts.backup)?;
+    materialize::write_one(root, &rel, &bytes, owner_only(entry.mode), opts.backup)?;
     ui::field(rel.as_str(), "restored");
     Ok(())
+}
+
+/// Narrow a mode from the manifest to the owner alone.
+///
+/// The manifest is written by whoever may write the environment, which on a team is not
+/// necessarily the person pulling. A hostile entry asking for 0777 on a private key restores
+/// it readable by every process on the machine, and nothing about the BYTES is wrong, so no
+/// integrity check notices. Clamping rather than refusing on purpose: refusing would let any
+/// writer deny the whole tree to everybody with one entry, while clamping restores the file
+/// safely and cannot be widened by anyone.
+///
+/// The cost is that a legitimately group-readable file comes back owner-only. For a tree of
+/// credentials that is the right default, and it is the direction that cannot hurt.
+fn owner_only(mode: u32) -> u32 {
+    let narrowed = mode & 0o700;
+    if narrowed == 0 {
+        0o600
+    } else {
+        narrowed
+    }
 }
 
 /// The opaque env-secret path for one real relative path (the real path never appears here).
@@ -266,6 +286,32 @@ mod tests {
     #[test]
     fn the_same_file_maps_to_the_same_stored_path() {
         assert_eq!(tree_path("o", "srcs/.env"), tree_path("o", "srcs/.env"));
+    }
+
+    /// The mode in a shared manifest is hostile input: a teammate may write it. 0777 on a
+    /// private key restores it readable by everything on the box, with correct bytes, so
+    /// nothing downstream would notice.
+    #[test]
+    fn a_mode_from_the_manifest_never_reaches_group_or_other() {
+        for asked in [0o777, 0o666, 0o644, 0o755, 0o707, 0o604] {
+            let got = owner_only(asked);
+            assert_eq!(got & 0o077, 0, "0{asked:o} restored as 0{got:o}");
+        }
+    }
+
+    /// And the ordinary case is untouched: a 0600 key comes back 0600, not narrowed further
+    /// and not widened.
+    #[test]
+    fn an_owner_only_mode_survives_unchanged() {
+        assert_eq!(owner_only(0o600), 0o600);
+        assert_eq!(owner_only(0o700), 0o700);
+    }
+
+    /// A manifest asking for nothing at all must not produce a file its owner cannot read.
+    #[test]
+    fn a_zero_mode_becomes_readable_by_its_owner() {
+        assert_eq!(owner_only(0), 0o600);
+        assert_eq!(owner_only(0o044), 0o600);
     }
 
     /// Two files must not collide, and two ENVIRONMENTS must not either: the owner is the

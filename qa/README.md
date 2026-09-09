@@ -127,6 +127,7 @@ asserts it is left git-clean.
 | `s30-inception-live` | a real compose project, filled, pushed, wiped and restored |
 | `s33-large-objects` | chunked transfer, resume, tamper, collection, restoring a version |
 | `s34-team-project-access` | the whole team story: accounts, org, team, grants, the tree |
+| `s35-hostile-teammate` | a shared manifest is hostile input: traversal, modes, isolation |
 
 ## Writing a spec
 
