@@ -42,6 +42,12 @@ pub struct Endpoint {
 /// A config saved before the cutover still names one of these. Treating it as unset sends the
 /// caller to the authority instead of at a host that is switched off, which is the difference
 /// between the CLI working and the CLI reporting a connection error on every org verb.
+///
+/// THIS LIST IS A MIGRATION ARTEFACT, NOT A FEATURE. It carries configs written before the
+/// cutover and should be deleted once none remain, realistically once the operator has run
+/// `42ctl config endpoint` again. Do not extend it into a general blocklist: a CLI that silently
+/// declines to talk to a host the user named is worse than a stale pointer, and the only thing
+/// justifying these two entries is that we are the ones who switched them off.
 const RETIRED_CONTROL_PLANE: [&str; 2] = ["grobase-stack.fly.dev", "grobase-nano.fly.dev"];
 
 impl Endpoint {
@@ -59,9 +65,24 @@ impl Endpoint {
     }
 }
 
-/// Whether `url` names a host that used to serve the control plane.
+/// Whether `url`'s host is one that used to serve the control plane.
+///
+/// Compares the PARSED host for equality rather than searching the string. `contains` also
+/// matched `https://grobase-stack.fly.dev.example.com` and a query string merely mentioning the
+/// name, which would reroute a URL the user meant. The failure direction was safe, since the
+/// fallback is our own authority and never somebody else's host, but redirecting a request the
+/// user deliberately made is wrong however safe the destination.
+///
+/// A URL that does not parse is not retired: an unparseable override is the user's to see rather
+/// than something to quietly reroute.
 fn retired(url: &str) -> bool {
-    RETIRED_CONTROL_PLANE.iter().any(|host| url.contains(host))
+    match reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+    {
+        Some(host) => RETIRED_CONTROL_PLANE.contains(&host.as_str()),
+        None => false,
+    }
 }
 
 /// The active profile name plus the named profiles.
@@ -165,6 +186,31 @@ mod tests {
                 endpoint.otp_base(),
                 "https://vault42-authority.fly.dev",
                 "{stale} is retired and must not be honoured"
+            );
+        }
+    }
+
+    /// Only the retired host itself is redirected, never a URL that merely mentions it.
+    ///
+    /// `contains` matched a look-alike host and a query string carrying the name, which reroutes
+    /// a request the user deliberately made. Safe destination, wrong behaviour.
+    #[test]
+    fn a_lookalike_host_is_not_treated_as_retired() {
+        for honoured in [
+            "https://grobase-stack.fly.dev.example.com",
+            "https://example.com/?next=grobase-stack.fly.dev",
+            "https://not-grobase-stack.fly.dev",
+            "not a url at all",
+        ] {
+            let endpoint = Endpoint {
+                server: "https://vault42.fly.dev".into(),
+                authority: "https://vault42-authority.fly.dev".into(),
+                grobase: honoured.into(),
+            };
+            assert_eq!(
+                endpoint.otp_base(),
+                honoured,
+                "{honoured} is not a retired host and must be honoured as written"
             );
         }
     }
