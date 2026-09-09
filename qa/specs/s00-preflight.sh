@@ -100,4 +100,18 @@ assert_green "the zero-knowledge control refuses an empty haystack" \
 		out=$(bash -c "[ -s \"$e\" ]" 2>&1); rc=$?
 		rm -f "$e"; [ "$rc" -ne 0 ]'
 
+# ── no built binary is committed ─────────────────────────────────────────────
+# A binary in the tree is a second source of truth for whatever is compiled into it. The one
+# that used to sit here still had a default endpoint naming an app we do not own, months
+# after the source had moved — and it is the copy someone runs without building anything.
+# The endpoints are checked separately from the tracking, so "no binary" and "a binary with
+# the right defaults" report differently.
+assert_green "no compiled binary is tracked in the repository" \
+	-- bash -c 'found=$(git -C "$1" ls-files | grep -E "^(42ctl(-release|-bin)?|.*\.(so|dylib|exe))$" || true)
+		[ -z "$found" ] || { printf "tracked binary: %s\n" "$found"; exit 1; }' _ "$C42_ROOT"
+assert_green "no tracked file compiles in an endpoint we do not own" \
+	-- bash -c 'hits=$(git -C "$1" grep -lI "" | xargs -r grep -lE "https://(vault42|grobase-nano|grobase-stack)\.fly\.dev" 2>/dev/null |
+			grep -v -E "^(src/profile\.rs|CLAUDE\.md|DECISIONS\.md|qa/)" || true)
+		[ -z "$hits" ] || { printf "names a host we do not own: %s\n" "$hits"; exit 1; }' _ "$C42_ROOT"
+
 spec_end

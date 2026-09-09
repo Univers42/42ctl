@@ -176,8 +176,11 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
 - **`README.md` and `main.rs` both say "P0 — scaffold".** Both are stale: push/pull,
   notes, org/team/group/env/invite RBAC, GitHub device login, escrow/recover, and the whole scope-key
   suite are all implemented.
-- **`42ctl-release`, a 9.7 MB binary, is committed.** `.gitignore` covers only `/42ctl-bin`. Don't
-  refresh it as part of unrelated work.
+- **No built binary is committed** and none should be. `42ctl-release` was, and after the
+  endpoints moved it still had `vault42.fly.dev` compiled in — a second source of truth for
+  the defaults, contradicting the source beside it, and the copy a person is most likely to
+  run without building. Deleted; `.gitignore` covers it. Distribution is `install.sh` and
+  `42ctl update` off the GitHub Release (D11), never a file in the tree.
 - **There is no crates.io, npm or Homebrew channel** and there will not be while the git deps stand.
   Distribution is `install.sh` and `42ctl update`, both reading the raw GitHub Release assets named
   `42ctl-<target>` (D11). A release is cut only by `scripts/release.sh`; nothing is published by hand.
