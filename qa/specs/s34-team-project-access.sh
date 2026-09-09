@@ -214,18 +214,34 @@ assert_zero_knowledge "not even the directory name reached it" \
 # checks only that an envelope is authored by whoever sent it, so anyone who can reach the
 # port can overwrite an environment's secrets. Both assertions below are written as the
 # behaviour an operator is entitled to, and both are red because the attack succeeds today.
-POISON='MYSQL_ROOT_PASSWORD=overwritten-by-an-outsider'
+POISON='MYSQL_ROOT_PASSWORD=overwritten-by-somebody-who-should-not'
 printf '%s\n' "$POISON" >"$W/poison.txt"
+
+# Each attack gets its OWN path. The first version shared one, so when the read-only write
+# succeeded it destroyed the value the outsider assertion then checked — and the outsider
+# assertion went red while the outsider had been correctly refused. An attack that succeeds
+# must not be able to make the next assertion lie about a different attack.
+OUTSIDER_CANARY='MYSQL_ROOT_PASSWORD=outsider-target-0003'
+printf '%s\n' "$OUTSIDER_CANARY" >"$W/outsider.txt"
+assert_green "alice stores a second secret for the outsider test to aim at" \
+	-- bash -c 'qa_actor alice "$1" "vault set-env --org $2 --project $3 --env prod app/other < /project/outsider.txt" >/dev/null 2>&1' \
+	_ "$W" "$ORG" "$PUUID"
+
+assert_green "somebody outside the organisation cannot overwrite an environment secret" \
+	-- bash -c 'qa_actor_reset outsider >/dev/null
+		qa_actor_account outsider "out-$4@archicode.codes" "out-pw-$4" >/dev/null
+		qa_actor outsider "$1" "vault set-env --org $2 --project $3 --env prod app/other < /project/poison.txt" >/dev/null 2>&1 && { printf "the outsider write SUCCEEDED\n"; exit 1; }
+		qa_actor alice "$1" "vault get-env --org $2 --project $3 --env prod app/other" 2>/dev/null | grep -qF "$5"' \
+	_ "$W" "$ORG" "$PUUID" "$N" "$OUTSIDER_CANARY"
+
+# Still red, and it should stay red rather than be softened. Reading an environment requires
+# a wrap, so a read-only member holds one exactly as a writer does, and membership cannot
+# tell them apart. Separating them needs a granter-signed ROLE inside the wrap, which is a
+# change across the crypto core, this client and the server — not a missing check.
 assert_spec "a member with only read access cannot overwrite an environment secret" \
 	-- bash -c 'qa_actor dave "$1" "vault set-env --org $2 --project $3 --env prod app/db < /project/poison.txt" >/dev/null 2>&1 && exit 1
 		qa_actor alice "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -qF "$4"' \
 	_ "$W" "$ORG" "$PUUID" "$CANARY"
-assert_spec "somebody outside the organisation entirely cannot overwrite it either" \
-	-- bash -c 'qa_actor_reset outsider >/dev/null
-		qa_actor_account outsider "out-$4@archicode.codes" "out-pw-$4" >/dev/null
-		qa_actor outsider "$1" "vault set-env --org $2 --project $3 --env prod app/db < /project/poison.txt" >/dev/null 2>&1 && exit 1
-		qa_actor alice "$1" "vault get-env --org $2 --project $3 --env prod app/db" 2>/dev/null | grep -qF "$5"' \
-	_ "$W" "$ORG" "$PUUID" "$N" "$CANARY"
 
 # ── leaving the team ends the access ─────────────────────────────────────────
 # Removal alone cannot un-tell somebody a secret they already hold; rotation is what closes
