@@ -126,6 +126,7 @@ asserts it is left git-clean.
 | `s26-scope-key-attacks` | scope namespacing, multi-tenancy isolation, missing defences |
 | `s30-inception-live` | a real compose project, filled, pushed, wiped and restored |
 | `s33-large-objects` | chunked transfer, resume, tamper, collection, restoring a version |
+| `s34-team-project-access` | the whole team story: accounts, org, team, grants, the tree |
 
 ## Writing a spec
 

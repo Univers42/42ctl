@@ -35,6 +35,7 @@ mod scope_secret;
 mod scope_secret_reseal;
 mod scope_status;
 mod scope_sync;
+mod scope_tree;
 mod scope_wrap;
 mod sync;
 mod team;

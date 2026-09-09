@@ -155,6 +155,40 @@ pub enum Vault {
         /// Secret path within the environment
         path: String,
     },
+    /// Push the project's file tree to an environment, shared with everyone granted it
+    ///
+    /// Every scanned file is sealed to the environment's key, so a member the authority
+    /// authorised can restore the tree at its original paths and modes. Unlike `push`,
+    /// which seals to your own identity and is readable by nobody else.
+    PushEnv {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Project id
+        #[arg(long, value_name = "NAME")]
+        project: String,
+        /// Environment name (dev, staging, prod …)
+        #[arg(long, value_name = "NAME")]
+        env: String,
+    },
+    /// Restore an environment's file tree here — a dry-run until you pass --apply
+    PullEnv {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Project id
+        #[arg(long, value_name = "NAME")]
+        project: String,
+        /// Environment name (dev, staging, prod …)
+        #[arg(long, value_name = "NAME")]
+        env: String,
+        /// Write the files (without this flag, only report what would be restored)
+        #[arg(long)]
+        apply: bool,
+        /// Keep a `.bak` copy of every file that is overwritten
+        #[arg(long)]
+        backup: bool,
+    },
     /// [admin] Rotate the environment's key: re-seal everything, re-wrap to current members
     RotateScope {
         /// Org slug

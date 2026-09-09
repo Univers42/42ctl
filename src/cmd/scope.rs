@@ -20,7 +20,7 @@ use crate::adapters::api::Session;
 use crate::adapters::rbac::{grant, org, pubkey, GrantScope};
 use crate::adapters::session;
 use crate::cli::Vault;
-use crate::cmd::{scope_init, scope_rotate, scope_secret, scope_status, scope_sync};
+use crate::cmd::{scope_init, scope_rotate, scope_secret, scope_status, scope_sync, scope_tree};
 
 /// The resolved orchestration context: the base URL + session token and the project/env
 /// identifiers a scope verb operates on.
@@ -62,7 +62,7 @@ impl Ctx {
     }
 }
 
-/// Route the three scope-key verbs, resolving their shared context first.
+/// Route the scope-key verbs, resolving their shared context first.
 pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
     match cmd {
         Vault::EnvInit { org, project, env } => {
@@ -91,6 +91,24 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
         } => {
             let ctx = resolve(profile, org, project, env).await?;
             scope_secret::get_env(session, &ctx, path).await
+        }
+        Vault::PushEnv { org, project, env } => {
+            scope_tree::push_env(session, &resolve(profile, org, project, env).await?).await
+        }
+        Vault::PullEnv {
+            org,
+            project,
+            env,
+            apply,
+            backup,
+        } => {
+            let ctx = resolve(profile, org, project, env).await?;
+            let opts = crate::core::materialize::Opts {
+                apply: *apply,
+                force: false,
+                backup: *backup,
+            };
+            scope_tree::pull_env(session, &ctx, &opts).await
         }
         Vault::RotateScope { org, project, env } => {
             scope_rotate::rotate_scope(session, &resolve(profile, org, project, env).await?).await

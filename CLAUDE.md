@@ -156,6 +156,18 @@ what is lost, the flag, and — as important — what SURVIVES: a tenant name cl
 otherwise be read as a complete one. The request carries no account id, so there is no way to
 spell somebody else's; removing another person is an org membership decision under `org`.
 
+### Sharing a whole tree with a team (`vault push-env` / `pull-env`)
+
+`push`/`pull` seal to the caller's OWN identity, so a teammate cannot read a personally-pushed
+tree at all — that is measured in `s34`, not assumed. `vault push-env` seals every scanned file
+to the ENVIRONMENT's scope key instead, with a manifest at a reserved env path holding the real
+relative paths and modes; `pull-env` recovers the scope secret and restores the tree. Access
+follows the grant, and a grant to a TEAM reaches every member of it.
+
+The refusal is cryptographic, not advisory: an unauthorised member holds ciphertext and no
+wrap, so they fail to decrypt rather than being told no. `s34` proves the refusal tracks the
+grant by granting the refused member and watching the same command return the same tree.
+
 ### Scope keys — the grobase ↔ vault42 bridge
 
 Shared per-environment secrets. The admin runs `vault env-init` (generate the scope keyset at epoch
