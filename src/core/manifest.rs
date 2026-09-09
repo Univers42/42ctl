@@ -33,6 +33,11 @@ pub struct Manifest {
 /// means the file's own bytes, which is every manifest written before large objects
 /// existed. True means a chunk list, and the bytes are in the object store. Defaulting to
 /// false is what lets a new client read an old manifest unchanged.
+///
+/// `rev` is the blob revision this manifest version was written against, and it is what
+/// makes an older version restorable: without it, reading an old manifest still fetches
+/// today's bytes for every path it names, which reproduces a tree that never existed.
+/// Zero means "whatever is latest", which is every manifest written before this field.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
     pub relative_path: String,
@@ -42,6 +47,8 @@ pub struct Entry {
     pub kind: u8,
     #[serde(default)]
     pub chunked: bool,
+    #[serde(default)]
+    pub rev: u64,
 }
 
 impl Manifest {
@@ -104,6 +111,11 @@ mod tests {
         assert_eq!(manifest.entries.len(), 1);
         assert!(!manifest.entries[0].chunked);
         assert_eq!(manifest.entries[0].kind, 0);
+        assert_eq!(
+            manifest.entries[0].rev, 0,
+            "a manifest with no recorded revision must read as latest, not as revision zero \
+             of nothing"
+        );
     }
 
     /// The flag survives a round trip, so a chunked entry is still chunked after a pull.
@@ -116,8 +128,10 @@ mod tests {
             mode: 0o600,
             kind: 1,
             chunked: true,
+            rev: 7,
         });
         let back = Manifest::parse(&manifest.to_bytes().expect("encode")).expect("decode");
         assert!(back.entries[0].chunked);
+        assert_eq!(back.entries[0].rev, 7);
     }
 }

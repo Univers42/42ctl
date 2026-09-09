@@ -35,22 +35,16 @@ pub async fn push(profile: &str, project: Option<&str>, prune: bool) -> anyhow::
 }
 
 /// `pull` — fetch the manifest + blobs and materialize the tree (dry-run unless apply).
+///
+/// `at` selects a manifest version to restore instead of the latest. The write options
+/// travel as one struct because they always travel together, and because five loose
+/// booleans at a call site is how the wrong one gets passed.
 pub async fn pull(
     profile: &str,
     project: Option<&str>,
-    apply: bool,
-    force: bool,
-    backup: bool,
+    at: Option<u64>,
+    opts: Opts,
 ) -> anyhow::Result<()> {
     let mut session = open_session(profile).await?;
-    session
-        .cmd_pull(
-            project,
-            Opts {
-                apply,
-                force,
-                backup,
-            },
-        )
-        .await
+    session.cmd_pull(project, at, opts).await
 }

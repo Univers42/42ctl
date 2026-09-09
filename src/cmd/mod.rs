@@ -87,7 +87,15 @@ async fn net(cli: &Cli) -> anyhow::Result<()> {
             apply,
             force,
             backup,
-        } => sync::pull(&cli.profile, project.as_deref(), *apply, *force, *backup).await,
+            at,
+        } => {
+            let opts = crate::core::materialize::Opts {
+                apply: *apply,
+                force: *force,
+                backup: *backup,
+            };
+            sync::pull(&cli.profile, project.as_deref(), *at, opts).await
+        }
         _ => unreachable!("offline verbs are handled before block_on_net"),
     }
 }

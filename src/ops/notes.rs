@@ -77,6 +77,7 @@ impl Session {
             mode: 0o600,
             kind: Kind::Note as u8,
             chunked: false,
+            rev: rev + 1,
         });
         self.push_manifest(&proj.project_id, &manifest).await?;
         ui::success(&format!(

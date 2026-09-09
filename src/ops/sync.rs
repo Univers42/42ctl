@@ -120,6 +120,7 @@ impl Session {
             mode,
             kind: Kind::EnvFile as u8,
             chunked,
+            rev,
         })
     }
 
@@ -186,20 +187,33 @@ impl Session {
     /// vs the last-synced base): fast-forward when local is unchanged, keep local when only
     /// local moved, and write git-style conflict markers when both diverged. Dry-run unless
     /// `apply`.
+    ///
+    /// `at` selects a manifest version instead of the latest, which is how a tree is
+    /// restored as it stood. Each entry is then fetched at the revision that manifest
+    /// recorded, because reading an old manifest while fetching today's bytes reproduces a
+    /// tree that never existed — the file names of one moment with the contents of another.
     pub async fn cmd_pull(
         &mut self,
         explicit_id: Option<&str>,
+        at: Option<u64>,
         opts: materialize::Opts,
     ) -> anyhow::Result<()> {
         let cwd = std::env::current_dir()?;
         let (proj, _) = project::open(&cwd, explicit_id)?;
-        let manifest = self.load_manifest(&proj.project_id).await?.ok_or_else(|| {
-            anyhow::anyhow!(
-                "no manifest for project {} (push first, or pass --project)",
-                proj.project_id
-            )
-        })?;
+        let manifest = self
+            .load_manifest_at(&proj.project_id, at.unwrap_or(0))
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no manifest for project {} (push first, or pass --project)",
+                    proj.project_id
+                )
+            })?;
         let mut state = SyncState::load(&proj.root);
+        if let Some(version) = at {
+            ensure_revisions_recorded(&manifest, version)?;
+            ui::field("restoring", &format!("manifest version {version}"));
+        }
         if !opts.apply {
             ui::field("pull", "dry-run — re-run with --apply to write");
         }
@@ -241,7 +255,10 @@ impl Session {
     ) -> anyhow::Result<bool> {
         let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
         let remote = self.fetch_entry(entry).await?;
-        let rev = self.current_version(&entry.vault_path).await?;
+        let rev = match entry.rev {
+            0 => self.current_version(&entry.vault_path).await?,
+            recorded => recorded,
+        };
         let local = std::fs::read(projpath::to_native(root, &rel)).ok();
         let base = state.bases.get(rel.as_str());
         let action = merge::decide(opts.force, local.as_deref(), &remote, rev, base);
@@ -259,7 +276,7 @@ impl Session {
     /// before a single chunk is fetched, which is what turns a store that dropped or
     /// reordered a chunk into an error rather than into plausible wrong bytes.
     async fn fetch_entry(&mut self, entry: &Entry) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-        let stored = self.fetch_blob(&entry.vault_path).await?;
+        let stored = self.fetch_blob_at(&entry.vault_path, entry.rev).await?;
         if !entry.chunked {
             return Ok(stored);
         }
@@ -317,33 +334,55 @@ impl Session {
             .await
     }
 
-    /// Fetch + decrypt the manifest (None when the project has nothing pushed yet).
+    /// Fetch + decrypt the latest manifest (None when the project has nothing pushed yet).
     pub(crate) async fn load_manifest(
         &mut self,
         project_id: &str,
     ) -> anyhow::Result<Option<Manifest>> {
+        self.load_manifest_at(project_id, 0).await
+    }
+
+    /// Fetch + decrypt one manifest version (`0` ⇒ latest).
+    pub(crate) async fn load_manifest_at(
+        &mut self,
+        project_id: &str,
+        version: u64,
+    ) -> anyhow::Result<Option<Manifest>> {
         let vault_path = manifest_path(project_id);
-        match self.get_blob(&vault_path).await {
+        match self.get_blob(&vault_path, version).await {
             Ok(bytes) => Ok(Some(Manifest::parse(&bytes)?)),
             Err(status) if status.code() == Code::NotFound => Ok(None),
             Err(status) => Err(status.into()),
         }
     }
 
-    /// Fetch + decrypt the blob at `vault_path` (anyhow error on any failure).
+    /// Fetch + decrypt the latest blob at `vault_path` (anyhow error on any failure).
     pub(crate) async fn fetch_blob(
         &mut self,
         vault_path: &str,
     ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-        Ok(self.get_blob(vault_path).await?)
+        self.fetch_blob_at(vault_path, 0).await
+    }
+
+    /// Fetch + decrypt one revision of `vault_path` (`0` ⇒ latest).
+    pub(crate) async fn fetch_blob_at(
+        &mut self,
+        vault_path: &str,
+        version: u64,
+    ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+        Ok(self.get_blob(vault_path, version).await?)
     }
 
     /// The raw Get → decrypt, surfacing the tonic Status so callers can match NotFound.
-    async fn get_blob(&mut self, vault_path: &str) -> Result<Zeroizing<Vec<u8>>, tonic::Status> {
+    async fn get_blob(
+        &mut self,
+        vault_path: &str,
+        version: u64,
+    ) -> Result<Zeroizing<Vec<u8>>, tonic::Status> {
         let expected = derive::secret_id(&self.principal, vault_path);
         let mut request = Request::new(GetRequest {
             path: vault_path.to_string(),
-            version: 0,
+            version,
         });
         self.authorize(&mut request, "/vault.v1.Vault/Get")
             .map_err(|e| tonic::Status::internal(e.to_string()))?;
@@ -351,6 +390,35 @@ impl Session {
         decrypt::open_envelope(&self.identity, &resp, &expected, 0)
             .map_err(|e| tonic::Status::internal(e.to_string()))
     }
+}
+
+/// Refuse to restore a manifest version written before revisions were recorded.
+///
+/// Such an entry carries no revision to fetch, and the fallback that costs nothing to write —
+/// take whatever is current — reproduces that version's file names with today's contents. It
+/// looks entirely healthy and is a tree that never existed. The danger is that nobody chooses
+/// it: a defaulted field decides, and the code reads as correct.
+///
+/// An ordinary `pull` still falls back to the latest, because "give me the current tree" is
+/// exactly what that fallback answers. Only a restore refuses, because "I cannot answer this"
+/// and "here is the tree as it stood" are different claims and only one of them is true.
+fn ensure_revisions_recorded(manifest: &Manifest, version: u64) -> anyhow::Result<()> {
+    let missing: Vec<&str> = manifest
+        .entries
+        .iter()
+        .filter(|e| e.kind != Kind::Note as u8 && e.rev == 0)
+        .map(|e| e.relative_path.as_str())
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "manifest version {version} predates revision tracking: {} file(s), including {}, \
+         record no revision, so restoring them would fetch today's bytes under that version's \
+         file names. Pull the latest instead, or push again to start recording revisions.",
+        missing.len(),
+        missing[0]
+    )
 }
 
 /// The opaque server path for a project file's blob (the real path never appears here).
@@ -382,5 +450,68 @@ fn file_mode(file: &std::path::Path) -> u32 {
     {
         let _ = file;
         0o600
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One entry, with or without a recorded revision.
+    fn entry(path: &str, rev: u64) -> Entry {
+        Entry {
+            relative_path: path.to_string(),
+            vault_path: format!("__42ctl/b/p/{path}"),
+            mode: 0o600,
+            kind: Kind::EnvFile as u8,
+            chunked: false,
+            rev,
+        }
+    }
+
+    fn manifest_of(entries: Vec<Entry>) -> Manifest {
+        let mut manifest = Manifest::new("p");
+        manifest.entries = entries;
+        manifest
+    }
+
+    #[test]
+    fn a_version_with_every_revision_recorded_restores() {
+        let manifest = manifest_of(vec![entry(".env", 3), entry("api/.env", 1)]);
+        ensure_revisions_recorded(&manifest, 3).expect("a complete version must restore");
+    }
+
+    /// The version-skew case. A manifest written before the field existed deserializes with
+    /// the default, so nothing is missing as far as the parser is concerned — which is what
+    /// makes the wrong answer arrive without anyone choosing it.
+    #[test]
+    fn a_version_predating_revision_tracking_is_refused() {
+        let manifest = manifest_of(vec![entry(".env", 0), entry("api/.env", 0)]);
+        let said = ensure_revisions_recorded(&manifest, 1)
+            .expect_err("a version with no recorded revisions must refuse")
+            .to_string();
+        assert!(said.contains("predates revision tracking"), "{said}");
+        assert!(
+            said.contains(".env"),
+            "the refusal must name a file: {said}"
+        );
+    }
+
+    /// A manifest half-migrated by a re-push refuses too. Restoring the recorded half and
+    /// silently taking the latest for the rest is the mixed tree this exists to prevent.
+    #[test]
+    fn one_unrecorded_entry_is_enough_to_refuse() {
+        let manifest = manifest_of(vec![entry(".env", 4), entry("api/.env", 0)]);
+        assert!(ensure_revisions_recorded(&manifest, 4).is_err());
+    }
+
+    /// Notes are excluded, exactly as `pull` excludes them from materialisation, so a note
+    /// written before the field cannot block a restore of the files.
+    #[test]
+    fn a_note_without_a_revision_does_not_block_a_restore() {
+        let mut note = entry("notes/todo", 0);
+        note.kind = Kind::Note as u8;
+        let manifest = manifest_of(vec![entry(".env", 2), note]);
+        ensure_revisions_recorded(&manifest, 2).expect("a note must not block a restore");
     }
 }

@@ -110,6 +110,15 @@ assert_green "'account delete' refuses without an explicit confirmation flag" \
 	-- bash -c 'out=$(docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl account delete 2>&1); [ $? -ne 0 ] && printf "%s" "$out" | grep -qi "confirm\|--yes\|irreversible"'
 assert_green "'account delete' warns that the action is irreversible" \
 	-- bash -c '_help account delete 2>&1 | grep -qi "irreversible\|cannot be undone\|permanent"'
+# An accurate message gets read as a complete one. A tenant name claimed by `auth login
+# --tenant` survives the account, and nothing anywhere releases one, so deleting the account
+# leaves that name taken — by nobody who can use it once the keystore is gone too. The verb
+# has to say so, in both the help and the refusal, or "delete my account" reads as
+# "everything I registered".
+assert_green "'account delete' says what it does NOT remove" \
+	-- bash -c '_help account delete 2>&1 | grep -qi "tenant"'
+assert_green "the refusal names the surviving tenant claim too" \
+	-- bash -c 'docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl account delete 2>&1 | grep -qi "tenant"'
 
 # ── the whole deletion story, end to end ─────────────────────────────────────
 # The assertions above say the verb exists and refuses. These say it does what it claims and

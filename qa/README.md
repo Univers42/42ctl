@@ -125,7 +125,7 @@ asserts it is left git-clean.
 | `s25-scope-lifecycle` | an environment secret shared between two people, and rotation |
 | `s26-scope-key-attacks` | scope namespacing, multi-tenancy isolation, missing defences |
 | `s30-inception-live` | a real compose project, filled, pushed, wiped and restored |
-| `s33-large-objects` | chunked transfer to an object store, resume, tamper, collection |
+| `s33-large-objects` | chunked transfer, resume, tamper, collection, restoring a version |
 
 ## Writing a spec
 

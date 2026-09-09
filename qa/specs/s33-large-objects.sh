@@ -291,7 +291,19 @@ assert_spec "the same bytes under a different environment secret get a different
 	-- bash -c 'false  # blocked: same — this is what stops equality leaking across environments'
 assert_spec "a chunk sealed under a name that is not the hash of its bytes is refused" \
 	-- bash -c 'false  # blocked: same — the poisoned-dedup case a malicious writer creates'
-assert_spec "an older version still restores after a newer one is pushed" \
-	-- bash -c 'false  # not built: pull always resolves the latest manifest'
+# ── history is only history if it can be read back ───────────────────────────
+# Chunks survive an edit and collection protects them, which is worth nothing on its own:
+# without a way to fetch an older manifest AND the revisions it recorded, the preserved
+# chunks are unreachable. Reading an old manifest while fetching today's blobs is the subtle
+# wrong answer — it reproduces the file names of one moment with the contents of another.
+mkdir -p "$W/history"
+assert_green "the first version of the file restores after the second was pushed" \
+	-- bash -c 'rm -rf "$2"; mkdir -p "$2"
+		qa_actor chunker "$2" "pull --project s33-gc --at 1 --apply" >/dev/null 2>&1 || exit 1
+		cmp -s "$1/volume.bin" "$2/volume.bin" && { printf "version 1 came back identical to version 2\n"; exit 1; }
+		[ "$(stat -c %s "$2/volume.bin")" -eq "$(stat -c %s "$1/volume.bin")" ]' _ "$W/gc" "$W/history"
+assert_green "the restored first version carries the bytes the edit replaced" \
+	-- bash -c 'head -c 100 "$1/volume.bin" | grep -q "EDITED-FOR-GC" && { printf "the edit is present in what claims to be version 1\n"; exit 1; }
+		head -c 100 "$1/volume.bin" | grep -q "QA42-S33-GC-CANARY"' _ "$W/history"
 
 spec_end

@@ -139,6 +139,12 @@ the deletion side), never touches a chunk younger than a grace period (an interr
 already uploaded chunks no manifest names yet, and collecting them is what makes a resumable
 upload unresumable), and is a dry run unless `--apply`.
 
+**History has to be reachable to count.** `Entry.rev` records which blob revision a manifest
+version was written against, and `pull --at <version>` fetches each file at that revision.
+Reading an old manifest while fetching the latest blobs reproduces a tree that never existed —
+the file names of one moment with the contents of another. Reconciliation is unchanged, so
+restoring over local edits is `--at N --apply --force` rather than a silent overwrite.
+
 `MAX_BLOB` is the chunk size. It previously read 64 MiB while the server decodes with tonic's
 4 MiB default and never raises it, so every payload between the two passed the client's own guard
 and then died at the transport — a guard that converted a clear refusal into a protocol error.

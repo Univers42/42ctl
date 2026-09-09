@@ -46,6 +46,7 @@ EVERY DAY — sync your secrets:
   42ctl push --project <name>           # seal *.env tree + upload (path-aware, byte-exact)
   42ctl pull --project <name>           # DRY-RUN: shows what would change
   42ctl pull --project <name> --apply   # materialize the tree (add --backup to keep current)
+  42ctl pull --project <name> --at 3 --apply --force   # restore the tree as of version 3
 
 A SECOND MACHINE (carry your identity, no file copy):
   # on machine A:  42ctl keys escrow  --email you@example.com   # OTP -> uploads sealed keystore
@@ -155,6 +156,14 @@ pub enum Command {
         force: bool,
         #[arg(long)]
         backup: bool,
+        /// Restore the tree as of this manifest version instead of the latest.
+        ///
+        /// Each file comes back at the revision that version recorded, so the result is the
+        /// tree as it stood rather than old file names with today's contents. Reconciliation
+        /// is unchanged: a file you have edited since is still a conflict, so a true restore
+        /// over local work is `--at N --apply --force`.
+        #[arg(long)]
+        at: Option<u64>,
     },
     /// Print the version and commit.
     Version,
@@ -208,6 +217,13 @@ pub enum Account {
     /// IRREVERSIBLE. This erases the account, every session it holds and its organization
     /// memberships, and nothing restores it afterwards. Secrets sealed to the local identity
     /// stay sealed to a key the account no longer authorises, so they become unreachable.
+    ///
+    /// WHAT IT DOES NOT REMOVE: a tenant name claimed by `auth login --tenant` survives the
+    /// account and stays bound to the author key that claimed it. Nothing anywhere releases
+    /// a tenant name, so after deleting the account that name is still taken — and if the
+    /// keystore is gone too, taken by nobody who can use it. Read this as "the account",
+    /// not as "everything I registered".
+    ///
     /// Refuses unless --yes is given.
     Delete {
         /// Confirm that the deletion is irreversible and should proceed.

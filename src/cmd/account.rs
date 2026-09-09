@@ -61,6 +61,10 @@ async fn delete(profile: &str, yes: bool) -> anyhow::Result<()> {
         "account {} is gone, along with every session it had",
         me.account_id
     ));
+    println!(
+        "{}",
+        ui::warn("any tenant name this identity claimed is still claimed — nothing releases one")
+    );
     Ok(())
 }
 
@@ -74,7 +78,9 @@ fn confirmed(yes: bool) -> anyhow::Result<()> {
     }
     anyhow::bail!(
         "this permanently deletes the account, its sessions and its org memberships — the \
-         action is IRREVERSIBLE and nothing restores it. Re-run with --yes to confirm."
+         action is IRREVERSIBLE and nothing restores it. A tenant name claimed by `auth \
+         login --tenant` is NOT removed and stays bound to the key that claimed it. Re-run \
+         with --yes to confirm."
     )
 }
 
@@ -91,6 +97,20 @@ mod tests {
         let said = err.to_string().to_lowercase();
         assert!(said.contains("irreversible"), "{said}");
         assert!(said.contains("--yes"), "{said}");
+    }
+
+    /// A destructive verb has to say what it does NOT remove, or an accurate message gets
+    /// read as a complete one. The tenant claim survives the account and nothing anywhere
+    /// releases one, so "delete my account" leaves that name taken — by nobody who can use
+    /// it, once the keystore is gone too.
+    #[test]
+    fn the_refusal_names_what_deletion_leaves_behind() {
+        let said = confirmed(false)
+            .expect_err("a bare delete must refuse")
+            .to_string()
+            .to_lowercase();
+        assert!(said.contains("tenant"), "{said}");
+        assert!(said.contains("not removed"), "{said}");
     }
 
     #[test]

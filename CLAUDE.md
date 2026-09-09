@@ -129,6 +129,12 @@ skip into silent corruption, since the changed bytes never upload and the read r
 previous version. `vault gc` walks **every** manifest version, refuses when it found none, and
 never collects a chunk inside its grace period. See `DECISIONS.md` D11.
 
+`pull --at <version>` restores the tree as of a manifest version, fetching each file at the
+revision that manifest recorded (`Entry.rev`). Without that, reading an old manifest fetches
+today's bytes and reproduces a tree that never existed — old file names, new contents. Preserved
+chunks that nothing can fetch are not history, so this is the half that makes collection's
+all-versions rule mean something.
+
 ### Accounts (`auth signup` / `passwd` / `me`, `account delete`)
 
 Password-backed accounts on the authority, distinct from the local Ed25519 identity. Passwords
@@ -136,10 +142,11 @@ are prompted through `adapters/passphrase.rs` and never echoed; `FT_PASSWORD` is
 is deliberately NOT `FT_PASSPHRASE`, which is the keystore secret — one variable serving both
 would silently make them the same in every automated run.
 
-`account delete` is the only irreversible verb. It refuses without `--yes`, and the refusal
-names both what is lost and the flag, since a refusal an operator cannot act on is one they work
-around. The request carries no account id, so there is no way to spell somebody else's; removing
-another person is an org membership decision under `org`, where the role check lives.
+`account delete` is the only irreversible verb. It refuses without `--yes`, and the refusal names
+what is lost, the flag, and — as important — what SURVIVES: a tenant name claimed by `auth login
+--tenant` outlives the account and nothing anywhere releases one, so an accurate message would
+otherwise be read as a complete one. The request carries no account id, so there is no way to
+spell somebody else's; removing another person is an org membership decision under `org`.
 
 ### Scope keys — the grobase ↔ vault42 bridge
 
