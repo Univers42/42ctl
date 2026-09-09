@@ -10,45 +10,54 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! Member pubkey registration + proof-of-possession. `pubkey_sig` is an Ed25519 signature
-//! over the canonical `user_id ‖ org_id ‖ x25519_pub_b64` bytes (the same framing on both
-//! the register and the verify side, since 42ctl owns both). The caller's grobase user id
-//! is the `sub` claim of the saved session JWT. Registration is idempotent (grobase upserts).
+//! Member pubkey registration + proof-of-possession.
+//!
+//! `pubkey_sig` is an Ed25519 signature over a canonical, LENGTH-FRAMED message binding the
+//! user id, the organization id, and the X25519 public key being registered.
+//!
+//! The framing is load-bearing. The previous message was a bare concatenation of the three
+//! values, which is not injective: user_id "alice" in org "acme" and user_id "alicea" in org
+//! "cme" produce identical bytes, so one member's proof verified as another's. Organization
+//! slugs are user-chosen, so an attacker could pick a slug that made their pairing collide
+//! with a victim's. Each field is now length-prefixed, exactly as `vault42-core`'s canonical
+//! AAD frames its fields and for the same reason, and the message carries a domain tag so a
+//! proof-of-possession signature can never be replayed as an envelope-author signature.
+//!
+//! The caller's user id comes from `GET /v1/auth/me`, not from decoding a `sub` claim out of
+//! the session token. The identity is asserted by the server that issued the session rather
+//! than parsed by the client out of a credential it cannot verify.
 
-use crate::adapters::rbac::pubkey;
-use crate::adapters::rbac::MemberPubkey;
-use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use crate::adapters::rbac::{self, pubkey, MemberPubkey};
+use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use serde_json::json;
 use vault42_core::{sign_request, verify_request, Identity};
 
-/// The canonical proof-of-possession message: `user_id ‖ org_id ‖ x25519_pub_b64`.
+/// Domain tag: a proof of possession must never verify as any other kind of signature.
+const POP_DOMAIN: &[u8] = b"vault42/pop/v1";
+
+/// Append one length-prefixed field: `<len> ':' <value> '\n'`.
+fn frame(out: &mut Vec<u8>, value: &[u8]) {
+    out.extend_from_slice(value.len().to_string().as_bytes());
+    out.push(b':');
+    out.extend_from_slice(value);
+    out.push(b'\n');
+}
+
+/// The canonical proof-of-possession message, injectively framed.
+///
+/// Every field carries its own length, so no choice of values can shift bytes across a
+/// field boundary and no two distinct triples can produce the same message.
 fn pop_message(user_id: &str, org_id: &str, x25519_pub_b64: &str) -> Vec<u8> {
-    let mut msg = Vec::with_capacity(user_id.len() + org_id.len() + x25519_pub_b64.len());
-    msg.extend_from_slice(user_id.as_bytes());
-    msg.extend_from_slice(org_id.as_bytes());
-    msg.extend_from_slice(x25519_pub_b64.as_bytes());
+    let mut msg = Vec::with_capacity(64 + user_id.len() + org_id.len() + x25519_pub_b64.len());
+    frame(&mut msg, POP_DOMAIN);
+    frame(&mut msg, user_id.as_bytes());
+    frame(&mut msg, org_id.as_bytes());
+    frame(&mut msg, x25519_pub_b64.as_bytes());
     msg
 }
 
-/// Extract the `sub` claim (the grobase user id) from a JWT without verifying it — the
-/// server already authenticated it; we only need the subject to frame the self-signature.
-pub fn jwt_sub(token: &str) -> anyhow::Result<String> {
-    let payload = token
-        .split('.')
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("session token is not a JWT"))?;
-    let bytes = URL_SAFE_NO_PAD
-        .decode(payload)
-        .map_err(|_| anyhow::anyhow!("session token payload is not base64url"))?;
-    let claims: serde_json::Value = serde_json::from_slice(&bytes)?;
-    claims["sub"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| anyhow::anyhow!("session token has no 'sub' claim"))
-}
-
-/// Register the caller's OWN public keys with grobase (idempotent). Signs the canonical
+/// Register the caller's OWN public keys (idempotent). Signs the canonical
 /// proof-of-possession with the identity's Ed25519 key so `sync-keys` can verify it.
 pub async fn register_self(
     grobase: &str,
@@ -58,7 +67,7 @@ pub async fn register_self(
 ) -> anyhow::Result<()> {
     let x25519 = STANDARD.encode(identity.encryption_public().to_bytes());
     let ed25519 = STANDARD.encode(identity.author_public().to_bytes());
-    let user_id = jwt_sub(token)?;
+    let user_id = rbac::me(grobase, token).await?.account_id;
     let sig = sign_request(identity.signing_key(), &pop_message(&user_id, org, &x25519));
     let body = json!({
         "x25519_pub": x25519,
@@ -119,6 +128,42 @@ mod tests {
         let mut moved = signed_pubkey(&identity, "user-1", "org-1");
         moved.user_id = "user-2".to_string();
         assert!(!verify_member(&moved, "org-1"));
+    }
+
+    #[test]
+    fn a_proof_cannot_be_replayed_across_a_colliding_user_and_org_pair() {
+        let identity = Identity::generate();
+        let pk = signed_pubkey(&identity, "alice", "acme");
+        assert!(
+            verify_member(&pk, "acme"),
+            "the genuine pairing must verify"
+        );
+        let mut shifted = pk.clone();
+        shifted.user_id = "alicea".to_string();
+        assert!(
+            !verify_member(&shifted, "cme"),
+            "\"alice\"+\"acme\" and \"alicea\"+\"cme\" concatenate identically; \
+             length framing must keep the proof bound to its own pairing"
+        );
+    }
+
+    #[test]
+    fn the_pop_message_is_injective_over_field_boundaries() {
+        let a = pop_message("alice", "acme", "KEY");
+        let b = pop_message("alicea", "cme", "KEY");
+        assert_ne!(a, b, "a bare concatenation would make these equal");
+        assert_ne!(pop_message("a", "bc", "K"), pop_message("ab", "c", "K"));
+        assert_ne!(pop_message("", "abc", "K"), pop_message("abc", "", "K"));
+    }
+
+    #[test]
+    fn the_pop_message_is_domain_separated() {
+        let msg = pop_message("user-1", "org-1", "KEY");
+        let prefix = b"14:vault42/pop/v1\n";
+        assert!(
+            msg.starts_with(prefix),
+            "the domain tag must lead the message"
+        );
     }
 
     #[test]

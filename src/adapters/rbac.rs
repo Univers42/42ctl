@@ -128,7 +128,7 @@ pub struct Fulfilled {
 
 /// A member's registered public keys (`GET .../users/{userId}/pubkey`). All PUBLIC material;
 /// only the fields proof-of-possession + wrapping need are projected.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct MemberPubkey {
     pub user_id: String,
     pub x25519_pub: String,
@@ -141,6 +141,21 @@ pub struct MemberPubkey {
 pub struct ScopeKeyRequest {
     pub scope_pubkey: String,
     pub scope_epoch: u32,
+}
+
+/// The calling account, as the authority reports it (`GET /v1/auth/me`).
+///
+/// This is how the caller learns its own user id. It replaces decoding a `sub` claim out of
+/// the session token: the identity is asserted by the server that issued the session, not
+/// parsed by the client out of a credential it cannot verify.
+#[derive(Deserialize)]
+pub struct Me {
+    pub account_id: String,
+}
+
+/// Fetch the calling account's identity.
+pub async fn me(base: &str, token: &str) -> anyhow::Result<Me> {
+    get_json(base, token, "/v1/auth/me").await
 }
 
 /// POST `path` (relative to `grobase`) with `body`, Bearer `token`, decoding the JSON reply.
