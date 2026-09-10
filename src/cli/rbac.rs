@@ -46,6 +46,22 @@ pub enum Org {
         #[arg(long, value_name = "ROLE")]
         role: String,
     },
+    /// Remove a member from an org, with every membership derived from it
+    ///
+    /// Administrators, or the member themselves — leaving is always allowed, so nobody can be
+    /// trapped in an organisation. Their teams, groups, published public key and direct grants
+    /// go with them.
+    ///
+    /// This removes AUTHORIZATION, not access already held: a scope key they hold stays
+    /// readable until you `vault rotate-scope` the environments they could read.
+    RemoveMember {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// User id or email
+        #[arg(long, value_name = "USER")]
+        user: String,
+    },
     /// Accept an org invite with its one-time token
     AcceptInvite {
         /// The token printed by `org invite`
@@ -109,6 +125,20 @@ pub enum Team {
         #[arg(long, default_value = "member", value_name = "ROLE")]
         role: String,
     },
+    /// Remove a member from a team, leaving their org membership intact
+    ///
+    /// Only the team's grants stop reaching them; a grant held directly still does.
+    RemoveMember {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Team slug
+        #[arg(long, value_name = "SLUG")]
+        team: String,
+        /// User id or email
+        #[arg(long, value_name = "USER")]
+        user: String,
+    },
     /// Grant a team a role on a project (optionally one environment only)
     GrantProject {
         /// Org slug
@@ -155,6 +185,15 @@ pub enum Group {
         /// Invitee's email
         #[arg(long, value_name = "EMAIL")]
         email: String,
+    },
+    /// Remove a member from a group
+    RemoveMember {
+        /// Group id
+        #[arg(long, value_name = "ID")]
+        group: String,
+        /// User id or email
+        #[arg(long, value_name = "USER")]
+        user: String,
     },
 }
 
@@ -203,6 +242,33 @@ pub enum Project {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
+    },
+    /// List a project's live grants, with the ids `revoke-grant` takes
+    Grants {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Project slug or id
+        #[arg(long, value_name = "NAME")]
+        project: String,
+    },
+    /// Revoke a grant, so it authorizes nobody from now on
+    ///
+    /// Find the id with `project grants`. The row is kept with a revocation time, because
+    /// "who used to be able to read this" outlives the grant; every read filters it out.
+    ///
+    /// This removes AUTHORIZATION, not access already held — rotate the environment if a
+    /// key they already hold matters.
+    RevokeGrant {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Project slug or id
+        #[arg(long, value_name = "NAME")]
+        project: String,
+        /// Grant id, from `project grants`
+        #[arg(long, value_name = "ID")]
+        grant: String,
     },
     /// Grant a user a role on a project (optionally one environment only)
     Grant {

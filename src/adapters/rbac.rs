@@ -137,6 +137,20 @@ pub struct ProjectGrant {
     pub project_role: String,
 }
 
+/// What a removal achieved, as the authority reports it.
+///
+/// `rotate_required` is the load-bearing field. Removal stops somebody being RE-wrapped; it
+/// cannot reach into their machine and take back a scope key they already hold. An operator who
+/// reads "removed" as "locked out" has been misled at the worst possible moment, so the client
+/// prints `detail` rather than discarding it.
+#[derive(Deserialize)]
+pub struct Removed {
+    #[serde(default)]
+    pub rotate_required: bool,
+    #[serde(default)]
+    pub detail: String,
+}
+
 /// A grant's fulfilment for ONE environment at ONE epoch (`GET .../fulfilled`).
 ///
 /// The two lists answer different questions and are not interchangeable. `missing` is the
@@ -277,6 +291,25 @@ pub async fn post_public<B: Serialize, R: DeserializeOwned>(
     let resp = reqwest::Client::new()
         .post(url(base, path))
         .json(body)
+        .send()
+        .await?;
+    fail_on_error(&resp, path)?;
+    Ok(resp.json::<R>().await?)
+}
+
+/// DELETE `path` and decode what the removal actually achieved.
+///
+/// Separate from `delete_unit` because these routes answer with something worth printing:
+/// removal is authorization, not erasure, and the server says so. Swallowing that body is how
+/// an operator concludes a departed colleague can no longer read anything.
+pub async fn delete_json<R: DeserializeOwned>(
+    grobase: &str,
+    token: &str,
+    path: &str,
+) -> anyhow::Result<R> {
+    let resp = reqwest::Client::new()
+        .delete(url(grobase, path))
+        .bearer_auth(token)
         .send()
         .await?;
     fail_on_error(&resp, path)?;

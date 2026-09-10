@@ -84,3 +84,19 @@ pub async fn grant_project(
     };
     rbac::post_json(grobase, token, &path, &body).await
 }
+
+/// Remove `user` (account id or email) from `team`
+/// (`DELETE /v1/orgs/{org}/teams/{team}/members/{user}`).
+///
+/// Their ORGANISATION membership is untouched, so a grant held directly still reaches them;
+/// only the team's grants stop doing so.
+pub async fn remove_member(
+    grobase: &str,
+    token: &str,
+    ids: (&str, &str),
+    user: &str,
+) -> anyhow::Result<rbac::Removed> {
+    let (org, team) = ids;
+    let path = format!("/v1/orgs/{org}/teams/{team}/members/{user}");
+    rbac::delete_json(grobase, token, &path).await
+}

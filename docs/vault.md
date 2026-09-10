@@ -169,6 +169,13 @@ Access is `org → team → project → environment`. Every verb here needs a **
 # Grants — who may do what on a project
 42ctl team grant-project --org acme --team backend --project api --role write --env prod
 42ctl project grant --org acme --project api --user dev@x.com --role read
+42ctl project grants --org acme --project api                  # the live grants, with their ids
+42ctl project revoke-grant --org acme --project api --grant <GRANT_ID>
+
+# Removal — authorization, not erasure (see §13)
+42ctl org remove-member   --org acme --user dev@x.com
+42ctl team remove-member  --org acme --team backend --user dev@x.com
+42ctl group remove-member --group <GROUP_ID> --user dev@x.com
 
 # Groups
 42ctl group create --project api
@@ -420,6 +427,7 @@ no `db set`/`rm`.
 | What happened to them? | `42ctl vault audit --since <epoch>` |
 | Who is in the org? | `42ctl org members --org acme` |
 | What teams / projects / envs exist? | `42ctl team list --org acme`, `project list --org acme`, `env list --project api` |
+| Who is granted what on a project? | `42ctl project grants --org acme --project api` |
 | **Who can read this environment, and are they provisioned?** | `42ctl vault scope-status --org acme --project api --env prod` |
 | What would a restore change? | `42ctl vault pull-env …` (no `--apply`) |
 | What version am I running? | `42ctl version` |
@@ -454,7 +462,28 @@ What the CLI can delete today:
 | Unreferenced chunks | `vault gc --apply` | no (respects a grace period) |
 | Manifest entries for vanished files | `push --prune` | re-push restores |
 | Your saved credentials on this machine | `auth logout` | log in again |
+| A member's org membership, with every derived one | `org remove-member --org X --user Y` | re-invite |
+| A member's team membership only | `team remove-member --org X --team Y --user Z` | re-add |
+| A member's group membership only | `group remove-member --group X --user Y` | re-add |
+| One grant | `project revoke-grant --org X --project Y --grant Z` | re-grant |
 | Your whole account | `account delete --yes` | **no** |
+
+Every removal above answers with what it did **not** do, and the CLI prints it:
+
+```
+removed dev@x.com from org 'acme'
+authorization removed; scope keys already held remain readable until the
+environment is rotated — run `vault rotate-scope` for each environment
+```
+
+That warning is the whole subtlety of offboarding. Removal stops somebody being
+**re**-wrapped; it cannot reach into their machine and take back a key they already hold. If
+that matters, rotate — and rotation is what actually ends their access, by absence.
+
+Members may always remove **themselves** from an org or a team, so nobody can be trapped.
+Removing anyone else needs admin, and unseating an owner or admin needs owner. The last owner
+of an organisation can be removed by no route at all, because an org with no owner cannot be
+administered, invited to, or repaired.
 
 **Access removal without deletion** is usually what you actually want: `vault rotate-scope`
 ends a departed member's access at the next epoch without touching anything they hold.
@@ -572,10 +601,6 @@ does not.
   authenticates and then always reports 100% unsealed, so there is no seal state to manage.
 - **No `org`, `team`, `project`, `env` or `group` deletion.** Nothing removes an organisation,
   a team, a project, an environment or a group once created.
-- **No member removal from the CLI.** The authority *does* expose removing an org, team or
-  group member and revoking a grant — `42ctl` calls none of them. Today the only offboarding
-  the CLI performs is `account delete` (your own) and `vault rotate-scope` (ending access by
-  absence). This is the largest gap in the surface.
 - **No variables verbs.** The authority serves org/project/environment variables with
   precedence and resolution; the CLI has no command for them.
 - **No `db set` / `db rm`.** `db` reads only.
@@ -636,12 +661,16 @@ sha256sum -c baseline.sha                                                       
 42ctl vault pull-env --org acme --project api --env prod --apply
 
 # Offboarding — they leave
-42ctl vault rotate-scope --org acme --project api --env prod
+42ctl project grants --org acme --project api                   # find the grant
+42ctl project revoke-grant --org acme --project api --grant <ID>
+42ctl team remove-member --org acme --team backend --user dev@x.com
+42ctl org remove-member  --org acme --user dev@x.com            # takes every derived membership
+42ctl vault rotate-scope --org acme --project api --env prod    # ends access already held
 ```
 
-After the rotation their old wrap opens nothing sealed since. Note the gap honestly: the CLI
-cannot yet strip their org membership, so do that on the authority directly until a verb
-exists.
+Order matters less than the last line. The first three stop them being re-wrapped; only the
+rotation ends access to a key they already hold. `scope-status` afterwards shows them gone
+from the member set that rotation re-wraps to.
 
 ---
 

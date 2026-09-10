@@ -39,6 +39,9 @@ pub async fn run(cmd: &Team, grobase: &str, token: &str) -> anyhow::Result<()> {
             role,
             env,
         } => grant(grobase, token, (org, team, project), (role, env.as_deref())).await,
+        Team::RemoveMember { org, team, user } => {
+            remove_member(grobase, token, (org, team), user).await
+        }
         _ => unreachable!("create/list are handled in team::run"),
     }
 }
@@ -85,5 +88,19 @@ async fn grant(
     ui::success(&format!(
         "granted team '{team_id}' '{role}' on project '{project}'"
     ));
+    Ok(())
+}
+
+/// Remove a member from a team, leaving their organisation membership intact.
+async fn remove_member(
+    grobase: &str,
+    token: &str,
+    ids: (&str, &str),
+    user: &str,
+) -> anyhow::Result<()> {
+    let (org, team) = ids;
+    let removed = team::remove_member(grobase, token, (org, team), user).await?;
+    ui::success(&format!("removed {user} from team '{team}'"));
+    crate::cmd::org::warn_rotation(&removed);
     Ok(())
 }

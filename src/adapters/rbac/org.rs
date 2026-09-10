@@ -76,3 +76,18 @@ pub async fn grant_user(
     };
     rbac::post_json(grobase, token, &path, &body).await
 }
+
+/// Remove `user` (account id or email) from `org`
+/// (`DELETE /v1/orgs/{org}/members/{user}`).
+///
+/// Administrators, or the member themselves — leaving is always allowed, so nobody can be
+/// trapped in an organization.
+pub async fn remove_member(
+    grobase: &str,
+    token: &str,
+    org: &str,
+    user: &str,
+) -> anyhow::Result<rbac::Removed> {
+    let path = format!("/v1/orgs/{org}/members/{user}");
+    rbac::delete_json(grobase, token, &path).await
+}

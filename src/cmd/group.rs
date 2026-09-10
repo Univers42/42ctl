@@ -25,6 +25,7 @@ pub async fn run(cmd: &Group, profile: &str) -> anyhow::Result<()> {
     match cmd {
         Group::Create { project } => create(&grobase, &token, project).await,
         Group::AddMember { group, user } => add_member(&grobase, &token, group, user).await,
+        Group::RemoveMember { group, user } => remove_member(&grobase, &token, group, user).await,
         Group::Invite { group, email } => invite(&grobase, &token, group, email).await,
     }
 }
@@ -53,5 +54,18 @@ async fn invite(grobase: &str, token: &str, group_id: &str, email: &str) -> anyh
     ui::field("invite_id", &inv.id);
     ui::field("token", &inv.token);
     ui::success(&format!("invited {email} to group '{group_id}'"));
+    Ok(())
+}
+
+/// Remove a member from a project group.
+async fn remove_member(
+    grobase: &str,
+    token: &str,
+    group_id: &str,
+    user: &str,
+) -> anyhow::Result<()> {
+    let removed = group::remove_member(grobase, token, group_id, user).await?;
+    ui::success(&format!("removed {user} from group {group_id}"));
+    crate::cmd::org::warn_rotation(&removed);
     Ok(())
 }

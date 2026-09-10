@@ -41,3 +41,18 @@ pub async fn invite(
     let body = json!({ "email": email });
     rbac::post_json(grobase, token, &path, &body).await
 }
+
+/// Remove `user` (account id or email) from `group`
+/// (`DELETE /v1/groups/{group}/members/{user}`).
+///
+/// Addressed by group id alone, like `add_member` — the group already knows its project, and
+/// the authority derives the organisation from it to authorize the caller.
+pub async fn remove_member(
+    grobase: &str,
+    token: &str,
+    group: &str,
+    user: &str,
+) -> anyhow::Result<rbac::Removed> {
+    let path = format!("/v1/groups/{group}/members/{user}");
+    rbac::delete_json(grobase, token, &path).await
+}

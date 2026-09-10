@@ -45,6 +45,7 @@ async fn rbac(cmd: &Org, profile: &str) -> anyhow::Result<()> {
             ui::field("token", &inv.token);
             ui::success(&format!("invited {email} to org '{org}' as '{role}'"));
         }
+        Org::RemoveMember { org, user } => remove_member(&grobase, &token, org, user).await?,
         Org::AcceptInvite { token: invite } => {
             org::accept_invite(&grobase, &token, invite).await?;
             ui::success("accepted org invite");
@@ -97,4 +98,25 @@ async fn github_dispatch(cmd: &OrgGithub, grobase: &str, token: &str) -> anyhow:
         }
     }
     Ok(())
+}
+
+/// Remove a member from an org and report what the removal did NOT do.
+///
+/// The authority answers with `rotate_required` and a sentence explaining it, and this prints
+/// that sentence rather than swallowing it. An operator who reads "removed" as "locked out"
+/// has been misled at the worst possible moment: removal stops the person being RE-wrapped, it
+/// cannot reach into their machine and take back a scope key they already hold.
+async fn remove_member(grobase: &str, token: &str, org: &str, user: &str) -> anyhow::Result<()> {
+    let removed = org::remove_member(grobase, token, org, user).await?;
+    ui::success(&format!("removed {user} from org '{org}'"));
+    warn_rotation(&removed);
+    Ok(())
+}
+
+/// Print the authority's own account of what a removal left reachable.
+pub fn warn_rotation(removed: &crate::adapters::rbac::Removed) {
+    if !removed.rotate_required || removed.detail.is_empty() {
+        return;
+    }
+    println!("{}", ui::warn(&removed.detail));
 }

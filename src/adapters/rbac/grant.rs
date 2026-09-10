@@ -48,3 +48,20 @@ pub async fn record_wrap(scope: &GrantScope<'_>, grant_id: &str, user: &str) -> 
     let body = json!({ "user_id": user, "env_id": scope.env_id, "epoch": scope.epoch });
     rbac::post_unit(scope.grobase, scope.token, &path, &body).await
 }
+
+/// Revoke `grant_id` on a project
+/// (`DELETE /v1/orgs/{org}/projects/{project}/grants/{grant}`).
+///
+/// Soft on the server: the row stays with `revoked_at` set, because "who used to be able to
+/// read this" outlives the grant. Every read filters it out, so it authorizes nobody from now
+/// on and rotation passes it by.
+pub async fn revoke(
+    grobase: &str,
+    token: &str,
+    ids: (&str, &str),
+    grant_id: &str,
+) -> anyhow::Result<rbac::Removed> {
+    let (org, project) = ids;
+    let path = format!("/v1/orgs/{org}/projects/{project}/grants/{grant_id}");
+    rbac::delete_json(grobase, token, &path).await
+}
