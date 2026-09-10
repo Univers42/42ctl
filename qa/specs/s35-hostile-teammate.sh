@@ -59,10 +59,15 @@ done
 for who in alice mallory victim; do qa_actor "$who" "$W" "keys enroll --org $ORG" >/dev/null 2>&1; done
 qa_actor alice "$W" "vault env-init --org $ORG --project $PUUID --env prod" >/dev/null 2>&1
 qa_actor alice "$W" "vault sync-keys --org $ORG --project $PUUID --env prod" >/dev/null 2>&1
+qa_s3_up >/dev/null 2>&1
+for who in alice mallory victim; do
+	qa_actor "$who" "$W" "config endpoint --blobstore $(qa_s3_internal) --bucket $QA_S3_BUCKET" >/dev/null 2>&1
+done
 
 # An honest tree first, so every refusal below is measured against a pull that works.
 printf 'DOMAIN_NAME=s35.42.fr\n' >"$W/src/srcs/.env"
 printf 'honest-key-material-0001\n' >"$W/src/secrets/server.key"
+fixture_varied_file "$W/src/volume.bin" 8 "QA42-S35-CHUNKED"
 chmod 600 "$W/src/secrets/server.key"
 fixture_project_marker "$W/src" "s35-$N" '"*"'
 assert_green "alice publishes an honest tree to the environment" \
@@ -106,6 +111,43 @@ assert_green "a restored file is never given a mode wider than its owner" \
 		[ $((0$m & 0077)) -eq 0 ] || { printf "restored group- or world-accessible: %s\n" "$m"; exit 1; }' \
 	_ "$W/victim-mode" "$ORG" "$PUUID"
 
+# ── poisoning the deduplication table ───────────────────────────────────────
+# Two members sharing an environment share its chunk store, and a chunk is named by the keyed
+# hash of its bytes. A writer who stores unrelated bytes under a name they computed
+# dishonestly poisons every later writer of that content: the honest writer finds the name
+# already present, stores nothing, and their restore returns the poisoner's bytes. The
+# envelope is validly sealed, validly signed and bound to the right secret id, so nothing else
+# in the system notices.
+#
+# The store credential is the same for everyone here, which is exactly the situation on a team.
+#
+# Substituting a whole stored object is refused by the secret id, which is bound to the name it
+# was sealed for — a mechanism that fires before the content check. The content check defends a
+# case this cannot reach from a shell: a chunk sealed correctly FOR its name whose plaintext
+# hashes to something else, which needs a dishonest client rather than a copied object. That
+# half is unit-tested beside the code; this half proves the store cannot be shuffled.
+# From an empty store, so every chunk in it belongs to THIS environment. The bucket is shared
+# across the battery, and picking "the first two objects" out of a shared bucket picks two
+# chunks of somebody else's tree — which the pull below never touches, so the attack lands
+# nowhere and the assertion passes having tested nothing.
+qa_mc "mc rm --recursive --force qa/$QA_S3_BUCKET" >/dev/null 2>&1
+assert_green "the honest tree is republished so there is a chunked entry to attack" \
+	-- bash -c 'out=$(qa_actor alice "$1" "vault push-env --org $2 --project $3 --env prod" 2>&1) || { printf "%s\n" "$out" | tail -3; exit 1; }
+		grep -q "chunk(s) in the object store" <<<"$out"' _ "$W/src" "$ORG" "$PUUID"
+assert_green "and it restores byte-exact before anything is poisoned" \
+	-- bash -c 'rm -rf "$1"; mkdir -p "$1"
+		qa_actor victim "$1" "vault pull-env --org $3 --project $4 --env prod --apply" >/dev/null 2>&1
+		cmp -s "$2/volume.bin" "$1/volume.bin"' _ "$W/victim-pre-poison" "$W/src" "$ORG" "$PUUID"
+assert_green "a chunk whose name does not match its bytes is refused on read" \
+	-- bash -c 'names=$(qa_s3_names | grep "^chunks/" || true)
+		victim=$(sed -n 1p <<<"$names")
+		other=$(sed -n 2p <<<"$names")
+		[ -n "$victim" ] && [ -n "$other" ] || { printf "fewer than two chunks, so nothing was poisoned\n"; exit 1; }
+		qa_s3_substitute "$other" "$victim"
+		rm -rf "$1"; mkdir -p "$1"
+		out=$(qa_actor victim "$1" "vault pull-env --org $2 --project $3 --env prod --apply" 2>&1) && { printf "the poisoned chunk was accepted\n"; exit 1; }
+		[ -z "$(find "$1" -name volume.bin 2>/dev/null)" ] || { printf "a poisoned file was written anyway\n"; exit 1; }' _ "$W/victim-poison" "$ORG" "$PUUID"
+
 # ── an absolute path, which is traversal without the dots ───────────────────
 printf '{"version":2,"project_id":"s35","entries":[{"relative_path":"/tmp/s35-absolute-target","vault_path":"__42ctl/tree","mode":384,"kind":1,"chunked":false,"rev":1}]}' \
 	>"$W/evil-absolute.json"
@@ -121,8 +163,14 @@ assert_green "an absolute path in the manifest writes nothing at that path" \
 # manifest cannot be used to pull another environment's secrets into this tree. Asserted
 # because it is a property of where the scope id comes from rather than of any check, and
 # that is exactly the kind of property that survives until somebody makes it configurable.
+# Pinned to the PROPERTY, not to a line. The first version quoted one statement verbatim and
+# went red the moment that statement was split in two, reporting an isolation failure that did
+# not exist. What matters is that the scope comes from the caller's context and never from the
+# manifest: no field of an entry may reach the scope id.
 assert_green "the stored path a manifest names is resolved inside the caller's own environment" \
-	-- bash -c 'grep -q "let owner = hex::encode(crypto::scope_id" "$1/src/cmd/scope_tree.rs" &&
-		! grep -qE "entry\.(scope|owner)" "$1/src/cmd/scope_tree.rs"' _ "$C42_ROOT"
+	-- bash -c 'body=$(sed "s|//.*||" "$1/src/cmd/scope_tree.rs")
+		grep -q "crypto::scope_id(&ctx.project, &ctx.env_name)" <<<"$body" ||
+			{ printf "the scope is no longer derived from the caller context\n"; exit 1; }
+		! grep -qE "entry\.(scope|owner|env)" <<<"$body"' _ "$C42_ROOT"
 
 spec_end

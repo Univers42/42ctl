@@ -179,6 +179,18 @@ the deletion side), never touches a chunk younger than a grace period (an interr
 already uploaded chunks no manifest names yet, and collecting them is what makes a resumable
 upload unresumable), and is a dry run unless `--apply`.
 
+**A tree shared with an environment chunks large files to the same object store**, sealed to
+the environment's scope key rather than to the pusher. The naming key is derived from the
+environment secret every member already holds, so two members storing identical bytes compute
+identical names and the second uploads nothing. That is the deduplication between people that
+convergent encryption was going to buy, obtained without it: identical NAMES plus the
+already-present check make the first copy the only copy, and every member can open it because
+the recipient is the environment. A stored chunk carries its author key in a small versioned
+framing, because a deduplicated set's chunks may have different authors and the object store
+returns bytes alone. On read the name is recomputed from the recovered plaintext: a member who
+seals honestly FOR a name while putting unrelated bytes inside would otherwise poison every
+later writer of that content, whose restore would return the poisoner's bytes.
+
 **The manifest reader fails closed on a version it does not know.** `Manifest.version` existed
 from the first commit and was read by nothing — a field with no reader is a gate that cannot
 fail. serde drops an unknown field silently, so a manifest from a newer client parses cleanly and

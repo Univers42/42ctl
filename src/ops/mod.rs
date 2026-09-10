@@ -19,7 +19,7 @@
 mod audit;
 mod gc;
 mod io;
-mod largeobj;
+pub(crate) mod largeobj;
 mod manage;
 mod notes;
 mod reconcile;

@@ -50,31 +50,57 @@ pub async fn put_object(
     object_id: &str,
     plaintext: &[u8],
 ) -> anyhow::Result<ChunkSet> {
-    let set = chunk::build(object_id, &naming(owner), plaintext);
+    let naming = naming(owner);
+    put_chunks(store, (object_id, &naming), plaintext, |part, bytes| {
+        seal_chunk(owner, part, bytes)
+    })
+    .await
+}
+
+/// Split, seal and upload, skipping any chunk the store already holds.
+///
+/// The sealer is a parameter because the same splitting, the same resume and the same
+/// bookkeeping serve two different recipients: a personal object sealed to one identity, and
+/// an environment's object sealed to its scope key. Duplicating the loop to change one line
+/// is how the two drift apart.
+pub async fn put_chunks<F>(
+    store: &BlobStore,
+    plan: (&str, &chunk::Naming),
+    plaintext: &[u8],
+    seal: F,
+) -> anyhow::Result<ChunkSet>
+where
+    F: Fn(&chunk::ChunkRef, &[u8]) -> anyhow::Result<Vec<u8>>,
+{
+    let (object_id, naming) = plan;
+    let set = chunk::build(object_id, naming, plaintext);
     let mut offset = 0usize;
     for part in &set.chunks {
         let end = offset + part.plain_len as usize;
         if !store.head(&part.name).await? {
-            let sealed = seal_chunk(owner, part, &plaintext[offset..end])?;
-            store.put(&part.name, sealed).await?;
+            store
+                .put(&part.name, seal(part, &plaintext[offset..end])?)
+                .await?;
         }
         offset = end;
     }
     Ok(set)
 }
 
-/// Fetch every chunk and reassemble, refusing anything the list did not describe.
-pub async fn get_object(
-    identity: &Identity,
-    principal: &str,
+/// Fetch every chunk and reassemble, opening each with `open`.
+pub async fn get_chunks<F>(
     store: &BlobStore,
     set: &ChunkSet,
-) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    open: F,
+) -> anyhow::Result<Zeroizing<Vec<u8>>>
+where
+    F: Fn(&str, &[u8]) -> anyhow::Result<Zeroizing<Vec<u8>>>,
+{
     set.validate()?;
     let mut out = Zeroizing::new(Vec::with_capacity(set.total_len as usize));
     for part in &set.chunks {
         let sealed = store.get(&part.name).await?;
-        let plain = open_chunk(identity, principal, &part.name, &sealed)?;
+        let plain = open(&part.name, &sealed)?;
         if plain.len() as u64 != part.plain_len {
             anyhow::bail!(
                 "chunk {} is {} bytes but the list claims {}",
@@ -93,6 +119,19 @@ pub async fn get_object(
         );
     }
     Ok(out)
+}
+
+/// Fetch every chunk and reassemble, refusing anything the list did not describe.
+pub async fn get_object(
+    identity: &Identity,
+    principal: &str,
+    store: &BlobStore,
+    set: &ChunkSet,
+) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    get_chunks(store, set, |name, sealed| {
+        open_chunk(identity, principal, name, sealed)
+    })
+    .await
 }
 
 /// How this caller names its chunks: a blinded prefix plus a key only it holds.

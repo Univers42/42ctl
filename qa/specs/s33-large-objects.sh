@@ -277,20 +277,24 @@ assert_green "collection refuses to run for an identity with no manifests at all
 		out=$(qa_actor newcomer "$1" "vault gc --grace-hours 0 --apply" 2>&1) && exit 1
 		grep -qi "refus" <<<"$out"' _ "$W/gc" "$(qa_s3_internal)" "$QA_S3_BUCKET"
 
-# ── still blocked on a decision, not on effort ───────────────────────────────
-# A chunk name is a keyed hash under a key derived per identity, so two members of one
-# environment store separate copies of identical bytes. Sharing them needs identical
-# plaintext to seal to identical CIPHERTEXT, which needs a convergent-chunk primitive in
-# vault42-core: its AEAD is private, and a second copy of the cipher in this crate is what
-# the project's own rules forbid. The signature that would satisfy these is agreed —
-# seal_chunk(scope_secret, domain, plaintext) -> {name, ciphertext} with a content-derived
-# nonce — so these assert what it must do, not merely that it is missing.
-assert_spec "two identities in one environment name a chunk of identical bytes identically" \
-	-- bash -c 'false  # blocked: needs a convergent chunk primitive in vault42-core'
-assert_spec "the same bytes under a different environment secret get a different name" \
-	-- bash -c 'false  # blocked: same — this is what stops equality leaking across environments'
-assert_spec "a chunk sealed under a name that is not the hash of its bytes is refused" \
-	-- bash -c 'false  # blocked: same — the poisoned-dedup case a malicious writer creates'
+# ── deduplication between people ────────────────────────────────────────────
+# Three assertions lived here and have moved to where they are actually exercised.
+#
+# On the PERSONAL path the naming key is derived per identity, so two people storing the same
+# bytes store two copies — and that is correct here, because a personal object is sealed to
+# one person and nobody else could open a shared copy anyway. Deduplication between people
+# only means something where the object is shared.
+#
+# On the SHARED path it works, and it needed no convergent ciphertext in the end. The naming
+# key comes from the environment's secret, which every member holds, so two members compute
+# the same name automatically and the second stores nothing; identical names plus the
+# already-present check make the first copy the only copy, and any member can open it because
+# it is sealed to the environment rather than to a person.
+#
+# Proved in s37 (two writers, one copy, and the first can still read what the second pushed)
+# and s35 (a chunk that does not hold the bytes its name says). Keeping them here as well
+# would be two homes for one property, and the second home is the one nobody updates.
+
 # ── history is only history if it can be read back ───────────────────────────
 # Chunks survive an edit and collection protects them, which is worth nothing on its own:
 # without a way to fetch an older manifest AND the revisions it recorded, the preserved

@@ -141,6 +141,41 @@ pub fn chunk_envelope(identity: &Identity, spec: &ChunkSeal) -> anyhow::Result<V
     Ok(seal(spec.plaintext, meta, &recipients, identity.signing_key())?.to_bytes()?)
 }
 
+/// One chunk of a large object shared with an environment.
+pub struct ScopeChunkSeal<'a> {
+    pub scope_owner: &'a str,
+    pub name: &'a str,
+    pub scope_pub: RecipientPublicKey,
+    pub plaintext: &'a [u8],
+}
+
+/// Seal one chunk to an environment's scope key, so any wrapped member can open it.
+///
+/// The same reduced metadata as a personal chunk — no project, no path — and the owner is the
+/// SCOPE rather than a person, which is what lets a colleague recompute the expected secret id
+/// from the environment alone. A chunk sealed to an individual would be unopenable by the team
+/// it was pushed for.
+pub fn scope_chunk_envelope(identity: &Identity, spec: &ScopeChunkSeal) -> anyhow::Result<Vec<u8>> {
+    let meta = Metadata {
+        version: 2,
+        secret_id: derive::secret_id(spec.scope_owner, spec.name),
+        tenant: "self".to_string(),
+        owner: String::new(), // sec: ZK — the secret id already binds the scope
+        rev: 1,
+        content_type: "chunk".to_string(),
+        recovery_optin: false,
+        project_id: String::new(), // sec: ZK — the store learns nothing about grouping
+        relative_path: String::new(), // sec: ZK — the real path lives only in the manifest
+        kind: Kind::Generic,
+        mode: DEFAULT_MODE,
+    };
+    let recipients = Recipients {
+        users: std::slice::from_ref(&spec.scope_pub),
+        recovery: None,
+    };
+    Ok(seal(spec.plaintext, meta, &recipients, identity.signing_key())?.to_bytes()?)
+}
+
 /// The scope-sealed env-secret spec: like `ProjectSeal`, but the sole recipient is the
 /// env's X25519 SCOPE public key (`scope_pub`) — never the caller — so any holder of the
 /// scope SECRET (a wrapped member) can open it. `owner`/`project_id` are both the hex
@@ -191,4 +226,69 @@ pub fn shared_envelope(identity: &Identity, seal_spec: &SharedSeal) -> anyhow::R
         identity.signing_key(),
     )?
     .to_bytes()?)
+}
+
+/// The framing a chunk shared with an environment is stored under.
+///
+/// A chunk in the object store arrives as bytes alone: nothing hands back the author key
+/// beside it the way the vault's own routes do, and an envelope carries a fingerprint rather
+/// than a key. Without the key the signature cannot be checked, and anyone holding the
+/// environment's PUBLIC key could forge a chunk — a public key being, by construction,
+/// something everyone has.
+///
+/// So the author travels with the chunk. Declaring one author for the whole set does not
+/// work: deduplication means a set's chunks can have been written by different people, and
+/// the writer who skips an upload does not know who stored it first.
+pub mod chunkframe {
+    /// Magic and version, so a future framing change is refused rather than mis-parsed.
+    const MAGIC: &[u8; 5] = b"v42c1";
+
+    /// Wrap a sealed chunk with the author key a reader needs to verify it.
+    pub fn wrap(author: &[u8; 32], envelope: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(MAGIC.len() + 32 + envelope.len());
+        out.extend_from_slice(MAGIC);
+        out.extend_from_slice(author);
+        out.extend_from_slice(envelope);
+        out
+    }
+
+    /// Split a stored chunk back into its author key and its envelope.
+    pub fn unwrap(stored: &[u8]) -> anyhow::Result<([u8; 32], &[u8])> {
+        let head = MAGIC.len() + 32;
+        if stored.len() <= head || &stored[..MAGIC.len()] != MAGIC {
+            anyhow::bail!("stored chunk is not in a framing this client understands");
+        }
+        let mut author = [0u8; 32];
+        author.copy_from_slice(&stored[MAGIC.len()..head]);
+        Ok((author, &stored[head..]))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_wrapped_chunk_round_trips() {
+            let author = [7u8; 32];
+            let sealed = b"sealed-envelope-bytes";
+            let stored = wrap(&author, sealed);
+            let (back, envelope) = unwrap(&stored).expect("unwrap");
+            assert_eq!(back, author);
+            assert_eq!(envelope, sealed);
+        }
+
+        /// Anything not in this framing is refused rather than read as if it were. A stored
+        /// object that is a bare envelope would otherwise have its first 37 bytes taken as an
+        /// author key and the rest decoded as an envelope, which fails somewhere less obvious.
+        #[test]
+        fn anything_else_is_refused() {
+            for bad in [
+                &b""[..],
+                &b"v42c1"[..],
+                &b"not-the-magic-at-all-but-long-enough-xxxxx"[..],
+            ] {
+                assert!(unwrap(bad).is_err(), "{bad:?}");
+            }
+        }
+    }
 }

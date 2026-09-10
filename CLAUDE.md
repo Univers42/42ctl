@@ -171,6 +171,13 @@ The refusal is cryptographic, not advisory: an unauthorised member holds ciphert
 wrap, so they fail to decrypt rather than being told no. `s34` proves the refusal tracks the
 grant by granting the refused member and watching the same command return the same tree.
 
+A file over the transport ceiling is chunked to the object store here too, sealed to the
+ENVIRONMENT rather than to the pusher so every member can open it. The naming key comes from
+the environment's secret, so two members holding the same bytes compute the same name and the
+second stores nothing — deduplication between people, with no convergent ciphertext needed.
+Each stored chunk carries its author key in a small framing, because a deduplicated set's
+chunks can have different authors and the object store hands back bytes alone.
+
 **The manifest is hostile input on this path**, which it is not on the personal one: anyone who
 may write the environment may write the manifest a colleague's machine then acts on. The
 traversal guard already covered where files land; the MODE did not, and a manifest asking for

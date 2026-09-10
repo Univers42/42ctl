@@ -148,8 +148,23 @@ chmod 600 "$SRC/secrets/server.key"
 fixture_project_marker "$SRC" "web-$N" '"*"'
 assert_green "the payload is a hundred files across ten directories plus a key" \
 	-- bash -c '[ "$(find "$1" -type f -name ".env.*" | wc -l)" -eq 100 ] && [ -f "$1/secrets/server.key" ]' _ "$SRC"
-assert_green "a writer publishes the whole tree to the environment" \
-	-- bash -c 'out=$(qa_actor jon "$1" "vault push-env --org $2 --project $3 --env prod" 2>&1) || { printf "%s\n" "$out" | tail -4; exit 1; }' _ "$SRC" "$ACME" "$P_WEB"
+# A file too large for one envelope goes into the SAME tree. The personal path chunks such a
+# file to object storage; the shared path was built without it, so an archive or a database
+# dump — the thing a team most wants to share — was the one thing it could not carry.
+#
+# Same tree rather than a second one, because an environment holds ONE tree: pushing a second
+# project into it replaces the first, which is coherent and is also how the first version of
+# this measured a permission failure that was really two pushes fighting over one manifest.
+assert_green "an object store is available for the large payload" -- qa_s3_up
+for who in jon kim mia nils olga rui zoe quinn; do
+	qa_actor "$who" "$W" "config endpoint --blobstore $(qa_s3_internal) --bucket $QA_S3_BUCKET" >/dev/null 2>&1
+done
+fixture_varied_file "$SRC/volume.bin" 8 "QA42-S37-TEAM-VOLUME"
+assert_green "the tree also holds a file over the transport ceiling" \
+	-- bash -c '[ "$(stat -c %s "$1/volume.bin")" -gt 4194304 ]' _ "$SRC"
+assert_green "a writer publishes the whole tree, large file included, in one push" \
+	-- bash -c 'out=$(qa_actor jon "$1" "vault push-env --org $2 --project $3 --env prod" 2>&1) || { printf "%s\n" "$out" | tail -4; exit 1; }
+		grep -q "chunk(s) in the object store" <<<"$out"' _ "$SRC" "$ACME" "$P_WEB"
 
 # ── who may read it, and who may not ─────────────────────────────────────────
 pull_as() {
@@ -168,6 +183,8 @@ assert_green "a platform member gets every one of the hundred files, byte-exact"
 		bad=0
 		while IFS= read -r f; do cmp -s "$f" "$d/${f#"$1"/}" || bad=1; done < <(find "$1" -type f -name ".env.*")
 		[ "$bad" -eq 0 ]' _ "$SRC" "$W" "$ACME" "$P_WEB"
+assert_green "the same pull brings the large file back byte-exact" \
+	-- bash -c 'cmp -s "$1/volume.bin" "$2/pull-kim/volume.bin"' _ "$SRC" "$W"
 assert_green "the private key comes back owner-only" \
 	-- bash -c 'm=$(stat -c %a "$2/pull-kim/secrets/server.key" 2>/dev/null) || exit 1
 		[ $((0$m & 0077)) -eq 0 ]' _ "$SRC" "$W"
@@ -185,6 +202,27 @@ for who in nils olga rui zoe; do
 			[ "$n" -eq 0 ] || { printf "%s restored %s file(s)\n" "$2" "$n"; exit 1; }' \
 		_ "$W" "$who" "$ACME" "$P_WEB"
 done
+
+# ── two members, the same bytes, one copy ───────────────────────────────────
+# Chunk names are a keyed hash under a key derived from the ENVIRONMENT's secret, which every
+# member holds. So two people pushing the same archive compute the same names and the second
+# stores nothing — the deduplication a team actually wants, and it needs no convergent
+# ciphertext: identical names plus the already-present check mean the first copy is the only
+# copy, and any member can open it because it is sealed to the environment rather than to a
+# person.
+assert_green "a second writer pushing the same bytes stores no second copy" \
+	-- bash -c 'before=$(qa_s3_count)
+		cp -r "$1" "$2/quinn-copy"
+		out=$(qa_actor quinn "$2/quinn-copy" "vault push-env --org $3 --project $4 --env prod" 2>&1) || { printf "%s\n" "$out" | tail -3; exit 1; }
+		after=$(qa_s3_count)
+		[ "$before" -gt 0 ] || { printf "nothing was stored to begin with\n"; exit 1; }
+		[ "$after" -eq "$before" ] || { printf "the store grew from %s to %s\n" "$before" "$after"; exit 1; }' \
+	_ "$SRC" "$W" "$ACME" "$P_WEB"
+assert_green "and the first writer can still read what the second pushed" \
+	-- bash -c 'd="$1/pull-after-dedup"; rm -rf "$d"; mkdir -p "$d"
+		out=$(qa_actor jon "$d" "vault pull-env --org $2 --project $3 --env prod --apply" 2>&1) || { printf "%s\n" "$out" | tail -3; exit 1; }
+		[ -f "$d/volume.bin" ] || { printf "no volume.bin restored; got: %s\n" "$(ls -A "$d" | tr "\n" " ")"; exit 1; }
+		cmp -s "$4/volume.bin" "$d/volume.bin"' _ "$W" "$ACME" "$P_WEB" "$SRC"
 
 # ── the person in two teams ──────────────────────────────────────────────────
 # quinn is in platform (write) and support (read). A rule that took the last grant read, or
