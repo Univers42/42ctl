@@ -138,7 +138,7 @@ pub enum Command {
     /// Environments inside a project (dev / staging / prod …)
     #[command(subcommand)]
     Env(Env),
-    /// Grant a user a role on a project
+    /// Projects inside an org: create, list, and grant a user a role on one
     #[command(subcommand)]
     Project(Project),
     /// Accept or inspect an invite by token / id
