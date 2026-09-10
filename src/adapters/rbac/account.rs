@@ -57,8 +57,12 @@ pub async fn signup(
     base: &str,
     email: &str,
     password: &Zeroizing<String>,
+    token: Option<&str>,
 ) -> anyhow::Result<Created> {
-    let body = json!({ "email": email, "password": password.as_str() });
+    let mut body = json!({ "email": email, "password": password.as_str() });
+    if let Some(invite) = token {
+        body["token"] = json!(invite);
+    }
     rbac::post_public(base, "/v1/auth/signup", &body).await
 }
 
@@ -101,4 +105,15 @@ pub async fn me(base: &str, token: &str) -> anyhow::Result<Account> {
 /// Erase the caller's own account (`DELETE /v1/auth/account`). There is no undo.
 pub async fn delete(base: &str, token: &str) -> anyhow::Result<()> {
     rbac::delete_unit(base, token, "/v1/auth/account").await
+}
+
+/// Turn this account's email second factor on or off (`POST /v1/auth/mfa`).
+///
+/// `proof` is a live one-time-code proof bound to the account's own address. Requiring it in
+/// BOTH directions is the point: enabling without proving you hold the mailbox would let a
+/// stolen session lock the owner out of their own account, and disabling without it would make
+/// the second factor removable by exactly the attacker it exists to stop.
+pub async fn set_mfa(base: &str, token: &str, required: bool, proof: &str) -> anyhow::Result<()> {
+    let body = json!({ "required": required, "proof": proof });
+    rbac::post_unit(base, token, "/v1/auth/mfa", &body).await
 }

@@ -205,9 +205,34 @@ pub enum Auth {
         /// Account email
         #[arg(long, env = "FT_LOGIN_EMAIL", value_name = "EMAIL")]
         email: String,
+        /// Invite token, if the authority gates account creation
+        ///
+        /// This is where a deployment's admission control lives: the contract itself is
+        /// issued to your authenticated account, so nothing is gated behind a shared
+        /// string once you are in.
+        #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN")]
+        token: Option<String>,
     },
     /// Change this account's password, which revokes every session it has
     Passwd,
+    /// Turn this account's email second factor on or off
+    ///
+    /// Opt-in and per-account: off unless you turn it on, and it can be turned on or off at
+    /// any time. When on, every sign-in asks for a 6-digit emailed code before it mints a
+    /// session — the check lives inside the one function that mints one, so no login path can
+    /// skip it.
+    ///
+    /// Either direction asks for a code first, so a stolen session can neither lock you out
+    /// by enabling it nor strip the factor by disabling it. Needs the authority to have mail
+    /// and a proof secret configured.
+    Mfa {
+        /// Require a code at every sign-in from now on
+        #[arg(long, conflicts_with = "off", required_unless_present = "off")]
+        on: bool,
+        /// Stop requiring a code
+        #[arg(long)]
+        off: bool,
+    },
     /// Show the account the saved session belongs to
     Me,
     /// Forget the saved contract / session for this profile
@@ -229,11 +254,15 @@ pub enum Account {
     /// memberships, and nothing restores it afterwards. Secrets sealed to the local identity
     /// stay sealed to a key the account no longer authorises, so they become unreachable.
     ///
-    /// WHAT IT DOES NOT REMOVE: a tenant name claimed by `auth login --tenant` survives the
-    /// account and stays bound to the author key that claimed it. Nothing anywhere releases
-    /// a tenant name, so after deleting the account that name is still taken — and if the
-    /// keystore is gone too, taken by nobody who can use it. Read this as "the account",
-    /// not as "everything I registered".
+    /// WHAT ELSE GOES WITH IT: every tenant name this account claimed is RELEASED back to the
+    /// pool, so anybody may claim it afterwards and you cannot take it back. That is the
+    /// opposite of the old behaviour, where a name outlived the account and stayed taken
+    /// forever; deleting is now the sharper loss of the two, because the name can be gone to
+    /// somebody else rather than merely unusable.
+    ///
+    /// If you only want a fresh key rather than a fresh start, do NOT delete: re-run
+    /// `auth login --tenant <name>` with the new identity instead. An account may rebind its
+    /// own tenant to a new key, which is the recovery path for a lost keystore.
     ///
     /// Refuses unless --yes is given.
     Delete {

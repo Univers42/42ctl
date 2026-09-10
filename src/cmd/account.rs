@@ -63,7 +63,7 @@ async fn delete(profile: &str, yes: bool) -> anyhow::Result<()> {
     ));
     println!(
         "{}",
-        ui::warn("any tenant name this identity claimed is still claimed — nothing releases one")
+        ui::dim("every tenant name this account claimed was released and can be claimed again")
     );
     Ok(())
 }
@@ -78,9 +78,10 @@ fn confirmed(yes: bool) -> anyhow::Result<()> {
     }
     anyhow::bail!(
         "this permanently deletes the account, its sessions and its org memberships — the \
-         action is IRREVERSIBLE and nothing restores it. A tenant name claimed by `auth \
-         login --tenant` is NOT removed and stays bound to the key that claimed it. Re-run \
-         with --yes to confirm."
+         action is IRREVERSIBLE and nothing restores it. Every tenant name this account \
+         claimed is RELEASED, so anyone may claim it afterwards and you cannot take it back. \
+         Secrets sealed to the local identity stay sealed to a key the account no longer \
+         authorises. Re-run with --yes to confirm."
     )
 }
 
@@ -99,18 +100,18 @@ mod tests {
         assert!(said.contains("--yes"), "{said}");
     }
 
-    /// A destructive verb has to say what it does NOT remove, or an accurate message gets
-    /// read as a complete one. The tenant claim survives the account and nothing anywhere
-    /// releases one, so "delete my account" leaves that name taken — by nobody who can use
-    /// it, once the keystore is gone too.
+    /// A destructive verb has to say what ELSE it takes with it, or an accurate message gets
+    /// read as a narrow one. Since D13 the tenant name is released rather than kept, which is
+    /// a different warning and a sharper one: the name becomes claimable by anybody, so the
+    /// loss is not recoverable by re-registering later.
     #[test]
-    fn the_refusal_names_what_deletion_leaves_behind() {
+    fn the_refusal_names_the_released_tenant_claim() {
         let said = confirmed(false)
             .expect_err("a bare delete must refuse")
             .to_string()
             .to_lowercase();
         assert!(said.contains("tenant"), "{said}");
-        assert!(said.contains("not removed"), "{said}");
+        assert!(said.contains("released"), "{said}");
     }
 
     #[test]

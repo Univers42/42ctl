@@ -32,11 +32,12 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
                 let tenant = tenant
                     .as_deref()
                     .context("`--tenant` is required (or use `--github`)")?;
-                login(profile, tenant, token.as_deref(), email.as_deref()).await
+                login(profile, tenant, token.as_deref()).await
             }
         }
-        Auth::Signup { email } => signup(profile, email).await,
+        Auth::Signup { email, token } => signup(profile, email, token.as_deref()).await,
         Auth::Passwd => passwd(profile).await,
+        Auth::Mfa { on, .. } => mfa(profile, *on).await,
         Auth::Me => me(profile).await,
         Auth::Whoami => whoami(profile),
         Auth::Status => status(profile),
@@ -64,7 +65,7 @@ async fn password_login(
     ui::field("account", &minted.account_id);
     ui::success(&format!("signed in as {email}"));
     match tenant {
-        Some(tenant) => login(profile, tenant, token, Some(email)).await,
+        Some(tenant) => login(profile, tenant, token).await,
         None => Ok(()),
     }
 }
@@ -79,10 +80,10 @@ async fn password_login(
 /// Saying "registered" for a fresh address and something else for a taken one is an
 /// enumeration oracle that needs no password: an attacker learns who has an account by
 /// trying to register them.
-async fn signup(profile: &str, email: &str) -> anyhow::Result<()> {
+async fn signup(profile: &str, email: &str, token: Option<&str>) -> anyhow::Result<()> {
     let base = Config::load()?.endpoint(profile)?.otp_base().to_string();
     let password = passphrase::prompt_new_secret("password")?;
-    let created = account::signup(&base, email, &password).await?;
+    let created = account::signup(&base, email, &password, token).await?;
     if let Some(id) = &created.account_id {
         ui::field("account", id);
     }
@@ -100,6 +101,25 @@ async fn passwd(profile: &str) -> anyhow::Result<()> {
     account::passwd(&base, &token, &current, &fresh).await?;
     session::clear(profile)?;
     ui::success("password changed — every session was revoked, log in again");
+    Ok(())
+}
+
+/// Turn the account's email second factor on or off, proving mailbox possession first.
+///
+/// The address comes from the authority rather than a flag: the proof is verified against the
+/// CALLER's own address, so letting one be typed here would only produce a refusal the operator
+/// then has to diagnose.
+async fn mfa(profile: &str, on: bool) -> anyhow::Result<()> {
+    let endpoint = Config::load()?.endpoint(profile)?;
+    let (base, token) = session::connect(profile)?;
+    let who = account::me(&base, &token).await?;
+    let proof = otp::email_otp(endpoint.otp_base(), &who.email).await?;
+    account::set_mfa(&base, &token, on, &proof).await?;
+    ui::success(&format!(
+        "second factor {} for {}",
+        if on { "REQUIRED" } else { "off" },
+        who.email
+    ));
     Ok(())
 }
 
@@ -129,33 +149,32 @@ async fn github_login(profile: &str) -> anyhow::Result<()> {
 }
 
 /// Register this identity with the profile's authority and save the issued contract.
-/// When `email` is set, an email OTP (6-digit code) must pass FIRST — a Bitwarden-style
-/// second factor: the authority mails the code and the terminal waits for it.
-async fn login(
-    profile: &str,
-    tenant: &str,
-    token: Option<&str>,
-    email: Option<&str>,
-) -> anyhow::Result<()> {
+///
+/// The SESSION is what authenticates this: the authority issues a contract to an account, so
+/// the saved session token is sent as a bearer and a caller without one is refused before
+/// anything is signed.
+///
+/// There is deliberately no email-OTP step here any more. It used to run one and hand the
+/// resulting proof to `/v1/register`, whose request type has no field for it — serde dropped
+/// it, so the check bound nothing and anybody calling the route directly skipped it. A second
+/// factor that only the honest operator performs is theatre; the real one lives in
+/// `mint_session`, which is the only place a sign-in mints a session, and this step now
+/// inherits it by carrying that session.
+async fn login(profile: &str, tenant: &str, token: Option<&str>) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let identity = passphrase::unlock()?;
-    let proof = match email {
-        Some(addr) => {
-            let p = otp::email_otp(endpoint.otp_base(), addr).await?;
-            ui::success("email verification passed");
-            Some(p)
-        }
-        None => None,
-    };
     let author_pubkey = hex::encode(identity.author_public().to_bytes());
+    let session = session::load(profile).context(
+        "no session for this profile — run `42ctl auth login --password --email <mail>` first, \
+         because the authority issues a contract to an account",
+    )?;
     let contract = authority::register(
         &endpoint.authority,
         &authority::RegisterSpec {
             author_pubkey_hex: &author_pubkey,
             tenant,
+            session: Some(&session),
             token,
-            email,
-            otp_proof: proof.as_deref(),
         },
     )
     .await?;
