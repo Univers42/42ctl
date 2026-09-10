@@ -17,7 +17,7 @@
 //! init flow lives in `scope_init`, the sync/status flows in `scope_sync`.
 
 use crate::adapters::api::Session;
-use crate::adapters::rbac::{grant, org, pubkey, GrantScope};
+use crate::adapters::rbac::{grant, org, project as rbac_project, pubkey, GrantScope};
 use crate::adapters::session;
 use crate::cli::Vault;
 use crate::cmd::{scope_init, scope_rotate, scope_secret, scope_status, scope_sync, scope_tree};
@@ -121,7 +121,8 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
 /// not exist under the project.
 async fn resolve(profile: &str, org: &str, project: &str, env: &str) -> anyhow::Result<Ctx> {
     let (grobase, token) = session::connect(profile)?;
-    let environments = pubkey::list_environments(&grobase, &token, project).await?;
+    let project_id = rbac_project::resolve_id(&grobase, &token, org, project).await?;
+    let environments = pubkey::list_environments(&grobase, &token, &project_id).await?;
     let found = environments
         .into_iter()
         .find(|e| e.name == env)
@@ -132,7 +133,7 @@ async fn resolve(profile: &str, org: &str, project: &str, env: &str) -> anyhow::
         token,
         org: org.to_string(),
         org_id,
-        project: project.to_string(),
+        project: project_id,
         env_id: found.id,
         env_name: env.to_string(),
         scope_epoch: found.scope_epoch,

@@ -120,7 +120,7 @@ pub enum Team {
         /// Project name
         #[arg(long, value_name = "NAME")]
         project: String,
-        /// Project role (reader, writer, admin …)
+        /// Project role: admin, write or read
         #[arg(long, value_name = "ROLE")]
         role: String,
         /// Restrict the grant to this environment
@@ -179,9 +179,31 @@ pub enum Env {
     },
 }
 
-/// `project` subcommands — user-scoped project grants.
+/// `project` subcommands — projects themselves, and user-scoped grants on them.
 #[derive(Subcommand)]
 pub enum Project {
+    /// [admin] Create a project under an org
+    ///
+    /// A project is the parent every environment, group and grant hangs off. Until one
+    /// exists, `env create`, `team grant-project` and every scope-key verb answer 404.
+    Create {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// URL-safe project identifier, e.g. `inception`
+        #[arg(long, value_name = "SLUG")]
+        slug: String,
+        /// Display name
+        #[arg(long, value_name = "NAME")]
+        name: String,
+    },
+    /// List an org's projects
+    #[command(visible_alias = "ls")]
+    List {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+    },
     /// Grant a user a role on a project (optionally one environment only)
     Grant {
         /// Org slug
@@ -193,7 +215,7 @@ pub enum Project {
         /// User id or email
         #[arg(long, value_name = "USER")]
         user: String,
-        /// Project role (reader, writer, admin …)
+        /// Project role: admin, write or read
         #[arg(long, value_name = "ROLE")]
         role: String,
         /// Restrict the grant to this environment

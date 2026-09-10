@@ -25,12 +25,21 @@ pub mod grant;
 pub mod group;
 pub mod invite;
 pub mod org;
+pub mod project;
 pub mod pubkey;
 pub mod team;
 
 /// An org as returned by grobase (`POST /v1/orgs`).
 #[derive(Deserialize)]
 pub struct Org {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+}
+
+/// A project as returned by the authority (`POST`/`GET /v1/orgs/{org}/projects`).
+#[derive(Deserialize)]
+pub struct Project {
     pub id: String,
     pub slug: String,
     pub name: String,
