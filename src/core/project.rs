@@ -315,7 +315,12 @@ fn matches(name: &str, patterns: &[String]) -> bool {
 
 /// A minimal glob: a single optional leading and/or trailing `*` (covers `*.env*`,
 /// `*.secrets`, `prefix*`, exact).
-fn glob_match(name: &str, pattern: &str) -> bool {
+///
+/// Shared with `pull-env --only`, which matches the same way against a RELATIVE PATH rather
+/// than a bare name — `secrets/*` becomes a `starts_with`, `*.crt` an `ends_with`, and
+/// `srcs/.env` an exact match. One matcher rather than two, so a pattern that selects a file
+/// on the way out selects the same file on the way back.
+pub(crate) fn glob_match(name: &str, pattern: &str) -> bool {
     let core = pattern.trim_matches('*');
     match (pattern.starts_with('*'), pattern.ends_with('*')) {
         (true, true) => name.contains(core),

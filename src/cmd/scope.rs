@@ -99,6 +99,7 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
             org,
             project,
             env,
+            only,
             apply,
             backup,
         } => {
@@ -108,7 +109,7 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
                 force: false,
                 backup: *backup,
             };
-            scope_tree::pull_env(session, &ctx, &opts).await
+            scope_tree::pull_env(session, &ctx, &opts, only).await
         }
         Vault::RotateScope { org, project, env } => {
             scope_rotate::rotate_scope(session, &resolve(profile, org, project, env).await?).await

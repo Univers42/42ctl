@@ -224,6 +224,22 @@ $ 42ctl keys enroll --org acme                                     # publish you
 $ echo -n 'postgres://…' | 42ctl vault set-env --org acme --project api --env prod DATABASE_URL
 $ 42ctl vault get-env --org acme --project api --env prod DATABASE_URL
 
+## Share a whole TREE with the team, and get it back
+$ 42ctl vault push-env  --org acme --project api --env prod        # seal every scanned file
+$ 42ctl vault pull-env  --org acme --project api --env prod        # PREVIEW: writes nothing
+$ 42ctl vault pull-env  --org acme --project api --env prod --apply
+Files come back byte-exact, at their original paths, with any missing directory recreated
+owner-only. A restore into an empty tree rebuilds the whole shape.
+
+## Fetch only part of it
+$ 42ctl vault pull-env … --only 'secrets/*'               # just that directory
+$ 42ctl vault pull-env … --only 'secrets/ca.*'            # just the CA material
+$ 42ctl vault pull-env … --only 'srcs/.env'               # one exact file
+$ 42ctl vault pull-env … --only '*.crt' --only 'srcs/.env'  # repeat to union
+Anything not selected is left exactly as it is on disk, edits included. Drop --apply to
+preview the same selection first. A pattern matching nothing is an ERROR, never a quiet
+no-op, because the reason to select a subset is that the rest is too important to touch.
+
 ## Someone left the team
 $ 42ctl vault rotate-scope --org acme --project api --env prod    # fresh key, re-sealed, re-wrapped
 The removed member's old wrap opens nothing that is sealed after the rotation.

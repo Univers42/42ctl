@@ -88,7 +88,12 @@ pub async fn push_env(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
 ///
 /// Dry-run unless `opts.apply`. Every stored path is validated before any filesystem call,
 /// so a manifest that has been tampered with cannot write outside the project root.
-pub async fn pull_env(session: &mut Session, ctx: &Ctx, opts: &Opts) -> anyhow::Result<()> {
+pub async fn pull_env(
+    session: &mut Session,
+    ctx: &Ctx,
+    opts: &Opts,
+    only: &[String],
+) -> anyhow::Result<()> {
     let root = std::env::current_dir()?;
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let owner = hex::encode(scope_id);
@@ -97,22 +102,62 @@ pub async fn pull_env(session: &mut Session, ctx: &Ctx, opts: &Opts) -> anyhow::
         recover_scope_secret(session, scope_id, epoch, ctx.scope_pubkey.as_deref()).await?;
     let raw = open_one(session, ctx, (&owner, TREE_MANIFEST), &secret).await?;
     let manifest = Manifest::parse(&raw)?;
-    if !opts.apply {
-        ui::field("pull-env", "dry-run — re-run with --apply to write");
-    }
-    for entry in manifest
+    let files: Vec<&Entry> = manifest
         .entries
         .iter()
         .filter(|e| e.kind != Kind::Note as u8)
-    {
+        .collect();
+    let selected: Vec<&&Entry> = files
+        .iter()
+        .filter(|e| selects(&e.relative_path, only))
+        .collect();
+    refuse_empty_selection(&selected, only, &ctx.env_name)?;
+    if !opts.apply {
+        ui::field("pull-env", "dry-run — re-run with --apply to write");
+    }
+    for entry in &selected {
         restore_one(session, ctx, (&owner, &secret), (&root, entry, opts)).await?;
     }
-    ui::success(&format!(
-        "{} file(s) from environment '{}'",
-        manifest.entries.len(),
-        ctx.env_name
-    ));
+    report(selected.len(), files.len(), &ctx.env_name);
     Ok(())
+}
+
+/// Whether a stored path is selected: everything when no pattern is given, else any match.
+fn selects(relative_path: &str, only: &[String]) -> bool {
+    only.is_empty()
+        || only
+            .iter()
+            .any(|pattern| project::glob_match(relative_path, pattern))
+}
+
+/// Refuse a selection that matched nothing, naming the patterns that missed.
+///
+/// An empty restore is otherwise indistinguishable from a clean one: `--only 'secret/*'` for
+/// `secrets/` writes no files, exits 0, and reads as "nothing to do". The whole reason to
+/// select a subset is that the rest matters too much to touch, so a typo has to stop.
+fn refuse_empty_selection(selected: &[&&Entry], only: &[String], env: &str) -> anyhow::Result<()> {
+    if !selected.is_empty() || only.is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "no file in environment '{env}' matches {} — nothing was restored",
+        only.join(", ")
+    )
+}
+
+/// Report what was restored, and what was deliberately left behind.
+///
+/// Naming the remainder matters on a partial restore: a tree that is complete and a tree that
+/// is one selection of several look identical on disk afterwards.
+fn report(selected: usize, total: usize, env: &str) {
+    if selected == total {
+        ui::success(&format!("{selected} file(s) from environment '{env}'"));
+        return;
+    }
+    ui::success(&format!(
+        "{selected} of {total} file(s) from environment '{env}' — {} not selected",
+        total - selected
+    ));
 }
 
 /// Seal one file to the environment and return the manifest entry describing it.
@@ -493,5 +538,65 @@ mod tests {
             tree_path("prod-scope", "srcs/.env"),
             tree_path("dev-scope", "srcs/.env")
         );
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    /// No pattern means the whole tree, which is what every existing caller relies on.
+    #[test]
+    fn an_empty_selection_takes_everything() {
+        assert!(selects("secrets/db_password.txt", &[]));
+        assert!(selects("srcs/.env", &[]));
+    }
+
+    /// The three shapes an operator actually types: a directory, an extension, an exact file.
+    #[test]
+    fn a_pattern_selects_by_directory_extension_or_exact_path() {
+        let dir = vec!["secrets/*".to_string()];
+        assert!(selects("secrets/ca.key", &dir));
+        assert!(
+            !selects("srcs/.env", &dir),
+            "a sibling must not be selected"
+        );
+
+        let ext = vec!["*.crt".to_string()];
+        assert!(selects("secrets/server.crt", &ext));
+        assert!(!selects("secrets/server.key", &ext));
+
+        let exact = vec!["srcs/.env".to_string()];
+        assert!(selects("srcs/.env", &exact));
+        assert!(
+            !selects("srcs/.env.example", &exact),
+            "an exact pattern must not match a longer path"
+        );
+    }
+
+    /// Repeating the flag unions the selections rather than narrowing them.
+    #[test]
+    fn several_patterns_union() {
+        let both = vec!["secrets/ca.*".to_string(), "srcs/.env".to_string()];
+        assert!(selects("secrets/ca.key", &both));
+        assert!(selects("srcs/.env", &both));
+        assert!(!selects("secrets/server.key", &both));
+    }
+
+    /// A pattern that matches nothing must stop, not report a clean restore of no files.
+    #[test]
+    fn a_selection_matching_nothing_is_refused() {
+        let only = vec!["secret/*".to_string()];
+        let err = refuse_empty_selection(&[], &only, "prod")
+            .expect_err("a typo must not look like success");
+        let said = err.to_string();
+        assert!(said.contains("secret/*"), "must name the pattern: {said}");
+        assert!(said.contains("nothing was restored"), "{said}");
+    }
+
+    /// An empty ENVIRONMENT with no pattern is a legitimate no-op, not an error.
+    #[test]
+    fn an_empty_environment_without_a_pattern_is_not_an_error() {
+        refuse_empty_selection(&[], &[], "prod").expect("no pattern means no selection to miss");
     }
 }

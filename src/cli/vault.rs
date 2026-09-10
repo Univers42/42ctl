@@ -172,6 +172,10 @@ pub enum Vault {
         env: String,
     },
     /// Restore an environment's file tree here — a dry-run until you pass --apply
+    ///
+    /// Without --apply this is the PREVIEW: it lists exactly what would be written, at the
+    /// paths it would be written to, and touches nothing. With --only it previews only the
+    /// selection, so what you see is what --apply then does.
     PullEnv {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
@@ -182,6 +186,17 @@ pub enum Vault {
         /// Environment name (dev, staging, prod …)
         #[arg(long, value_name = "NAME")]
         env: String,
+        /// Restore only paths matching PATTERN — repeatable; default is the whole tree
+        ///
+        /// Matches the stored RELATIVE PATH with one optional leading and/or trailing `*`:
+        ///   --only 'secrets/*'      just the secrets directory
+        ///   --only 'secrets/ca.*'   just the CA material
+        ///   --only 'srcs/.env'      one exact file
+        ///   --only '*.crt'          every certificate, wherever it lives
+        /// Repeat the flag to union several selections. A pattern that matches nothing is an
+        /// error rather than an empty success, so a typo cannot look like a clean restore.
+        #[arg(long, value_name = "PATTERN")]
+        only: Vec<String>,
         /// Write the files (without this flag, only report what would be restored)
         #[arg(long)]
         apply: bool,
