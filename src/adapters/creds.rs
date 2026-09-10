@@ -51,12 +51,7 @@ pub fn load(profile: &str) -> Option<String> {
 
 /// Persist a contract token for `profile`, creating parent directories.
 pub fn save(profile: &str, contract: &str) -> anyhow::Result<()> {
-    let path = contract_path(profile);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, contract)?;
-    Ok(())
+    crate::adapters::privatefile::write(&contract_path(profile), contract.as_bytes())
 }
 
 /// Remove the saved contract token for `profile` (no error if it never existed).

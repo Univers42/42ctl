@@ -128,6 +128,8 @@ asserts it is left git-clean.
 | `s33-large-objects` | chunked transfer, resume, tamper, collection, restoring a version |
 | `s34-team-project-access` | the whole team story: accounts, org, team, grants, the tree |
 | `s35-hostile-teammate` | a shared manifest is hostile input: traversal, modes, isolation |
+| `s36-credential-attacks` | credential files, enumeration, brute force, stolen tokens, network |
+| `s37-dense-organisation` | eleven people, two companies, three teams, a hundred files |
 
 ## Writing a spec
 

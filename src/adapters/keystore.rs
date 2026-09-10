@@ -31,24 +31,10 @@ pub fn keystore_path() -> anyhow::Result<PathBuf> {
 
 /// Write the wrapped keystore blob, creating parents, owner-only.
 pub fn save(path: &Path, blob: &KeystoreBlob) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, serde_json::to_vec(blob)?)?;
-    restrict(path)
+    crate::adapters::privatefile::write(path, &serde_json::to_vec(blob)?)
 }
 
 /// Read the wrapped keystore blob (still encrypted).
 pub fn load(path: &Path) -> anyhow::Result<KeystoreBlob> {
     Ok(serde_json::from_slice(&std::fs::read(path)?)?)
-}
-
-/// Restrict the keystore file to owner-only access on Unix.
-fn restrict(path: &Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
 }

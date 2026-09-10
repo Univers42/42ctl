@@ -234,9 +234,13 @@ qa_actor() {
 # The file format is the raw token, so this is setup, not a bypass: the CLI still
 # authenticates every request with it exactly as it would in real use.
 qa_actor_token() {
-	local who="$1" token="$2"
+	local who="$1" token="$2" path="$QA_RESULTS/actors/$who/session.tok"
 	mkdir -p "$QA_RESULTS/actors/$who"
-	printf '%s' "$token" >"$QA_RESULTS/actors/$who/session.tok"
+	printf '%s' "$token" >"$path"
+	# Owner-only, because this is a real bearer token on a real developer's machine and the
+	# umask on an ordinary desktop is not. It also stops any assertion about credential file
+	# modes from measuring THIS helper when it means to measure the client.
+	chmod 600 "$path"
 }
 
 # Sign an actor up at the authority and give it a session. Echoes the account id.

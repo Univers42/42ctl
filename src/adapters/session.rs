@@ -47,12 +47,7 @@ pub fn load(profile: &str) -> Option<String> {
 
 /// Persist a grobase session token for `profile`, creating parent directories.
 pub fn save(profile: &str, token: &str) -> anyhow::Result<()> {
-    let path = session_path(profile);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, token)?;
-    Ok(())
+    crate::adapters::privatefile::write(&session_path(profile), token.as_bytes())
 }
 
 /// Remove the saved session token for `profile` (no error if it never existed).
