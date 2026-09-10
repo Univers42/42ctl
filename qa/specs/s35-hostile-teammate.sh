@@ -173,4 +173,51 @@ assert_green "the stored path a manifest names is resolved inside the caller's o
 			{ printf "the scope is no longer derived from the caller context\n"; exit 1; }
 		! grep -qE "entry\.(scope|owner|env)" <<<"$body"' _ "$C42_ROOT"
 
+# ── two writers at once ──────────────────────────────────────────────────────
+# Not hostile, but the same requirement: the tree a colleague restores must be one somebody
+# actually pushed. A shared environment has more than one writer by construction, so two
+# pushes overlapping is ordinary rather than exotic, and the failure to avoid is a manifest
+# naming files whose contents came from the other push — a tree that never existed on anyone's
+# machine, restored without an error.
+#
+# Each file is stored with optimistic concurrency, so the losing writer should be REFUSED
+# rather than merged. Both trees differ in every file, so a mixture is detectable.
+mkdir -p "$W/racer-a" "$W/racer-b" "$W/race-restore"
+for who in a b; do
+	mkdir -p "$W/racer-$who/srcs"
+	printf 'RACER=%s\nVALUE=race-value-%s-0001\n' "$who" "$who" >"$W/racer-$who/srcs/.env"
+	printf 'RACER=%s\n' "$who" >"$W/racer-$who/marker.env"
+	fixture_project_marker "$W/racer-$who" "race-$N" '"*"'
+done
+# Four rounds, because a race that happens to serialise once proves nothing about a race. Each
+# round writes different content on both sides, so any mixture is visible in the restored tree.
+#
+# It holds for a structural reason rather than by luck, and the reason is worth recording so
+# nobody removes the thing that makes it true. Files are pushed in sorted order, each with
+# optimistic concurrency, and the MANIFEST is written last. So the first contended file acts as
+# a lock: the writer that loses it aborts before reaching any later file and before writing any
+# manifest, and the winner goes on to publish a tree entirely its own. Reordering the manifest
+# to the front, or continuing past a conflicting file, would both break that — which is what
+# this round-trips four times to catch.
+assert_green "two writers pushing the same environment at once never produce a mixed tree" \
+	-- bash -c 'for round in 1 2 3 4; do
+			for who in a b; do
+				printf "RACER=%s\nVALUE=race-%s-%s\n" "$who" "$who" "$round" >"$1/racer-$who/srcs/.env"
+				printf "RACER=%s\nROUND=%s\n" "$who" "$round" >"$1/racer-$who/marker.env"
+			done
+			qa_actor alice "$1/racer-a" "vault push-env --org $2 --project $3 --env prod" >/dev/null 2>&1 &
+			qa_actor mallory "$1/racer-b" "vault push-env --org $2 --project $3 --env prod" >/dev/null 2>&1 &
+			wait
+			d="$1/race-restore"; rm -rf "$d"; mkdir -p "$d"
+			qa_actor victim "$d" "vault pull-env --org $2 --project $3 --env prod --apply" >/dev/null 2>&1 ||
+				{ printf "round %s: nothing could be restored after the race\n" "$round"; exit 1; }
+			one=$(sed -n "s/^RACER=//p" "$d/srcs/.env" 2>/dev/null)
+			two=$(sed -n "s/^RACER=//p" "$d/marker.env" 2>/dev/null)
+			[ -n "$one" ] && [ -n "$two" ] ||
+				{ printf "round %s: the restored tree is incomplete\n" "$round"; exit 1; }
+			[ "$one" = "$two" ] ||
+				{ printf "round %s: MIXED — srcs/.env from %s, marker.env from %s\n" "$round" "$one" "$two"; exit 1; }
+		done' \
+	_ "$W" "$ORG" "$PUUID"
+
 spec_end
