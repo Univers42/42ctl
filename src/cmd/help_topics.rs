@@ -94,7 +94,7 @@ $ 42ctl keys export-pub                                   # your public address 
 ## 3. Log in
 $ 42ctl auth signup --email you@x.com                     # create the account (password prompted)
 $ 42ctl auth login --password --email you@x.com           # sign in: saves the session teams need
-$ 42ctl auth login --tenant <tenant> --email you@x.com    # a contract for the vault itself
+$ 42ctl auth login --password --email you@x.com --tenant <tenant>   # session AND contract
 $ 42ctl auth whoami                                       # principal + address + 'contract: bound'
 ! Two different credentials. Org, team, project and grant verbs need the SESSION, which only
 ! --password or --github mints. The vault verbs need the contract. Most people want both.
@@ -197,12 +197,12 @@ $ 42ctl invite accept --token <token>                     # the invitee redeems 
 ## Teams inside an org
 $ 42ctl team create --org acme --slug backend --name Backend
 $ 42ctl team add-member --org acme --team backend --user dev@x.com
-$ 42ctl team grant-project --org acme --team backend --project api --role writer --env prod
+$ 42ctl team grant-project --org acme --team backend --project api --role write --env prod
 
 ## Projects, environments, direct grants
 $ 42ctl env create --project api --name prod
 $ 42ctl env list --project api
-$ 42ctl project grant --org acme --project api --user dev@x.com --role reader
+$ 42ctl project grant --org acme --project api --user dev@x.com --role read
 
 ## GitHub App (mirror your GitHub org into RBAC)
 $ 42ctl org github connect acme                           # prints the install URL
