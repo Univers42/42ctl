@@ -118,7 +118,48 @@ const SKIP_DIRS: &[&str] = &[
 
 /// Whether a directory `name` should be skipped (not descended) during a scan.
 fn skip_dir(name: &str) -> bool {
-    name == MARKER_DIR || SKIP_DIRS.contains(&name)
+    SKIP_DIRS.contains(&name)
+}
+
+/// Whether `dir` is the root of its own git repository — a submodule, or a nested checkout.
+///
+/// `.git` is a DIRECTORY in an ordinary clone and a FILE in a submodule (holding a gitdir
+/// pointer), so both shapes are accepted. Anything else is not a repository boundary.
+fn is_repository_root(dir: &Path) -> bool {
+    dir.join(".git").exists()
+}
+
+/// Scan the repository roots sitting directly inside a skipped directory, and nothing else.
+///
+/// A submodule parked under `vendor/` had its environment and its whole `secrets/` directory
+/// dropped, and `push` reported success — the same silent shape as the `secrets/` omission, and
+/// the exact layout an operator with several projects and submodules ends up with.
+///
+/// Dropping `vendor` from the skip list would fix this instance and break what the list is for,
+/// sweeping genuinely vendored trees into the vault. So the skip is kept and pierced for one
+/// case: a directory that is its own repository is a project boundary, and projects are the
+/// things that have secrets. Vendored source that is not a repository stays skipped.
+///
+/// ONE LEVEL DEEP on purpose. `vendor/<submodule>` is the layout that loses credentials, while
+/// searching a whole `node_modules` for a `.git` would cost far more than the case is worth —
+/// and a scan that walks a dependency tree exhaustively is a scan people turn off.
+fn walk_repositories_inside(
+    dir: &Path,
+    patterns: &[String],
+    out: &mut Vec<PathBuf>,
+) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let meta = entry.metadata()?;
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            continue;
+        }
+        let path = entry.path();
+        if is_repository_root(&path) {
+            walk(&path, patterns, false, out)?;
+        }
+    }
+    Ok(())
 }
 
 /// Directories whose every regular file is a secret, matched by directory name at any depth.
@@ -160,8 +201,14 @@ fn walk(dir: &Path, patterns: &[String], all: bool, out: &mut Vec<PathBuf>) -> a
             continue;
         }
         if meta.is_dir() {
-            if !skip_dir(&name) {
-                walk(&entry.path(), patterns, all || is_secret_dir(&name), out)?;
+            let path = entry.path();
+            if name == MARKER_DIR {
+                continue;
+            }
+            if skip_dir(&name) {
+                walk_repositories_inside(&path, patterns, out)?;
+            } else {
+                walk(&path, patterns, all || is_secret_dir(&name), out)?;
             }
         } else if (all || matches(&name, patterns)) && !skip_file(&name) {
             out.push(entry.path());
@@ -217,6 +264,50 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    /// A submodule parked under a skipped directory keeps its environment and its secrets.
+    ///
+    /// `vendor` is on the skip list, correctly, for vendored source. A submodule put there is a
+    /// project boundary rather than vendored code, and dropping its files while reporting a
+    /// successful push is the same silent shape as the `secrets/` omission.
+    #[test]
+    fn a_submodule_under_a_skipped_directory_is_still_scanned() {
+        let root = tree(
+            "submodule",
+            &[
+                "srcs/.env",
+                "vendor/thirdparty/.git",
+                "vendor/thirdparty/srcs/.env",
+                "vendor/thirdparty/secrets/db_password.txt",
+                "vendor/plainlib/config.env",
+                "node_modules/pkg/.env",
+            ],
+        );
+        let found = scan_names(&root);
+        assert!(
+            found.iter().any(|f| f == "srcs/.env"),
+            "positive control: the root project's own file must be found, or this proves nothing"
+        );
+        for want in [
+            "vendor/thirdparty/srcs/.env",
+            "vendor/thirdparty/secrets/db_password.txt",
+        ] {
+            assert!(
+                found.iter().any(|f| f == want),
+                "{want} belongs to a submodule and must be scanned; got {found:?}"
+            );
+        }
+        assert!(
+            !found.iter().any(|f| f == "vendor/plainlib/config.env"),
+            "vendored source that is NOT a repository must stay skipped, or this widening \
+             sweeps the trees the skip list exists for; got {found:?}"
+        );
+        assert!(
+            !found.iter().any(|f| f.starts_with("node_modules/")),
+            "a dependency tree with no repository inside it must stay skipped; got {found:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The whole `secrets/` tree is taken, and this is the case that was silently lost.
