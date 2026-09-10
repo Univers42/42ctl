@@ -78,27 +78,43 @@ assert_green "an unknown email and a wrong password are indistinguishable at log
 		wrong=$(mk "{\"email\":\"qa-known@archicode.codes\",\"password\":\"definitely-wrong\"}")
 		[ "$absent" = "$wrong" ]'
 
+# ── registration is authenticated ────────────────────────────────────────────
+# /v1/register claims a tenant and mints the contract vault42-server accepts as authorization
+# to write, and it is issued to an ACCOUNT (D13). Unauthenticated it must refuse before it
+# validates anything, so this is asserted with a body that is otherwise perfectly good: a 400
+# here would mean the route reached the key check without a caller.
+assert_green "POST /v1/register refuses a caller with no session" \
+	-- bash -c '
+		code=$(qa_code POST /v1/register "" \
+			"{\"tenant\":\"qa-anon-$$\",\"author_pubkey\":\"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\"}")
+		[ "$code" = 401 ]'
+
 # ── a small-order public key must be refused at registration ─────────────────
 # VerifyingKey::from_bytes admits any value that decompresses to a curve point, but
 # verify_strict — which every request path uses — rejects small-order keys. Such a key
 # therefore registers successfully, consumes the tenant name, and then fails every
 # signature check afterwards. That is a cheap denial of service on tenant names.
+#
+# Signed in, so a 400 here is the KEY being refused. Without the session it would be 401 and
+# this would pass for having no credential rather than for the check it names.
 assert_green "POST /v1/register refuses an all-zero author public key" \
 	-- bash -c '
-		code=$(curl -sS -m 10 -o /dev/null -w "%{http_code}" -X POST \
-			-H "content-type: application/json" \
-			-d "{\"tenant\":\"qa-smallorder\",\"author_pubkey\":\"$(printf "0%.0s" $(seq 1 64))\"}" \
-			"$(qa_base)/v1/register")
+		qa_signup "qa-reg-$$@archicode.codes" "qa-register-pw-$$" >/dev/null
+		tok=$(qa_login "qa-reg-$$@archicode.codes" "qa-register-pw-$$")
+		[ -n "$tok" ] || exit 1
+		code=$(qa_code POST /v1/register "$tok" \
+			"{\"tenant\":\"qa-smallorder-$$\",\"author_pubkey\":\"$(printf "0%.0s" $(seq 1 64))\"}")
 		[ "$code" = 400 ]'
 
 # The control. Without it, a request-shape change would make the assertion above pass
 # for a parse error instead of the key check, and it would look just as green.
 assert_green "the same request with a valid Ed25519 key is accepted" \
 	-- bash -c '
-		code=$(curl -sS -m 10 -o /dev/null -w "%{http_code}" -X POST \
-			-H "content-type: application/json" \
-			-d "{\"tenant\":\"qa-control-$$\",\"author_pubkey\":\"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\"}" \
-			"$(qa_base)/v1/register")
+		qa_signup "qa-ctl-$$@archicode.codes" "qa-control-pw-$$" >/dev/null
+		tok=$(qa_login "qa-ctl-$$@archicode.codes" "qa-control-pw-$$")
+		[ -n "$tok" ] || exit 1
+		code=$(qa_code POST /v1/register "$tok" \
+			"{\"tenant\":\"qa-control-$$\",\"author_pubkey\":\"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\"}")
 		[ "$code" = 200 ] || [ "$code" = 409 ]'
 
 # ── deletion is irreversible and must say so ─────────────────────────────────
@@ -110,15 +126,15 @@ assert_green "'account delete' refuses without an explicit confirmation flag" \
 	-- bash -c 'out=$(docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl account delete 2>&1); [ $? -ne 0 ] && printf "%s" "$out" | grep -qi "confirm\|--yes\|irreversible"'
 assert_green "'account delete' warns that the action is irreversible" \
 	-- bash -c '_help account delete 2>&1 | grep -qi "irreversible\|cannot be undone\|permanent"'
-# An accurate message gets read as a complete one. A tenant name claimed by `auth login
-# --tenant` survives the account, and nothing anywhere releases one, so deleting the account
-# leaves that name taken — by nobody who can use it once the keystore is gone too. The verb
-# has to say so, in both the help and the refusal, or "delete my account" reads as
-# "everything I registered".
-assert_green "'account delete' says what it does NOT remove" \
-	-- bash -c '_help account delete 2>&1 | grep -qi "tenant"'
-assert_green "the refusal names the surviving tenant claim too" \
-	-- bash -c 'docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl account delete 2>&1 | grep -qi "tenant"'
+# An accurate message gets read as a complete one, so the verb has to say what ELSE goes with
+# the account. Since D13 that is the opposite of what it used to be: the tenant name is
+# RELEASED rather than kept, which is the sharper warning of the two — the name can go to
+# somebody else, where before it was merely unusable. Asserted in both the help and the
+# refusal, because an operator reads whichever one they hit first.
+assert_green "'account delete' says the tenant claim is released" \
+	-- bash -c '_help account delete 2>&1 | grep -qi "tenant" && _help account delete 2>&1 | grep -qi "released"'
+assert_green "the refusal names the released tenant claim too" \
+	-- bash -c 'docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl account delete 2>&1 | grep -qi "released"'
 
 # ── the whole deletion story, end to end ─────────────────────────────────────
 # The assertions above say the verb exists and refuses. These say it does what it claims and

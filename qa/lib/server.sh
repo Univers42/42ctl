@@ -15,7 +15,12 @@ set -uo pipefail
 # edits that tree continuously, so building from it makes every result depend on what
 # someone else happened to have saved — a red that cannot be reproduced tomorrow. The
 # pin is a detached read-only clone, so their checkout is never touched.
-: "${QA_VAULT42_REV:=82ab5ce}"
+#
+# f699f61 is the first commit carrying D13: /v1/register is authenticated, so the register
+# specs in s20 sign in before they assert, and `account delete` releases the tenant name
+# rather than keeping it. Moving the pin BACK below this commit turns those specs red, which
+# is correct — they describe an authority that answers differently.
+: "${QA_VAULT42_REV:=f699f61}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"
@@ -243,7 +248,14 @@ qa_actor() {
 # The file format is the raw token, so this is setup, not a bypass: the CLI still
 # authenticates every request with it exactly as it would in real use.
 qa_actor_token() {
-	local who="$1" token="$2" path="$QA_RESULTS/actors/$who/session.tok"
+	local who="$1" token="$2"
+	# `path` is declared SEPARATELY on purpose. `local a=$1 b=$QA_RESULTS/$a` declares every
+	# name on the line before it assigns any of them, so `$a` is still unset when the second
+	# initializer is expanded — and under `set -u` that aborts the spec on the spot. This
+	# function had therefore never run to completion: s20 and s24 both call it at top level,
+	# and both silently stopped there, taking every later assertion with them while the
+	# battery still reported no regressions because it counts only reds it reached.
+	local path="$QA_RESULTS/actors/$who/session.tok"
 	mkdir -p "$QA_RESULTS/actors/$who"
 	printf '%s' "$token" >"$path"
 	# Owner-only, because this is a real bearer token on a real developer's machine and the
