@@ -50,6 +50,7 @@ restore_and_read() {
 		-v "$VAULT42_DIR":/work -w /work $QA_V42_VOLS \
 		-e VAULT42_HOST=0.0.0.0 -e VAULT42_PORT=8443 -e VAULT42_DB=/restore/qa42.db \
 		-e VAULT42_STORE=sqlite -e VAULT42_SCOPE_KEYS_ENABLED=1 -e RUST_LOG=info \
+		-e VAULT42_ALLOW_UNGATED=1 \
 		"$QA_IMG" sh -c 'cargo run --quiet --bin vault42-server' >/dev/null 2>&1
 	local i
 	for i in $(seq 1 120); do docker logs qa42-restore 2>&1 | grep -q listening && break; sleep 1; done
@@ -88,7 +89,10 @@ assert_green "the server refuses to start with a malformed contract public key" 
 	-- bash -c '[ "$(qa_try_start "VAULT42_CONTRACT_PUBKEY=not-hex-at-all")" = refused ]'
 assert_green "the server refuses to start with a truncated contract public key" \
 	-- bash -c '[ "$(qa_try_start "VAULT42_CONTRACT_PUBKEY=abcdef")" = refused ]'
-assert_spec "running without a contract gate requires saying so explicitly" \
+# Green since 82ab5ce. A missing contract public key used to disable the gate silently, which
+# is the same question as a malformed one — already refused — with a quieter failure. Absence
+# read as a default rather than as a decision, which is how it survived.
+assert_green "running without a contract gate requires saying so explicitly" \
 	-- bash -c '[ "$(qa_try_start "VAULT42_UNUSED=1")" = refused ]'
 
 # A new deployment starts with neither a database nor a signing key. That state must
@@ -160,8 +164,27 @@ assert_spec "the client pins the crypto core to a tag rather than a branch commi
 # because it stops anyone from looking. Each of these names a protection with no code.
 assert_green "the threat model does not claim key rotation that does not exist" \
 	-- bash -c '! grep -q "revocable via key rotation" "$1/THREAT-MODEL.md"' _ "$V42"
-assert_spec "the runbook does not document a seal state that does not exist" \
-	-- bash -c '! grep -q "VAULT42_UNSEAL_SEED" "$1/RUNBOOK.md"' _ "$V42"
+# Structural, and it had to become so. The first version grepped the runbook for one variable
+# name to catch a documented-but-absent feature — and the only mention of that name in the file
+# is the sentence saying it appears in no source file at all. So the assertion fired on the
+# text documenting the ABSENCE, and the only way to clear it was to delete the honest sentence.
+# A red that punishes accurate documentation is worse than no red: it trains people to make
+# the docs vaguer.
+#
+# It now checks the CLASS instead: every VAULT42_* variable a runbook names must exist in the
+# code, unless that same line says it does not. That catches a runbook promising a knob nobody
+# implemented, which this repository has had four of, and stays quiet about a runbook honestly
+# recording that something is missing.
+assert_green "the runbook documents no environment variable the code does not have" \
+	-- bash -c 'missing=""
+		while read -r line; do
+			case "$line" in *"no \`.rs\` file"* | *"does not exist"* | *"NOT IMPLEMENTED"*) continue ;; esac
+			for var in $(grep -oE "VAULT42_[A-Z0-9_]+" <<<"$line" | sort -u); do
+				grep -rqI --include="*.rs" "$var" "$1/crates" 2>/dev/null || missing="$missing $var"
+			done
+		done <"$1/RUNBOOK.md"
+		[ -z "$missing" ] || { printf "the runbook names variables no source file has:%s\n" "$missing"; exit 1; }' \
+	_ "$V42"
 # The CLI half of this reads src/cli/vault.rs, where the Audit variant moved when cli.rs was
 # split. It used to read src/cli.rs: with that file gone, sed errors, the fallback finds
 # nothing, and the assertion fails — in the SAFE direction, but for the wrong reason. A

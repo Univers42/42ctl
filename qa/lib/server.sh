@@ -15,7 +15,7 @@ set -uo pipefail
 # edits that tree continuously, so building from it makes every result depend on what
 # someone else happened to have saved — a red that cannot be reproduced tomorrow. The
 # pin is a detached read-only clone, so their checkout is never touched.
-: "${QA_VAULT42_REV:=925ad3a}"
+: "${QA_VAULT42_REV:=82ab5ce}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"
@@ -149,6 +149,14 @@ qa_server_up() {
 	return 1
 }
 
+# The battery's server runs WITHOUT a contract gate, and now has to say so.
+#
+# A missing contract public key used to disable the gate silently, which is the defect s31
+# asserts against: refusing a MALFORMED key was already the rule, and an absent one was the
+# same question with a quieter failure. It is an explicit opt-in now, so this harness declares
+# it rather than benefiting from the old default. The specs that test the gate itself start
+# their own servers and do not pass this.
+
 # One attempt at starting the server container.
 #
 # A host port that cannot be bound is retried on a FRESH port rather than reported. The
@@ -183,6 +191,7 @@ _qa_server_run() {
 		-e VAULT42_HOST=0.0.0.0 -e VAULT42_PORT="$QA_PORT" \
 		-e VAULT42_DB=/tmp/qa42.db -e VAULT42_STORE=sqlite \
 		-e VAULT42_SCOPE_KEYS_ENABLED=1 -e RUST_LOG=info \
+		-e VAULT42_ALLOW_UNGATED=1 \
 		-p "${QA_HOST_PORT:-18443}:$QA_PORT" \
 		"$QA_IMG" sh -c 'cargo run --quiet --bin vault42-server' >/dev/null
 }
