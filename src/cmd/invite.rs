@@ -45,6 +45,6 @@ async fn show(grobase: &str, token: &str, id: &str) -> anyhow::Result<()> {
     ui::field("email", &inv.email);
     ui::field("role", &inv.role);
     ui::field("status", &inv.status);
-    ui::field("expires", &inv.expires_at);
+    ui::field("expires", &ui::reltime(inv.expires_at));
     Ok(())
 }

@@ -261,6 +261,25 @@ assert_green "and the rival reaches none of acme's hundred files" \
 		qa_actor zoe "$d" "vault pull-env --org $2 --project $3 --env prod --apply" >/dev/null 2>&1
 		[ "$(find "$d" -type f | wc -l)" -eq 0 ]' _ "$W" "$ACME" "$P_WEB"
 
+# ── the CLI's own rendering of all this ─────────────────────────────────────
+# Every assertion above reads the AUTHORITY. None of them read what 42ctl makes of the
+# answer, and that is where `org members` was broken for weeks: the authority emits every
+# timestamp as an integer, the client declared one a string, and the whole listing failed to
+# decode. Membership was intact and the verb reported nothing — a client-side decode error
+# wearing the costume of an empty organisation.
+#
+# A suite that only ever drives the API cannot see that, and mine only ever drove the API.
+assert_green "the CLI lists the organisation's members, not just the API" \
+	-- bash -c 'out=$(qa_actor ida "$1" "org members --org $2" 2>&1) || { printf "%s\n" "$out" | tail -3; exit 1; }
+		grep -qF "$3" <<<"$out" || { printf "the listing does not name a known member:\n%s\n" "$out"; exit 1; }' \
+	_ "$W" "$ACME" "${ID[jon]}"
+assert_green "the CLI lists the organisation's teams" \
+	-- bash -c 'out=$(qa_actor ida "$1" "team list --org $2" 2>&1) || { printf "%s\n" "$out" | tail -3; exit 1; }
+		grep -q "platform" <<<"$out"' _ "$W" "$ACME"
+assert_green "the CLI lists the project's environments" \
+	-- bash -c 'out=$(qa_actor ida "$1" "env list --project $2" 2>&1) || { printf "%s\n" "$out" | tail -3; exit 1; }
+		grep -q "prod" <<<"$out"' _ "$W" "$P_WEB"
+
 # ── the server learns nothing from any of it ─────────────────────────────────
 DB37="$W/server.db"
 assert_green "the server database can be read back for searching" -- qa_dump_server_db "$DB37"

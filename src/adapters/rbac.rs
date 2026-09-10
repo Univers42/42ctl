@@ -41,8 +41,12 @@ pub struct Org {
 pub struct Member {
     pub user_id: String,
     pub role: String,
+    /// Unix seconds. The authority emits every timestamp as an integer; declaring this a
+    /// String made the whole listing fail to decode, so `org members` reported nothing while
+    /// membership was perfectly intact — a client-side decode error wearing the costume of an
+    /// empty organisation.
     #[serde(default)]
-    pub created_at: String,
+    pub created_at: i64,
 }
 
 /// An invite plus the cleartext token grobase returns ONCE at issue time.
@@ -61,8 +65,9 @@ pub struct Invite {
     pub email: String,
     pub role: String,
     pub status: String,
+    /// Unix seconds, for the same reason as `Member::created_at`.
     #[serde(default)]
-    pub expires_at: String,
+    pub expires_at: i64,
 }
 
 /// A team (`POST/GET /v1/orgs/{org}/teams`).

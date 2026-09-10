@@ -59,7 +59,7 @@ async fn members(grobase: &str, token: &str, org_id: &str) -> anyhow::Result<()>
     let list = org::members(grobase, token, org_id).await?;
     let rows: Vec<Vec<String>> = list
         .iter()
-        .map(|m| vec![m.user_id.clone(), m.role.clone(), m.created_at.clone()])
+        .map(|m| vec![m.user_id.clone(), m.role.clone(), ui::reltime(m.created_at)])
         .collect();
     ui::table(&["user_id", "role", "joined"], &rows);
     Ok(())
