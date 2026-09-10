@@ -47,14 +47,15 @@ impl Session {
         if created {
             ui::field("project", &proj.project_id);
         }
-        let files = project::scan(&proj)?;
+        let scan = project::scan(&proj)?;
+        let files = &scan.files;
         let mut scanned: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut manifest = self
             .load_manifest(&proj.project_id)
             .await?
             .unwrap_or_else(|| Manifest::new(&proj.project_id));
         let mut state = SyncState::load(&proj.root);
-        for file in &files {
+        for file in files {
             let rel = projpath::canonicalize_for_storage(file, &proj.root)?;
             scanned.insert(rel.as_str().to_string());
             let entry = self
@@ -73,6 +74,7 @@ impl Session {
         };
         self.push_manifest(&proj.project_id, &manifest).await?;
         state.save(&proj.root)?;
+        report_declined(&proj.root, &scan.declined);
         ui::success(&format!(
             "pushed {} file(s){} + manifest for project {}",
             files.len(),
@@ -419,6 +421,35 @@ fn is_not_found(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<tonic::Status>()
         .is_some_and(|status| status.code() == Code::NotFound)
+}
+
+/// Say which directories the scan declined to look inside, when any held something.
+///
+/// Every omission this project has shipped was silent: a `secrets/` directory dropped and
+/// push reporting success, a submodule under `vendor/` dropped and push reporting success.
+/// Widening the scan fixed each instance and left the class. Naming what was declined is what
+/// makes the next one a question the operator asks rather than something they discover at a
+/// restore.
+fn report_declined(root: &std::path::Path, declined: &[std::path::PathBuf]) {
+    if declined.is_empty() {
+        return;
+    }
+    let names: Vec<String> = declined
+        .iter()
+        .map(|p| {
+            p.strip_prefix(root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    println!(
+        "{}",
+        ui::warn(&format!(
+            "skipped {} (they hold files this project would otherwise store)",
+            names.join(", ")
+        ))
+    );
 }
 
 /// The opaque server path for a project file's blob (the real path never appears here).

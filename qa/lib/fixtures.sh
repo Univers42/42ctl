@@ -232,6 +232,12 @@ fixture_orchestrator() {
 	# submodules — and there the skip becomes silent data loss.
 	_submodule vendor/thirdparty thirdparty
 
+	# And a genuinely vendored library beside it: NOT a repository, carrying a config file
+	# that must stay out of the vault. This is the case that makes "just stop skipping
+	# vendor" the wrong fix, and the case the scan should MENTION rather than take.
+	mkdir -p "$root/vendor/plainlib"
+	printf 'VENDORED_DEFAULT=not-ours\n' >"$root/vendor/plainlib/config.env"
+
 	# A submodule that is ALSO its own 42ctl project, which is the normal case once a
 	# team manages each service separately.
 	mkdir -p "$root/services/api/.42ctl"

@@ -97,8 +97,11 @@ They are unrelated and each verb needs the right one:
   a GoTrue session JWT minted by `42ctl auth login --github` (device flow), saved as
   `session-<profile>.tok`.
 
-So the RBAC verb groups fail without `auth login --github`, and the vault verbs fail without the
-plain `auth login`. `adapters/creds.rs` owns the first, `adapters/session.rs` the second.
+So the RBAC verb groups fail without a SESSION, and the vault verbs fail without a contract.
+A session comes from `auth login --password --email <mail>` or from `auth login --github`.
+The device flow needs a GitHub app configured on the authority, so on a deployment without one
+`--password` is the ONLY door — and until it existed the entire group model was unreachable
+there however well it tested locally. `adapters/creds.rs` owns the first, `adapters/session.rs` the second.
 
 ### The three endpoints in a profile
 

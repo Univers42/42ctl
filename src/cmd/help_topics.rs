@@ -92,8 +92,12 @@ $ 42ctl keys export-pub                                   # your public address 
 ! Lose the passphrase and the data sealed to this identity is gone. By design.
 
 ## 3. Log in
-$ 42ctl auth login --tenant <tenant> --email you@x.com    # enter the 6-digit code from the email
+$ 42ctl auth signup --email you@x.com                     # create the account (password prompted)
+$ 42ctl auth login --password --email you@x.com           # sign in: saves the session teams need
+$ 42ctl auth login --tenant <tenant> --email you@x.com    # a contract for the vault itself
 $ 42ctl auth whoami                                       # principal + address + 'contract: bound'
+! Two different credentials. Org, team, project and grant verbs need the SESSION, which only
+! --password or --github mints. The vault verbs need the contract. Most people want both.
 
 ## 4. Sync a project
 $ cd <project>

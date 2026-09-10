@@ -83,17 +83,39 @@ pub fn default_patterns() -> Vec<String> {
     vec!["*.env*".to_string(), "*.secrets".to_string()]
 }
 
+/// What a scan took, and what it declined to look inside.
+///
+/// `declined` exists because every omission this project has shipped was SILENT. The
+/// `secrets/` directory was dropped and push said it succeeded; a submodule under `vendor/`
+/// was dropped and push said it succeeded. Widening the scan fixed each instance and left the
+/// class, because the next directory somebody parks a project in is lost the same way. A scan
+/// that says what it declined turns the next one into a question rather than a discovery.
+pub struct Scan {
+    pub files: Vec<PathBuf>,
+    pub declined: Vec<PathBuf>,
+}
+
 /// Scan the project tree for matching files (skips `.42ctl/` + symlinks), path-sorted.
-pub fn scan(project: &Project) -> anyhow::Result<Vec<PathBuf>> {
-    let mut out = Vec::new();
+pub fn scan(project: &Project) -> anyhow::Result<Scan> {
+    let (mut files, mut declined) = (Vec::new(), Vec::new());
     walk(
         &project.root,
         &project.patterns,
         is_secret_dir_root(&project.root),
-        &mut out,
+        &mut Found {
+            files: &mut files,
+            declined: &mut declined,
+        },
     )?;
-    out.sort();
-    Ok(out)
+    files.sort();
+    declined.sort();
+    Ok(Scan { files, declined })
+}
+
+/// Where a walk puts what it finds, so the two lists travel together.
+struct Found<'a> {
+    files: &'a mut Vec<PathBuf>,
+    declined: &'a mut Vec<PathBuf>,
 }
 
 /// Directory names never descended during a scan: the marker dir plus VCS / build /
@@ -148,6 +170,7 @@ fn walk_repositories_inside(
     patterns: &[String],
     out: &mut Vec<PathBuf>,
 ) -> anyhow::Result<()> {
+    let mut ignored = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let meta = entry.metadata()?;
@@ -156,7 +179,15 @@ fn walk_repositories_inside(
         }
         let path = entry.path();
         if is_repository_root(&path) {
-            walk(&path, patterns, false, out)?;
+            walk(
+                &path,
+                patterns,
+                false,
+                &mut Found {
+                    files: out,
+                    declined: &mut ignored,
+                },
+            )?;
         }
     }
     Ok(())
@@ -192,7 +223,7 @@ fn skip_file(name: &str) -> bool {
 /// `all` is set once the walk is inside a secret directory and stays set below it, so a
 /// `secrets/tls/server.key` is taken as surely as a `secrets/db_password.txt`. The skip list
 /// still applies underneath, so a `secrets/node_modules` is not swept into the vault.
-fn walk(dir: &Path, patterns: &[String], all: bool, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+fn walk(dir: &Path, patterns: &[String], all: bool, found: &mut Found<'_>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let meta = entry.metadata()?;
@@ -206,15 +237,75 @@ fn walk(dir: &Path, patterns: &[String], all: bool, out: &mut Vec<PathBuf>) -> a
                 continue;
             }
             if skip_dir(&name) {
-                walk_repositories_inside(&path, patterns, out)?;
+                walk_repositories_inside(&path, patterns, found.files)?;
+                if holds_a_candidate(&path, patterns) {
+                    found.declined.push(path);
+                }
             } else {
-                walk(&path, patterns, all || is_secret_dir(&name), out)?;
+                walk(&path, patterns, all || is_secret_dir(&name), found)?;
             }
         } else if (all || matches(&name, patterns)) && !skip_file(&name) {
-            out.push(entry.path());
+            found.files.push(entry.path());
         }
     }
     Ok(())
+}
+
+/// The most entries examined when deciding whether a skipped directory is worth mentioning.
+///
+/// A directory with more children than this is a dependency tree, and a dependency tree is
+/// the thing the skip list exists for — mentioning it every push is a warning people learn to
+/// ignore, which is the same as having none. The bound also keeps the check cheap: a scan slow
+/// enough to turn off reports nothing at all.
+const DECLINE_PROBE_LIMIT: usize = 64;
+
+/// Whether a skipped directory holds anything the scan would have taken had it looked.
+///
+/// Two levels, because `vendor/<library>/config.env` is the layout that occurs and one level
+/// would miss it. Repository roots are excluded because those are descended already, and the
+/// whole probe stops after `DECLINE_PROBE_LIMIT` entries.
+fn holds_a_candidate(dir: &Path, patterns: &[String]) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let children: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    if children.len() > DECLINE_PROBE_LIMIT {
+        return false;
+    }
+    children.iter().any(|path| is_candidate(path, patterns))
+}
+
+/// Whether one entry inside a skipped directory is something the project would have stored.
+///
+/// A file is judged by the patterns. A directory is judged by whether it is a secrets
+/// directory, or — one level deeper, and only when it is not itself a repository — by
+/// whether it directly contains a matching file.
+fn is_candidate(path: &Path, patterns: &[String]) -> bool {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if !path.is_dir() {
+        return matches(&name, patterns) && !skip_file(&name);
+    }
+    if is_repository_root(path) || skip_dir(&name) {
+        return false;
+    }
+    if is_secret_dir(&name) {
+        return true;
+    }
+    let Ok(inner) = std::fs::read_dir(path) else {
+        return false;
+    };
+    inner.flatten().take(DECLINE_PROBE_LIMIT).any(|entry| {
+        let inner_name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = entry.metadata().map(|m| m.is_dir()).unwrap_or(false);
+        if is_dir {
+            is_secret_dir(&inner_name)
+        } else {
+            matches(&inner_name, patterns) && !skip_file(&inner_name)
+        }
+    })
 }
 
 /// Whether `name` matches any configured pattern.
@@ -236,6 +327,58 @@ fn glob_match(name: &str, pattern: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// A skipped directory holding a file this project would have stored is REPORTED, so the
+    /// next silent omission is a question the operator asks rather than something they find
+    /// at a restore. Every omission this project has shipped was silence, not error.
+    #[test]
+    fn a_skipped_directory_holding_a_candidate_is_reported() {
+        let root = temp_project("declined-candidate");
+        std::fs::create_dir_all(root.join("vendor")).expect("mkdir");
+        std::fs::write(root.join("vendor").join(".env"), b"K=V").expect("write");
+        std::fs::write(root.join(".env"), b"K=V").expect("write");
+        let scan = scan(&mk(root.clone(), "p", default_patterns())).expect("scan");
+        assert_eq!(scan.files.len(), 1, "the vendored file is still not stored");
+        assert_eq!(scan.declined.len(), 1, "but it is reported");
+        assert!(scan.declined[0].ends_with("vendor"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// And a skipped directory holding nothing relevant stays quiet. A push that names
+    /// node_modules every time is a warning people learn to skip, which is the same as
+    /// having none.
+    #[test]
+    fn a_skipped_directory_with_nothing_relevant_is_not_reported() {
+        let root = temp_project("declined-quiet");
+        std::fs::create_dir_all(root.join("node_modules").join("left-pad")).expect("mkdir");
+        std::fs::write(root.join("node_modules").join("index.js"), b"x").expect("write");
+        std::fs::write(root.join(".env"), b"K=V").expect("write");
+        let scan = scan(&mk(root.clone(), "p", default_patterns())).expect("scan");
+        assert_eq!(scan.files.len(), 1);
+        assert!(scan.declined.is_empty(), "{:?}", scan.declined);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A secrets directory parked under a skipped one is the shape that lost a TLS key, so it
+    /// is reported even though no file at that level matches a pattern.
+    #[test]
+    fn a_secrets_directory_under_a_skipped_one_is_reported() {
+        let root = temp_project("declined-secrets");
+        std::fs::create_dir_all(root.join("vendor").join("secrets")).expect("mkdir");
+        std::fs::write(root.join("vendor").join("secrets").join("server.key"), b"k").expect("w");
+        std::fs::write(root.join(".env"), b"K=V").expect("write");
+        let scan = scan(&mk(root.clone(), "p", default_patterns())).expect("scan");
+        assert_eq!(scan.declined.len(), 1, "{:?}", scan.declined);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A throwaway project root under the system temp directory.
+    fn temp_project(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("scan-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("mkdir");
+        root
+    }
     use super::*;
 
     /// Build a throwaway tree and return its root.
@@ -254,6 +397,7 @@ mod tests {
         let project = mk(root.to_path_buf(), "test", default_patterns());
         let mut names: Vec<String> = scan(&project)
             .expect("scan")
+            .files
             .iter()
             .map(|p| {
                 p.strip_prefix(root)

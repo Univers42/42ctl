@@ -176,8 +176,12 @@ pub enum Auth {
     /// With `--email`, a 6-digit code is emailed and asked for first. With `--github`,
     /// log in to grobase via the GitHub device flow instead (saves a session token).
     Login {
-        /// Tenant to log in to (required unless --github)
-        #[arg(long, value_name = "NAME", required_unless_present = "github")]
+        /// Tenant to log in to (required unless --github or --password)
+        #[arg(
+            long,
+            value_name = "NAME",
+            required_unless_present_any = ["github", "password"]
+        )]
         tenant: Option<String>,
         /// One-time registration token, if your tenant requires one
         #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN")]
@@ -188,6 +192,13 @@ pub enum Auth {
         /// Log in to grobase with the GitHub device flow (no browser callback)
         #[arg(long)]
         github: bool,
+        /// Sign in with this account's PASSWORD and save the session
+        ///
+        /// Requires --email. This is the other way to obtain a session: without it the only
+        /// door is the GitHub device flow, and a deployment with no GitHub app configured has
+        /// no way to reach organisations, teams, projects or grants at all.
+        #[arg(long)]
+        password: bool,
     },
     /// Create an account on the authority with an email and a password
     Signup {

@@ -15,7 +15,7 @@ set -uo pipefail
 # edits that tree continuously, so building from it makes every result depend on what
 # someone else happened to have saved — a red that cannot be reproduced tomorrow. The
 # pin is a detached read-only clone, so their checkout is never touched.
-: "${QA_VAULT42_REV:=c365e0d}"
+: "${QA_VAULT42_REV:=925ad3a}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"
@@ -374,8 +374,20 @@ qa_json() {
 }
 
 # qa_signup <email> <password> -> account_id on stdout
+# qa_signup <email> <password> -> the new account's id on stdout, empty on failure.
+#
+# The id comes from `/v1/auth/me` after logging in, not from the signup reply. Signup answers
+# the same for a fresh address and one already registered — deliberately, because answering
+# differently is an enumeration oracle needing no password — so it has no id to return and a
+# status code no longer says whether the address was free.
+#
+# That makes this the stronger check anyway: an id here means the account exists AND the
+# password given works, where the old version meant only that a status was 201.
 qa_signup() {
-	local r; r=$(qa_api POST /v1/auth/signup "" "{\"email\":\"$1\",\"password\":\"$2\"}")
+	qa_api POST /v1/auth/signup "" "{\"email\":\"$1\",\"password\":\"$2\"}" >/dev/null
+	local token; token="$(qa_login "$1" "$2")"
+	[ -n "$token" ] || return 0
+	local r; r=$(qa_api GET /v1/auth/me "$token")
 	qa_json "${r#*$'\t'}" account_id
 }
 

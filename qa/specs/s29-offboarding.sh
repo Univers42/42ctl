@@ -132,7 +132,14 @@ assert_green "the deleted account's existing session no longer works" \
 assert_green "logging in with a wrong password is refused the same way" \
 	-- bash -c '[ -z "$(qa_login "$1" "definitely-not-the-password")" ]' _ "$D_MAIL"
 # The address must come back into circulation, or a departing person's email is burned.
+#
+# Asserted through the BEHAVIOUR rather than a status. Signup now answers identically whether
+# an address was free, so "it returned 201" no longer means anything; what means something is
+# that a brand-new password mints a session and the account behind it is a different one.
 assert_green "the address is freed for a genuinely new signup" \
-	-- bash -c 'id=$(qa_signup "$1" "brand-new-password-$2"); [ -n "$id" ] && [ "$id" != "$3" ]' _ "$D_MAIL" "$N" "$D_ID"
+	-- bash -c 'id=$(qa_signup "$1" "brand-new-password-$2")
+		[ -n "$id" ] || { printf "the freed address could not be registered and logged into\n"; exit 1; }
+		[ "$id" != "$3" ] || { printf "the new signup reused the deleted account id\n"; exit 1; }' \
+	_ "$D_MAIL" "$N" "$D_ID"
 
 spec_end

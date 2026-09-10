@@ -19,9 +19,15 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
             token,
             email,
             github,
+            password,
         } => {
             if *github {
                 github_login(profile).await
+            } else if *password {
+                let email = email
+                    .as_deref()
+                    .context("`--password` needs `--email` to say which account")?;
+                password_login(profile, email, tenant.as_deref(), token.as_deref()).await
             } else {
                 let tenant = tenant
                     .as_deref()
@@ -38,16 +44,51 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
     }
 }
 
+/// Sign in with an email and password, save the session, and register a contract if asked.
+///
+/// This is the second door to a session, and for most deployments it is the only one. The
+/// other is the GitHub device flow, which needs a GitHub app configured on the authority —
+/// without one, every organisation, team, project and grant verb is unreachable, because they
+/// all authenticate with a session rather than a contract. A feature nobody can reach is not
+/// a feature, however well it is tested.
+async fn password_login(
+    profile: &str,
+    email: &str,
+    tenant: Option<&str>,
+    token: Option<&str>,
+) -> anyhow::Result<()> {
+    let base = Config::load()?.endpoint(profile)?.otp_base().to_string();
+    let secret = passphrase::prompt_secret("password")?;
+    let minted = account::login(&base, email, &secret).await?;
+    session::save(profile, &minted.token)?;
+    ui::field("account", &minted.account_id);
+    ui::success(&format!("signed in as {email}"));
+    match tenant {
+        Some(tenant) => login(profile, tenant, token, Some(email)).await,
+        None => Ok(()),
+    }
+}
+
 /// Create an account on the authority. The password is prompted twice and never echoed.
 ///
 /// Signup does not log in: the account exists afterwards and the caller still has to log in
 /// for a session, so a failed signup never leaves a half-authenticated profile behind.
+///
+/// The success message is deliberately non-committal about whether the address was already
+/// registered, and the account id is printed only if the authority chose to return one.
+/// Saying "registered" for a fresh address and something else for a taken one is an
+/// enumeration oracle that needs no password: an attacker learns who has an account by
+/// trying to register them.
 async fn signup(profile: &str, email: &str) -> anyhow::Result<()> {
     let base = Config::load()?.endpoint(profile)?.otp_base().to_string();
     let password = passphrase::prompt_new_secret("password")?;
     let created = account::signup(&base, email, &password).await?;
-    ui::field("account", &created.account_id);
-    ui::success(&format!("registered {email} — log in to obtain a session"));
+    if let Some(id) = &created.account_id {
+        ui::field("account", id);
+    }
+    ui::success(&format!(
+        "if {email} was not already registered, it is now — log in to obtain a session"
+    ));
     Ok(())
 }
 

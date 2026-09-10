@@ -22,10 +22,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zeroize::Zeroizing;
 
-/// The account identity a signup returns.
+/// What a signup returns.
+///
+/// `account_id` is optional because an authority that does not reveal whether an address is
+/// already registered cannot return one: answering with an id for a fresh address and
+/// something else for a taken one IS the disclosure. The id is available from
+/// `GET /v1/auth/me` after logging in, where returning it leaks nothing.
 #[derive(Deserialize)]
 pub struct Created {
-    pub account_id: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
 }
 
 /// The caller's own account, as the authority reports it.
@@ -54,6 +60,23 @@ pub async fn signup(
 ) -> anyhow::Result<Created> {
     let body = json!({ "email": email, "password": password.as_str() });
     rbac::post_public(base, "/v1/auth/signup", &body).await
+}
+
+/// A minted session: the bearer and who it belongs to.
+#[derive(Deserialize)]
+pub struct Session {
+    pub token: String,
+    pub account_id: String,
+}
+
+/// Exchange an email and password for a session (`POST /v1/auth/login`).
+pub async fn login(
+    base: &str,
+    email: &str,
+    password: &Zeroizing<String>,
+) -> anyhow::Result<Session> {
+    let body = json!({ "email": email, "password": password.as_str() });
+    rbac::post_public(base, "/v1/auth/login", &body).await
 }
 
 /// Change the caller's password (`POST /v1/auth/passwd`), revoking every session.

@@ -50,7 +50,7 @@ const TREE_MANIFEST: &str = "__42ctl/tree";
 pub async fn push_env(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let (proj, _) = project::open(&cwd, None)?;
-    let files = project::scan(&proj)?;
+    let files = project::scan(&proj)?.files;
     let owner = hex::encode(crypto::scope_id(&ctx.project, &ctx.env_name)?);
     let mut manifest = Manifest::new(&proj.project_id);
     for file in &files {

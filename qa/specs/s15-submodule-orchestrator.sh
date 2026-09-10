@@ -52,11 +52,28 @@ assert_green "no submodule file is flattened into the root" \
 assert_green "the submodule directory structure is recreated" \
 	-- bash -c '[ -d "$1/services/api/srcs" ] && [ -d "$1/libs/shared/srcs" ]' _ "$WORK/restore"
 
-# ── a submodule under vendor/ is silently dropped ────────────────────────────
-# vendor is skipped as a dependency tree, which is right for vendored code and wrong
-# for a submodule parked there. Push reports success either way.
-assert_spec "a submodule under vendor/ is not silently skipped" \
+# ── a submodule under vendor/ ────────────────────────────────────────────────
+# vendor is skipped as a dependency tree, which is right for vendored code and wrong for a
+# submodule parked there — and push reported success either way, which is what made it
+# dangerous rather than merely wrong. The scan now descends into a skipped directory for any
+# entry that is itself a git repository: a submodule is a project boundary, and projects are
+# the things that have secrets.
+assert_green "a submodule under vendor/ is not silently skipped" \
 	-- test -f "$WORK/restore/vendor/thirdparty/.env"
+# The other half of the same rule, and the reason "just stop skipping vendor" is the wrong
+# fix: vendor/plainlib is genuinely vendored, is not a repository, and its config must stay
+# out of the vault.
+assert_green "a vendored library that is not a repository stays out" \
+	-- bash -c '[ ! -f "$1/vendor/plainlib/config.env" ]' _ "$WORK/restore"
+
+# And the class, rather than the instance. Widening the scan fixed two directories; a scan
+# that says nothing about what it DECLINED loses the next one just as silently. The warning
+# names only directories that actually hold something relevant, so a push does not recite
+# node_modules every time and teach people to ignore it.
+assert_green "push names the directory it declined to scan" \
+	-- bash -c 'out=$(qa_actor alice "$1" "push --project qa-orchestrator" 2>&1)
+		grep -qi "skipped" <<<"$out" || { printf "%s\n" "$out" | tail -4; exit 1; }
+		grep -q "vendor" <<<"$out"' _ "$ORCH"
 
 # ── the same file captured by two overlapping projects ───────────────────────
 # services/api is its own project as well as part of the root. Pushing both means the
