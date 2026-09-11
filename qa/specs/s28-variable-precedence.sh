@@ -25,7 +25,7 @@ assert_green "the authority is listening" -- qa_authority_up
 
 N="$$-$(date +%s)"
 ORG="org28-$N"
-PUUID="24242424-5656-4787-89ab-$(printf '%012d' $$)"
+PUUID="24242424-5656-4787-89ab-$(qa_uuid_tail)"
 A_ID="$(qa_signup "a28-$N@archicode.codes" "pw-a-$N")"; A_TOK="$(qa_login "a28-$N@archicode.codes" "pw-a-$N")"
 M_ID="$(qa_signup "m28-$N@archicode.codes" "pw-m-$N")"; M_TOK="$(qa_login "m28-$N@archicode.codes" "pw-m-$N")"
 O_ID="$(qa_signup "o28-$N@archicode.codes" "pw-o-$N")"; O_TOK="$(qa_login "o28-$N@archicode.codes" "pw-o-$N")"

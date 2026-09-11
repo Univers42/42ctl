@@ -39,6 +39,9 @@ _qa_spec_now_met=0
 # Start a spec file. Resets counters and prints the TAP-ish banner.
 spec_begin() {
 	SPEC_NAME="$1"
+	# Exported so an assertion's `bash -c` child resolves the same per-spec actor
+	# directory the spec does (`qa_actor_dir`). Unexported, the child saw an empty name.
+	export SPEC_NAME
 	_qa_n=0
 	_qa_pass=0
 	_qa_regression=0

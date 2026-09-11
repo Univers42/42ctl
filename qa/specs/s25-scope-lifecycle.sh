@@ -28,13 +28,13 @@ assert_green "the authority is listening" -- qa_authority_up
 N="$$-$(date +%s)"
 W="$QA_RESULTS/s25"; rm -rf "$W"; mkdir -p "$W"
 ORG="org-$N"
-PUUID="aaaaaaaa-bbbb-4ccc-8ddd-$(printf '%012d' $$)"
+PUUID="aaaaaaaa-bbbb-4ccc-8ddd-$(qa_uuid_tail)"
 SECRET='TOPSECRET=env-shared-value-0001'
 printf '%s\n' "$SECRET" >"$W/value.txt"
 
 for who in alice bob mallory; do qa_actor_reset "$who"; done
 A_ID="$(qa_actor_account alice "alice-$N@archicode.codes" "pw-alice-$N")"
-A_TOK="$(cat "$QA_RESULTS/actors/alice/session.tok")"
+A_TOK="$(cat "$(qa_actor_dir alice)/session.tok")"
 
 # ── the administrator founds the scope ───────────────────────────────────────
 qa_api POST /v1/orgs "$A_TOK" "{\"slug\":\"$ORG\",\"name\":\"Scope Org\"}" >/dev/null
@@ -54,7 +54,7 @@ assert_green "the environment now advertises a scope public key" \
 
 # ── a colleague joins and is provisioned ─────────────────────────────────────
 B_ID="$(qa_actor_account bob "bob-$N@archicode.codes" "pw-bob-$N")"
-B_TOK="$(cat "$QA_RESULTS/actors/bob/session.tok")"
+B_TOK="$(cat "$(qa_actor_dir bob)/session.tok")"
 I_TOK="$(qa_json "$(qa_api POST "/v1/orgs/$ORG/invites" "$A_TOK" "{\"email\":\"bob-$N@archicode.codes\",\"role\":\"member\"}" | cut -f2-)" token)"
 qa_api POST /v1/orgs/invites/accept "$B_TOK" "{\"token\":\"$I_TOK\"}" >/dev/null
 
@@ -89,7 +89,7 @@ assert_green "the colleague reads it back with the exact bytes" \
 
 # ── and the half that makes it worth anything ────────────────────────────────
 M_ID="$(qa_actor_account mallory "mallory-$N@archicode.codes" "pw-mal-$N")"
-M_TOK="$(cat "$QA_RESULTS/actors/mallory/session.tok")"
+M_TOK="$(cat "$(qa_actor_dir mallory)/session.tok")"
 assert_green "someone outside the organisation cannot read the environment secret" \
 	-- bash -c '! qa_actor mallory "$1" "vault get-env --org $2 --project $3 --env prod app/config" >/dev/null 2>&1' \
 	_ "$W" "$ORG" "$PUUID"

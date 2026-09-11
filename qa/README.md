@@ -75,6 +75,24 @@ run through command substitution, so a helper that exports a port does so in a s
 and the value is lost. Anything needing the base URL calls `qa_base` at the moment of
 use rather than reading a variable.
 
+`run.sh` tears the whole stack down — server, authority, object store — before its first
+spec, so a battery that was killed cannot hand its database to the next one. A spec run on
+its own still adopts a running stack, which is what makes iterating on one spec fast, and
+`QA_KEEP_SERVER=1` only decides what is left up at the END of a run.
+
+Actor state is per spec: `qa/results/actors/<spec>/<who>`, through `qa_actor_dir`. `alice`
+in `s10` and `alice` in `s34` are different people with different keys, so no spec can inherit
+a keystore or a session from whichever spec ran before it. Project UUIDs come from
+`qa_uuid_tail` (PID and clock), so a recycled PID against a kept database cannot re-propose an
+id the authority already holds.
+
+These three are isolation, and are stated as such. The battery was once red shuffled — 56
+assertions across six specs — straight after a killed run, and that failure has NOT been
+reproduced since, with or without them: a shuffled seed stays green when the shared actor
+namespace is put back, and when the teardown is removed and a finished stack is adopted. What
+they guarantee is that a run cannot depend on what a previous run or an earlier spec left
+behind. The original red is still unexplained, and this paragraph should say so until it is.
+
 ## Fixtures
 
 Deterministic by construction: every fixture is written from fixed literal content, so
@@ -130,6 +148,7 @@ asserts it is left git-clean.
 | `s35-hostile-teammate` | a shared manifest is hostile input: traversal, modes, isolation |
 | `s36-credential-attacks` | credential files, enumeration, brute force, stolen tokens, network |
 | `s37-dense-organisation` | eleven people, two companies, three teams, a hundred files |
+| `s38-private-in-scope` | private files inside a shared environment: one member's `.env.local` reaches nobody else, as bytes or as a path; labels, `ls-env`, the shadow rule, the oversize refusal, a planted private manifest |
 
 ## Writing a spec
 

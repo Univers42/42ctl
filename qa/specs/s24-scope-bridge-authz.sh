@@ -24,7 +24,7 @@ N="$$-$(date +%s)"
 WORK="$QA_RESULTS/s24"; rm -rf "$WORK"; mkdir -p "$WORK"
 qa_actor_reset alice
 ORG="org24-$N"
-PUUID="cccccccc-dddd-4eee-8fff-$(printf '%012d' $$)"
+PUUID="cccccccc-dddd-4eee-8fff-$(qa_uuid_tail)"
 A_ID="$(qa_signup "a24-$N@archicode.codes" "pw-a24-$N")"; A_TOK="$(qa_login "a24-$N@archicode.codes" "pw-a24-$N")"
 M_ID="$(qa_signup "m24-$N@archicode.codes" "pw-m24-$N")"; M_TOK="$(qa_login "m24-$N@archicode.codes" "pw-m24-$N")"
 qa_api POST /v1/orgs "$A_TOK" "{\"slug\":\"$ORG\",\"name\":\"O24\"}" >/dev/null

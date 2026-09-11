@@ -64,3 +64,46 @@ pub fn author_key(author_pubkey: &[u8], env: &Envelope) -> anyhow::Result<Author
     }
     AuthorPublicKey::from_bytes(&bytes).map_err(|_| anyhow::anyhow!("invalid author key"))
 }
+
+/// Open an env-secret envelope sealed to the CALLER — a private file inside a shared
+/// environment. Beyond pinning the author as `open_env_envelope` does, the author must be
+/// the caller themself: any writer of the environment can store bytes sealed to a public key
+/// the registry publishes, and a "private" file somebody else wrote is the one thing a
+/// private file must never be.
+pub fn open_private_envelope(
+    identity: &Identity,
+    envelope: &[u8],
+    author_pubkey: &[u8],
+    scope: ReadScope,
+) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    let env = Envelope::from_bytes(envelope)?;
+    let author = author_key(author_pubkey, &env)?;
+    require_own_author(identity, author_pubkey)?;
+    Ok(open(&env, identity.encryption_secret(), &author, &scope)?)
+}
+
+/// Refuse an author key that is not the caller's own.
+pub fn require_own_author(identity: &Identity, author_pubkey: &[u8]) -> anyhow::Result<()> {
+    if identity.author_public().to_bytes().as_slice() == author_pubkey {
+        return Ok(());
+    }
+    anyhow::bail!("this private file was written by somebody else — refusing to restore it")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A private file written by anybody but the caller is refused before decryption is
+    /// even attempted. Sealing to a published key is something every writer can do, so the
+    /// recipient set alone proves nothing about who wrote it.
+    #[test]
+    fn a_private_envelope_by_somebody_else_is_refused() {
+        let me = Identity::generate();
+        let them = Identity::generate();
+        require_own_author(&me, &me.author_public().to_bytes()).expect("my own author key");
+        let err = require_own_author(&me, &them.author_public().to_bytes())
+            .expect_err("a colleague's author key must be refused");
+        assert!(err.to_string().contains("somebody else"), "{err}");
+    }
+}

@@ -57,7 +57,7 @@ W="$QA_RESULTS/s34"
 rm -rf "$W"
 mkdir -p "$W"
 ORG="acme-$N"
-PUUID="34343434-5656-4787-89ab-$(printf '%012d' $$)"
+PUUID="34343434-5656-4787-89ab-$(qa_uuid_tail)"
 TEAM_SLUG="platform"
 
 # ── the people ───────────────────────────────────────────────────────────────
@@ -69,10 +69,10 @@ B_MAIL="bob-$N@archicode.codes";   B_PW="bob-pw-$N"
 C_MAIL="carol-$N@archicode.codes"; C_PW="carol-pw-$N"
 D_MAIL="dave-$N@archicode.codes";  D_PW="dave-pw-$N"
 
-A_ID="$(qa_actor_account alice "$A_MAIL" "$A_PW")"; A_TOK="$(cat "$QA_RESULTS/actors/alice/session.tok")"
-B_ID="$(qa_actor_account bob "$B_MAIL" "$B_PW")";   B_TOK="$(cat "$QA_RESULTS/actors/bob/session.tok")"
-C_ID="$(qa_actor_account carol "$C_MAIL" "$C_PW")"; C_TOK="$(cat "$QA_RESULTS/actors/carol/session.tok")"
-D_ID="$(qa_actor_account dave "$D_MAIL" "$D_PW")";  D_TOK="$(cat "$QA_RESULTS/actors/dave/session.tok")"
+A_ID="$(qa_actor_account alice "$A_MAIL" "$A_PW")"; A_TOK="$(cat "$(qa_actor_dir alice)/session.tok")"
+B_ID="$(qa_actor_account bob "$B_MAIL" "$B_PW")";   B_TOK="$(cat "$(qa_actor_dir bob)/session.tok")"
+C_ID="$(qa_actor_account carol "$C_MAIL" "$C_PW")"; C_TOK="$(cat "$(qa_actor_dir carol)/session.tok")"
+D_ID="$(qa_actor_account dave "$D_MAIL" "$D_PW")";  D_TOK="$(cat "$(qa_actor_dir dave)/session.tok")"
 
 assert_green "four people sign up with an email and a password and each gets an account id" \
 	-- bash -c 'for id in "$@"; do
@@ -97,7 +97,7 @@ assert_green "the project holds an environment" -- bash -c '[ -n "$1" ]' _ "$ENV
 for pair in "bob:$B_MAIL" "carol:$C_MAIL" "dave:$D_MAIL"; do
 	who="${pair%%:*}"; mail="${pair#*:}"
 	t="$(qa_json "$(qa_api POST "/v1/orgs/$ORG/invites" "$A_TOK" "{\"email\":\"$mail\",\"role\":\"member\"}" | cut -f2-)" token)"
-	qa_api POST /v1/orgs/invites/accept "$(cat "$QA_RESULTS/actors/$who/session.tok")" "{\"token\":\"$t\"}" >/dev/null
+	qa_api POST /v1/orgs/invites/accept "$(cat "$(qa_actor_dir "$who")/session.tok")" "{\"token\":\"$t\"}" >/dev/null
 done
 assert_green "the three invited people are all organisation members" \
 	-- bash -c 'r=$(qa_api GET "/v1/orgs/$2/members" "$1")

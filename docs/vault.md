@@ -333,6 +333,37 @@ Two things are deliberately *not* restored verbatim:
   umask default lets any local process list which secrets a project keeps. Directories that
   already exist are left exactly as they are.
 
+### Private files inside the shared tree
+
+Some of what sits in a project tree is one person's — a `.env.local`, a personal key. Those
+travel **with** the tree but are sealed to the pusher alone:
+
+```sh
+42ctl vault push-env --org acme --project api --env prod                 # *.local is private already
+42ctl vault push-env --org acme --project api --env prod --private 'secrets/me.*' --label app=api
+```
+
+- **`*.local` is always private**, flag or not. `--private <PATTERN>` adds more (same grammar as
+  `--only`, repeatable); nothing makes a `.local` file shared — rename it if it must be.
+- A private file is stored under the same environment but sealed to **your** identity, and named
+  only in a second manifest sealed the same way. A teammate who pulls gets neither its bytes nor
+  its **path**: to them the environment does not contain it, and their `ls-env` does not list it.
+- Your own `pull-env` restores both sets. On a path both name — a teammate pushed a shared
+  `secrets/me.key` where you keep a private one — **your copy wins**, and the pull prints
+  `secrets/me.key: your private copy shadows the shared one` on stderr.
+- A private file is sealed whole: one above the chunking ceiling (about 4 MiB) is refused **before
+  anything is uploaded**, by name. Split it, or push it shared.
+- A private manifest is acted on only if **you** wrote it. Any writer can store bytes sealed to
+  your published key; a "private" file authored by somebody else is refused and the pull fails
+  closed rather than restore what they planted.
+- `--label KEY=VALUE` (repeatable) tags **every** file of that push, shared and private; it is what
+  `ls-env --filter label=…` selects on.
+
+> **Upgrade hazard.** A client from before private files has no such concept and pushes
+> `.env.local` into the *shared* manifest. After upgrading, do not `push-env` the same project
+> from an old binary. The old-client compatibility gate proves an old client can *read* a new
+> tree, never that it *writes* one safely.
+
 ### Somebody left
 
 ```sh
@@ -388,6 +419,10 @@ Preview the selection first, then apply exactly that:
 `pull` (personal) previews the same way; it has no `--only`, but `--at <VERSION>` previews any
 historical version before you take it.
 
+To see what an environment holds without even a dry run, `42ctl vault ls-env` reads the two
+manifests and fetches no file at all — size, mode, labels and whether a file is yours alone,
+at the same cost however large the tree is (§12).
+
 ---
 
 ## 11. Notes and records
@@ -429,8 +464,44 @@ no `db set`/`rm`.
 | What teams / projects / envs exist? | `42ctl team list --org acme`, `project list --org acme`, `env list --project api` |
 | Who is granted what on a project? | `42ctl project grants --org acme --project api` |
 | **Who can read this environment, and are they provisioned?** | `42ctl vault scope-status --org acme --project api --env prod` |
+| **What does this environment hold, and which files are mine alone?** | `42ctl vault ls-env --org acme --project api --env prod` |
 | What would a restore change? | `42ctl vault pull-env …` (no `--apply`) |
 | What version am I running? | `42ctl version` |
+
+### Shaping any list: `--format` and `--filter`
+
+Every listing verb takes the Docker-style output flags, so the project "database" is
+inspectable from the shell without touching the API:
+
+```sh
+42ctl vault ls-env --org acme --project api --env prod --format '{{.Path}} {{.Size}} {{.Labels.app}}'
+42ctl vault ls-env --org acme --project api --env prod --format json
+42ctl vault ls-env --org acme --project api --env prod --filter Private=true
+42ctl vault ls-env --org acme --project api --env prod --filter label=app=api --filter label=team=backend
+42ctl org members --org acme --filter Role=admin --format '{{.UserID}}'
+```
+
+- `{{.Field}}` substitutes a field; `{{.Labels.key}}` descends; `{{json .}}` prints the whole row
+  as JSON. An unknown field renders empty, as in Docker. Without `--format` you get the table.
+- `--filter KEY=VALUE` keeps rows whose field, as a string, equals the value; `label=K=V` looks
+  inside `Labels`. Repeated filters are ANDed. **A filter that matches nothing is an error**
+  (exit 1), for the same reason `--only` is: a typo must not look like an empty result.
+- Warnings go to stderr, so `--format json` stays parseable.
+
+| Command | Fields |
+|---|---|
+| `vault ls-env` | `Path` `Size` `Mode` `Kind` `Private` `Labels` |
+| `vault ls`, `db ls` | `Path` `Version` `Updated` |
+| `vault scope-status` | `Member` `Pubkey` `Provisioned` `State` |
+| `org members` | `UserID` `Role` `Joined` |
+| `team list`, `project list` | `ID` `Slug` `Name` |
+| `env list` | `ID` `Name` |
+| `project grants` | `GrantID` `Role` `Env` |
+| `note ls` | `Note` |
+
+`Size` is the plaintext length recorded at push, so a tree pushed before sizes existed shows `0`
+until it is pushed again. `Mode` is the mode recorded at push; what a restore *writes* is still
+clamped to the owner (§9).
 
 ### Reading `scope-status`
 
@@ -607,12 +678,18 @@ does not.
 - **`--only` is pull-side only.** Not added to `push-env` on purpose: push rebuilds the
   manifest from a scan, so a filtered push would silently drop every unmatched file from the
   environment.
+- **Labels are per push, not per file.** `--label` tags every file of that push; there is no
+  pattern-scoped label. Push twice with different labels if two groups of files need different
+  ones — each push rebuilds the manifest, so push everything each time.
+- **`--private` is additive, and `*.local` cannot be shared.** Dropping a `--private` pattern
+  and pushing again moves those files back to the shared tree; a `.local` file never moves.
+  Rename it.
 - **No crates.io, npm or Homebrew channel.** Distribution is `install.sh` and `42ctl update`,
   both reading GitHub Release assets.
 
 ---
 
-## Two worked scenarios
+## Three worked scenarios
 
 ### A. Take a project's secrets off disk and get them back
 
@@ -671,6 +748,28 @@ sha256sum -c baseline.sha                                                       
 Order matters less than the last line. The first three stop them being re-wrapped; only the
 rotation ends access to a key they already hold. `scope-status` afterwards shows them gone
 from the member set that rotation re-wraps to.
+
+### C. A shared `.env` and a private `.env.local`, in one project
+
+```sh
+# You: srcs/.env is the team's; srcs/.env.local is yours and is private by default
+42ctl vault push-env --org acme --project api --env prod --label app=api
+#   pushed 12 shared and 1 private file(s) to environment 'prod'
+42ctl vault ls-env --org acme --project api --env prod --filter Private=true --format '{{.Path}}'
+#   srcs/.env.local
+
+# A teammate: the shared tree, and no trace of your file — not even its name
+42ctl vault ls-env --org acme --project api --env prod --format '{{.Path}}'    # 12 lines
+42ctl vault pull-env --org acme --project api --env prod --apply              # 12 file(s)
+
+# You, on a fresh machine: everything, private file included
+42ctl vault pull-env --org acme --project api --env prod --apply              # 13 file(s)
+```
+
+This is exactly the `inception` run this manual was checked against: 13 files deleted from
+disk (the `secrets/` directory with them), `pull-env --apply`, 13 back byte-exact at their
+recorded modes, the teammate's restore holding 12 with the sentinel absent, and the Docker
+stack brought up cold through its compliance suite afterwards.
 
 ---
 

@@ -21,3 +21,4 @@ pub mod merge;
 pub mod project;
 pub mod projpath;
 pub mod syncstate;
+pub mod template;

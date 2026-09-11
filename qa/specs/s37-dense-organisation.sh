@@ -42,9 +42,9 @@ rm -rf "$W"
 mkdir -p "$W"
 ACME="acme-$N"
 RIVAL="rival-$N"
-P_WEB="37373737-1111-4222-8333-$(printf '%012d' $$)"
-P_API="37373737-4444-4555-8666-$(printf '%012d' $$)"
-P_RIVAL="37373737-7777-4888-8999-$(printf '%012d' $$)"
+P_WEB="37373737-1111-4222-8333-$(qa_uuid_tail)"
+P_API="37373737-4444-4555-8666-$(qa_uuid_tail)"
+P_RIVAL="37373737-7777-4888-8999-$(qa_uuid_tail)"
 
 # ── the cast ─────────────────────────────────────────────────────────────────
 # ida founds acme. platform writes, support reads, contractors get one environment.
@@ -55,7 +55,7 @@ for who in $PEOPLE; do qa_actor_reset "$who"; done
 declare -A ID TOK
 for who in $PEOPLE; do
 	ID[$who]="$(qa_actor_account "$who" "$who-$N@archicode.codes" "pw-$who-$N")"
-	TOK[$who]="$(cat "$QA_RESULTS/actors/$who/session.tok")"
+	TOK[$who]="$(cat "$(qa_actor_dir "$who")/session.tok")"
 done
 assert_green "eleven people hold eleven distinct accounts" \
 	-- bash -c 'printf "%s\n" "$@" | sort -u | wc -l | grep -qx 11' _ "${ID[@]}"

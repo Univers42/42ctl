@@ -1,0 +1,55 @@
+# The end-to-end battery: a real vault42-server, authority and object store in Docker, driven
+# by the freshly built client (`qa/run.sh`). Nightly and on demand — NOT a merge gate: it
+# builds the pinned vault42 from cold in a container, which is far too slow for every push,
+# and its exit status already counts regressions only. Shuffled, because both real defects the
+# battery has found so far were order-dependent. Same hardening as ci.yml: SHA-pinned actions,
+# read-only token, no credential persistence.
+name: qa
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'QA_SEED — reproduce a specific shuffle (empty = random)'
+        required: false
+        default: ''
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  battery:
+    name: qa battery, shuffled
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: 42ctl
+          persist-credentials: false
+      # The harness pins vault42 by revision (QA_VAULT42_REV in qa/lib/server.sh) and reads
+      # it from the sibling checkout, so the sibling has to hold the whole history.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Univers42/vault42
+          path: vault42
+          fetch-depth: 0
+          persist-credentials: false
+      - run: docker pull public.ecr.aws/docker/library/rust:1.96-slim-bookworm
+      - name: run the battery
+        working-directory: 42ctl
+        env:
+          QA_SHUFFLE: '1'
+          QA_SEED: ${{ inputs.seed }}
+        run: ./qa/run.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: qa-results
+          path: 42ctl/qa/results/latest.jsonl

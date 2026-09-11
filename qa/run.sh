@@ -8,7 +8,8 @@
 #
 #   ./qa/run.sh              every spec
 #   ./qa/run.sh s10 s12      only the named specs
-#   QA_KEEP_SERVER=1 ...     leave the server up afterwards for poking at
+#   QA_KEEP_SERVER=1 ...     leave the stack up AFTERWARDS for poking at; the next run
+#                            still starts from nothing (see below)
 
 set -uo pipefail
 QA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,6 +18,14 @@ source "$QA_DIR/lib/server.sh"
 
 : >"$QA_JSON"
 qa_reclaim_workspace
+
+# Never adopt a stack a previous run left behind. A killed battery leaves its server,
+# authority and object store running with everything they accumulated, and the next run
+# could otherwise pick that up as its own — an actor already registered, a project id
+# already claimed — and report reds that no spec caused. Every run starts from nothing.
+qa_server_down
+qa_authority_down
+qa_s3_down
 
 # Both real defects found so far were state-dependent: one only bit after provisioning
 # had converged, the other only appeared when something else had run first. A suite that
@@ -58,7 +67,7 @@ for pass in $(seq 1 "$REPEAT"); do
 		[ $? -ne 0 ] && FAILED_SPECS+=("$(basename "$spec" .sh)")
 	done
 done
-[ "${QA_KEEP_SERVER:-0}" = "1" ] || { qa_server_down; qa_authority_down; }
+[ "${QA_KEEP_SERVER:-0}" = "1" ] || { qa_server_down; qa_authority_down; qa_s3_down; }
 
 # ── scoreboard, read back from the machine-readable log ──────────────────────
 # grep -c prints 0 AND exits 1 when nothing matches, so a `|| printf 0` fallback would

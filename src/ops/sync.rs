@@ -25,6 +25,7 @@ use crate::core::syncstate::{self, SyncState};
 use crate::core::{materialize, merge, project, projpath};
 use crate::ops::{largeobj, reconcile};
 use crate::ui;
+use std::collections::BTreeMap;
 use tonic::{Code, Request};
 use vault42_core::Kind;
 use vault42_proto::vault::v1::{GetRequest, PushRequest};
@@ -106,6 +107,7 @@ impl Session {
         let plaintext = Zeroizing::new(std::fs::read(file)?);
         let hash = syncstate::hash(&plaintext);
         let chunked = chunk::needs_chunking(plaintext.len() as u64);
+        let size = plaintext.len() as u64;
         let body = if chunked {
             self.upload_chunks(&proj.project_id, rel, &plaintext)
                 .await?
@@ -123,6 +125,8 @@ impl Session {
             kind: Kind::EnvFile as u8,
             chunked,
             rev,
+            size,
+            labels: BTreeMap::new(),
         })
     }
 
@@ -497,6 +501,8 @@ mod tests {
             kind: Kind::EnvFile as u8,
             chunked: false,
             rev,
+            size: 0,
+            labels: BTreeMap::new(),
         }
     }
 

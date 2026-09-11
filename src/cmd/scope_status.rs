@@ -25,10 +25,14 @@ use crate::ui;
 
 /// Print the env's scope-key status table: a row per pending member (classified by pubkey
 /// presence) and a row per already-provisioned (active) member.
-pub async fn scope_status(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
+pub async fn scope_status(
+    session: &mut Session,
+    ctx: &Ctx,
+    out: &crate::cli::Output,
+) -> anyhow::Result<()> {
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let epoch = ctx.epoch();
-    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut rows: Vec<serde_json::Value> = Vec::new();
     for member in orch::env_members(ctx).await?.pending {
         rows.push(pending_row(ctx, &member.user).await?);
     }
@@ -36,16 +40,26 @@ pub async fn scope_status(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()
         .list_scope_members(&hex::encode(scope_id), epoch)
         .await?
     {
-        let id = address::short(&member);
-        rows.push(vec![id, "yes".into(), "yes".into(), "active".into()]);
+        rows.push(status_row(&address::short(&member), true, true, "active"));
     }
-    ui::table(&["member", "pubkey", "provisioned", "state"], &rows);
-    Ok(())
+    ui::render(
+        &["Member", "Pubkey", "Provisioned", "State"],
+        rows,
+        out.format.as_deref(),
+        &out.filter,
+    )
+}
+
+/// One status row. Booleans stay booleans so `--filter Provisioned=false` reads naturally.
+fn status_row(member: &str, pubkey: bool, provisioned: bool, state: &str) -> serde_json::Value {
+    serde_json::json!({
+        "Member": member, "Pubkey": pubkey, "Provisioned": provisioned, "State": state,
+    })
 }
 
 /// Build one pending member's row: `pending-provision` when they have a registered pubkey,
 /// `pending-enrollment` when they do not (so an admin sees who must run `keys init`/register).
-async fn pending_row(ctx: &Ctx, user: &str) -> anyhow::Result<Vec<String>> {
+async fn pending_row(ctx: &Ctx, user: &str) -> anyhow::Result<serde_json::Value> {
     let registered = pubkey::get(&ctx.grobase, &ctx.token, &ctx.org, user)
         .await
         .is_ok();
@@ -54,11 +68,5 @@ async fn pending_row(ctx: &Ctx, user: &str) -> anyhow::Result<Vec<String>> {
     } else {
         "pending-enrollment"
     };
-    let has = if registered { "yes" } else { "no" };
-    Ok(vec![
-        address::short(user),
-        has.into(),
-        "no".into(),
-        state.into(),
-    ])
+    Ok(status_row(&address::short(user), registered, false, state))
 }

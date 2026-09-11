@@ -32,15 +32,15 @@ W="$QA_RESULTS/s26"; rm -rf "$W"; mkdir -p "$W"
 # The SAME project UUID in two unrelated organisations. Nothing forbids this: project
 # creation honours a client-supplied UUID, which is what makes the two halves of
 # "project" reconcilable, and is also what makes this reachable.
-SHARED_UUID="eeeeeeee-ffff-4aaa-8bbb-$(printf '%012d' $$)"
+SHARED_UUID="eeeeeeee-ffff-4aaa-8bbb-$(qa_uuid_tail)"
 SECRET_A='OWNER=org-alpha-secret-0001'
 printf '%s\n' "$SECRET_A" >"$W/a.txt"
 printf 'OWNER=org-omega-secret-0002\n' >"$W/m.txt"
 
 for who in alice mallory bob; do qa_actor_reset "$who"; done
-A_ID="$(qa_actor_account alice "s26a-$N@archicode.codes" "pw-a-$N")"; A_TOK="$(cat "$QA_RESULTS/actors/alice/session.tok")"
-M_ID="$(qa_actor_account mallory "s26m-$N@archicode.codes" "pw-m-$N")"; M_TOK="$(cat "$QA_RESULTS/actors/mallory/session.tok")"
-B_ID="$(qa_actor_account bob "s26b-$N@archicode.codes" "pw-b-$N")"; B_TOK="$(cat "$QA_RESULTS/actors/bob/session.tok")"
+A_ID="$(qa_actor_account alice "s26a-$N@archicode.codes" "pw-a-$N")"; A_TOK="$(cat "$(qa_actor_dir alice)/session.tok")"
+M_ID="$(qa_actor_account mallory "s26m-$N@archicode.codes" "pw-m-$N")"; M_TOK="$(cat "$(qa_actor_dir mallory)/session.tok")"
+B_ID="$(qa_actor_account bob "s26b-$N@archicode.codes" "pw-b-$N")"; B_TOK="$(cat "$(qa_actor_dir bob)/session.tok")"
 
 # ── what actually protects the scope namespace ───────────────────────────────
 #
@@ -70,7 +70,7 @@ assert_green "the same slug with a fresh id is accepted, proving the slug was fr
 	_ "$M_TOK" "$ORG_M"
 
 # ── multi-tenancy: one person, two organisations, two environments ───────────
-M_UUID="ffffffff-aaaa-4bbb-8ccc-$(printf '%012d' $$)"
+M_UUID="ffffffff-aaaa-4bbb-8ccc-$(qa_uuid_tail)"
 qa_api POST "/v1/orgs/$ORG_M/projects" "$M_TOK" "{\"id\":\"$M_UUID\",\"slug\":\"mp\",\"name\":\"MP\"}" >/dev/null
 EA="$(qa_json "$(qa_api POST "/v1/projects/$SHARED_UUID/environments" "$A_TOK" '{"name":"prod"}' | cut -f2-)" id)"
 EM="$(qa_json "$(qa_api POST "/v1/projects/$M_UUID/environments" "$M_TOK" '{"name":"prod"}' | cut -f2-)" id)"

@@ -16,6 +16,7 @@
 //! file paths. Maps each file's `relative_path` → its opaque `vault_path` + Unix mode.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The manifest shape this client understands and writes.
 ///
@@ -23,6 +24,11 @@ use serde::{Deserialize, Serialize};
 /// the vault blob at a path MEANS: for a chunked entry it is a chunk list and never the
 /// file. A reader that ignores those fields writes the list to disk as the file and reports
 /// success, so a newer manifest has to be refused rather than read past.
+///
+/// `labels` and `size` were added WITHOUT a bump, and deliberately: they change nothing about
+/// what the blob at a path holds. An older reader that drops them still fetches the right
+/// bytes and writes them to the right place — it merely cannot show a label or a size. That is
+/// the test the comment above sets, and they pass it in the direction a bump exists to catch.
 pub const VERSION: u32 = 2;
 
 /// The project manifest (plaintext shape, only ever sealed before it leaves the host).
@@ -46,6 +52,12 @@ pub struct Manifest {
 /// makes an older version restorable: without it, reading an old manifest still fetches
 /// today's bytes for every path it names, which reproduces a tree that never existed.
 /// Zero means "whatever is latest", which is every manifest written before this field.
+///
+/// `size` is the plaintext length recorded at push, so a listing can say how big a file is
+/// without fetching and decrypting it. `labels` are `key=value` metadata the pusher attached
+/// (`--label app=wordpress`), the handle a listing filters on. Both default to empty and are
+/// omitted from the wire when empty, so a manifest without them serializes byte-for-byte as
+/// it did before.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
     pub relative_path: String,
@@ -57,6 +69,31 @@ pub struct Entry {
     pub chunked: bool,
     #[serde(default)]
     pub rev: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub size: u64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub labels: BTreeMap<String, String>,
+}
+
+/// `skip_serializing_if` needs a function, and a zero size is "not recorded".
+impl Entry {
+    /// A whole file at the default owner-only mode, carrying no labels yet.
+    pub fn file(rel: &str, vault_path: String, rev: u64, size: u64) -> Self {
+        Entry {
+            relative_path: rel.to_string(),
+            vault_path,
+            mode: 0o600,
+            kind: vault42_core::Kind::EnvFile as u8,
+            chunked: false,
+            rev,
+            size,
+            labels: BTreeMap::new(),
+        }
+    }
+}
+
+fn is_zero(size: &u64) -> bool {
+    *size == 0
 }
 
 impl Manifest {
@@ -187,9 +224,64 @@ mod tests {
             kind: 1,
             chunked: true,
             rev: 7,
+            size: 0,
+            labels: BTreeMap::new(),
         });
         let back = Manifest::parse(&manifest.to_bytes().expect("encode")).expect("decode");
         assert!(back.entries[0].chunked);
         assert_eq!(back.entries[0].rev, 7);
+    }
+
+    /// Labels and size survive a round trip and read back typed.
+    #[test]
+    fn labels_and_size_round_trip() {
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(Entry {
+            relative_path: ".env.local".into(),
+            vault_path: "__42ctl/p/me/f/id".into(),
+            mode: 0o600,
+            kind: 1,
+            chunked: false,
+            rev: 1,
+            size: 1314,
+            labels: BTreeMap::from([("app".into(), "wordpress".into())]),
+        });
+        let back = Manifest::parse(&manifest.to_bytes().expect("encode")).expect("decode");
+        assert_eq!(back.entries[0].size, 1314);
+        assert_eq!(
+            back.entries[0].labels.get("app").map(String::as_str),
+            Some("wordpress")
+        );
+    }
+
+    /// A six-field manifest written before these fields existed still parses, with both
+    /// defaulted — the reason this needed no version bump.
+    #[test]
+    fn a_pre_label_manifest_still_parses_with_defaults() {
+        let old = br#"{"version":2,"project_id":"p","entries":[{"relative_path":"srcs/.env",
+            "vault_path":"__42ctl/f/x","mode":420,"kind":1,"chunked":false,"rev":3}]}"#;
+        let back = Manifest::parse(old).expect("an old manifest must still parse");
+        assert_eq!(back.entries[0].size, 0);
+        assert!(back.entries[0].labels.is_empty());
+    }
+
+    /// An entry with nothing recorded serializes WITHOUT the new keys, so a manifest that never
+    /// used them is byte-for-byte what it was before — same ciphertext, same old-client view.
+    #[test]
+    fn empty_labels_and_zero_size_stay_off_the_wire() {
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(Entry {
+            relative_path: "a".into(),
+            vault_path: "b".into(),
+            mode: 0o600,
+            kind: 1,
+            chunked: false,
+            rev: 1,
+            size: 0,
+            labels: BTreeMap::new(),
+        });
+        let json = String::from_utf8(manifest.to_bytes().expect("encode")).expect("utf8");
+        assert!(!json.contains("\"size\""), "{json}");
+        assert!(!json.contains("\"labels\""), "{json}");
     }
 }

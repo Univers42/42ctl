@@ -33,6 +33,9 @@ pub enum Org {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
     /// Invite an email to an org with a role (prints the one-time token)
     Invite {
@@ -94,6 +97,9 @@ pub enum Team {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
     /// Add a user to a team
     AddMember {
@@ -215,6 +221,9 @@ pub enum Env {
         /// Project name
         #[arg(long, value_name = "NAME")]
         project: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
 }
 
@@ -242,6 +251,9 @@ pub enum Project {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
     /// List a project's live grants, with the ids `revoke-grant` takes
     Grants {
@@ -251,6 +263,9 @@ pub enum Project {
         /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
     /// Revoke a grant, so it authorizes nobody from now on
     ///

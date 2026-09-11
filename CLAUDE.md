@@ -58,7 +58,7 @@ run unattended.
 
 ### The QA battery, and the older verify gates
 
-`./qa/run.sh` is the real end-to-end coverage: 22 specs standing up vault42-server, the authority
+`./qa/run.sh` is the real end-to-end coverage: 27 specs standing up vault42-server, the authority
 and a MinIO chunk store in Docker. Its exit status counts REGRESSIONS ONLY, so it works as a merge
 gate while `assert_spec` assertions stay red on purpose. `QA_SHUFFLE=1` randomises the order —
 use it, because two specs have already passed only because of what ran before them. `qa/README.md`

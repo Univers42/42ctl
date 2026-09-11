@@ -29,13 +29,13 @@ assert_green "the authority is listening" -- qa_authority_up
 
 N="$$-$(date +%s)"
 W="$QA_RESULTS/s29"; rm -rf "$W"; mkdir -p "$W"
-ORG="org29-$N"; PUUID="35353535-6767-4898-8bcd-$(printf '%012d' $$)"
+ORG="org29-$N"; PUUID="35353535-6767-4898-8bcd-$(qa_uuid_tail)"
 SECRET='LEAVER=can-still-read-until-rotation'
 printf '%s\n' "$SECRET" >"$W/v.txt"
 
 for who in alice bob; do qa_actor_reset "$who"; done
-A_ID="$(qa_actor_account alice "a29-$N@archicode.codes" "pw-a-$N")"; A_TOK="$(cat "$QA_RESULTS/actors/alice/session.tok")"
-B_ID="$(qa_actor_account bob "b29-$N@archicode.codes" "pw-b-$N")"; B_TOK="$(cat "$QA_RESULTS/actors/bob/session.tok")"
+A_ID="$(qa_actor_account alice "a29-$N@archicode.codes" "pw-a-$N")"; A_TOK="$(cat "$(qa_actor_dir alice)/session.tok")"
+B_ID="$(qa_actor_account bob "b29-$N@archicode.codes" "pw-b-$N")"; B_TOK="$(cat "$(qa_actor_dir bob)/session.tok")"
 
 qa_api POST /v1/orgs "$A_TOK" "{\"slug\":\"$ORG\",\"name\":\"O29\"}" >/dev/null
 qa_api POST "/v1/orgs/$ORG/projects" "$A_TOK" "{\"id\":\"$PUUID\",\"slug\":\"p\",\"name\":\"P\"}" >/dev/null

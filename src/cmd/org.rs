@@ -38,7 +38,7 @@ async fn rbac(cmd: &Org, profile: &str) -> anyhow::Result<()> {
             ui::field("id", &o.id);
             ui::success(&format!("created org '{}' ({})", o.name, o.slug));
         }
-        Org::Members { org } => members(&grobase, &token, org).await?,
+        Org::Members { org, out } => members(&grobase, &token, org, out).await?,
         Org::Invite { org, email, role } => {
             let inv = org::invite(&grobase, &token, org, email, role).await?;
             ui::field("invite_id", &inv.id);
@@ -55,15 +55,28 @@ async fn rbac(cmd: &Org, profile: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Print an org's members as a `user_id role joined` table.
-async fn members(grobase: &str, token: &str, org_id: &str) -> anyhow::Result<()> {
-    let list = org::members(grobase, token, org_id).await?;
-    let rows: Vec<Vec<String>> = list
+/// Print an org's members: `UserID Role Joined`.
+async fn members(
+    grobase: &str,
+    token: &str,
+    org_id: &str,
+    out: &crate::cli::Output,
+) -> anyhow::Result<()> {
+    let rows = org::members(grobase, token, org_id)
+        .await?
         .iter()
-        .map(|m| vec![m.user_id.clone(), m.role.clone(), ui::reltime(m.created_at)])
+        .map(|m| {
+            serde_json::json!({
+                "UserID": m.user_id, "Role": m.role, "Joined": ui::reltime(m.created_at),
+            })
+        })
         .collect();
-    ui::table(&["user_id", "role", "joined"], &rows);
-    Ok(())
+    ui::render(
+        &["UserID", "Role", "Joined"],
+        rows,
+        out.format.as_deref(),
+        &out.filter,
+    )
 }
 
 /// Run an `org github` verb against grobase using the saved session token.

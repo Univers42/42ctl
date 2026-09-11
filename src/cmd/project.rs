@@ -24,8 +24,10 @@ pub async fn run(cmd: &Project, profile: &str) -> anyhow::Result<()> {
     let (grobase, token) = session::connect(profile)?;
     match cmd {
         Project::Create { org, slug, name } => create(&grobase, &token, org, slug, name).await,
-        Project::List { org } => list(&grobase, &token, org).await,
-        Project::Grants { org, project } => grants(&grobase, &token, org, project).await,
+        Project::List { org, out } => list(&grobase, &token, org, out).await,
+        Project::Grants { org, project, out } => {
+            grants(&grobase, &token, (org, project), out).await
+        }
         Project::RevokeGrant {
             org,
             project,
@@ -66,15 +68,24 @@ async fn create(
     Ok(())
 }
 
-/// List an org's projects as an `id slug name` table.
-async fn list(grobase: &str, token: &str, org: &str) -> anyhow::Result<()> {
-    let projects = project::list(grobase, token, org).await?;
-    let rows: Vec<Vec<String>> = projects
+/// List an org's projects: `ID Slug Name`.
+async fn list(
+    grobase: &str,
+    token: &str,
+    org: &str,
+    out: &crate::cli::Output,
+) -> anyhow::Result<()> {
+    let rows = project::list(grobase, token, org)
+        .await?
         .iter()
-        .map(|p| vec![p.id.clone(), p.slug.clone(), p.name.clone()])
+        .map(|p| serde_json::json!({"ID": p.id, "Slug": p.slug, "Name": p.name}))
         .collect();
-    ui::table(&["id", "slug", "name"], &rows);
-    Ok(())
+    ui::render(
+        &["ID", "Slug", "Name"],
+        rows,
+        out.format.as_deref(),
+        &out.filter,
+    )
 }
 
 /// Grant a user a project role and print the grant id.
@@ -97,7 +108,13 @@ async fn grant(
 /// The ids are the point: `revoke-grant` needs one, and until this existed there was no way to
 /// see a grant's id at all, so the revoke route was unreachable in practice even for somebody
 /// who knew it was there.
-async fn grants(grobase: &str, token: &str, org: &str, project: &str) -> anyhow::Result<()> {
+async fn grants(
+    grobase: &str,
+    token: &str,
+    ids: (&str, &str),
+    out: &crate::cli::Output,
+) -> anyhow::Result<()> {
+    let (org, project) = ids;
     let scope = GrantScope {
         grobase,
         token,
@@ -106,19 +123,26 @@ async fn grants(grobase: &str, token: &str, org: &str, project: &str) -> anyhow:
         env_id: "",
         epoch: 1,
     };
-    let live = grants_api::list(&scope).await?;
-    let rows: Vec<Vec<String>> = live
+    let rows = grants_api::list(&scope)
+        .await?
         .iter()
-        .map(|g| {
-            vec![
-                g.id.clone(),
-                g.project_role.clone(),
-                g.env_id.clone().unwrap_or_else(|| "(project-wide)".into()),
-            ]
-        })
+        .map(grant_row)
         .collect();
-    ui::table(&["grant_id", "role", "env"], &rows);
-    Ok(())
+    ui::render(
+        &["GrantID", "Role", "Env"],
+        rows,
+        out.format.as_deref(),
+        &out.filter,
+    )
+}
+
+/// One grant row. A grant with no environment reaches every one, which is what the whole
+/// project's name in that column says.
+fn grant_row(g: &crate::adapters::rbac::ProjectGrant) -> serde_json::Value {
+    serde_json::json!({
+        "GrantID": g.id, "Role": g.project_role,
+        "Env": g.env_id.clone().unwrap_or_else(|| "(project-wide)".into()),
+    })
 }
 
 /// Revoke a grant so it authorizes nobody from now on.

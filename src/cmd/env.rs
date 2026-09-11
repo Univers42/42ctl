@@ -23,7 +23,7 @@ pub async fn run(cmd: &Env, profile: &str) -> anyhow::Result<()> {
     let (grobase, token) = session::connect(profile)?;
     match cmd {
         Env::Create { project, name } => create(&grobase, &token, project, name).await,
-        Env::List { project } => list(&grobase, &token, project).await,
+        Env::List { project, out } => list(&grobase, &token, project, out).await,
     }
 }
 
@@ -38,13 +38,17 @@ async fn create(grobase: &str, token: &str, project: &str, name: &str) -> anyhow
     Ok(())
 }
 
-/// List a project's environments as an `id name` table.
-async fn list(grobase: &str, token: &str, project: &str) -> anyhow::Result<()> {
-    let envs = env::list(grobase, token, project).await?;
-    let rows: Vec<Vec<String>> = envs
+/// List a project's environments: `ID Name`.
+async fn list(
+    grobase: &str,
+    token: &str,
+    project: &str,
+    out: &crate::cli::Output,
+) -> anyhow::Result<()> {
+    let rows = env::list(grobase, token, project)
+        .await?
         .iter()
-        .map(|e| vec![e.id.clone(), e.name.clone()])
+        .map(|e| serde_json::json!({"ID": e.id, "Name": e.name}))
         .collect();
-    ui::table(&["id", "name"], &rows);
-    Ok(())
+    ui::render(&["ID", "Name"], rows, out.format.as_deref(), &out.filter)
 }

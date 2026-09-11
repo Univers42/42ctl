@@ -41,6 +41,9 @@ pub enum Vault {
         /// Only paths starting with this prefix
         #[arg(default_value = "", value_name = "PREFIX")]
         prefix: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
     /// Remove a secret
     Rm {
@@ -126,6 +129,9 @@ pub enum Vault {
         /// Environment name
         #[arg(long, value_name = "NAME")]
         env: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
     /// Seal a value (stdin) to the environment's shared key and store it at PATH
     SetEnv {
@@ -170,6 +176,36 @@ pub enum Vault {
         /// Environment name (dev, staging, prod …)
         #[arg(long, value_name = "NAME")]
         env: String,
+        /// Also seal files matching PATTERN to you alone — repeatable, same grammar as --only
+        ///
+        /// `*.local` is ALWAYS private, flag or not: a `.env.local` never reaches a teammate,
+        /// as bytes or as a path. Your own `pull-env` restores it and your own `ls-env` lists
+        /// it; to every other member the environment does not contain it. A private file is
+        /// sealed whole, so one above the chunking ceiling is refused before anything uploads.
+        #[arg(long, value_name = "PATTERN")]
+        private: Vec<String>,
+        /// Label every file of this push, KEY=VALUE — repeatable; `ls-env --filter label=K=V`
+        #[arg(long, value_name = "KEY=VALUE")]
+        label: Vec<String>,
+    },
+    /// List an environment's files from its manifests — no file is fetched
+    ///
+    /// Columns: Path Size Mode Kind Private Labels. Your private files show Private=true; a
+    /// teammate's private files are not listed at all, for anyone. Shapes like the other
+    /// lists: `--format '{{.Path}} {{.Labels.app}}'`, `--format json`, `--filter Private=true`.
+    LsEnv {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Project id
+        #[arg(long, value_name = "NAME")]
+        project: String,
+        /// Environment name (dev, staging, prod …)
+        #[arg(long, value_name = "NAME")]
+        env: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
     },
     /// Restore an environment's file tree here — a dry-run until you pass --apply
     ///
@@ -215,61 +251,5 @@ pub enum Vault {
         /// Environment name
         #[arg(long, value_name = "NAME")]
         env: String,
-    },
-}
-
-/// `note` subcommands — project-scoped (resolve the project from `.42ctl` or `--project`).
-#[derive(Subcommand)]
-pub enum Note {
-    /// Seal a note (stdin, or --file) at PATH within the project
-    Add {
-        /// Note path, e.g. `onboarding.md`
-        path: String,
-        /// Project name (default: the `.42ctl/` marker in the current directory)
-        #[arg(long, value_name = "NAME")]
-        project: Option<String>,
-        /// Read the note from this file instead of stdin
-        #[arg(long, value_name = "FILE")]
-        file: Option<String>,
-    },
-    /// Fetch and decrypt the note at PATH to stdout
-    Get {
-        /// Note path
-        path: String,
-        /// Project name (default: the `.42ctl/` marker in the current directory)
-        #[arg(long, value_name = "NAME")]
-        project: Option<String>,
-    },
-    /// List the project's notes
-    #[command(visible_alias = "list")]
-    Ls {
-        /// Project name (default: the `.42ctl/` marker in the current directory)
-        #[arg(long, value_name = "NAME")]
-        project: Option<String>,
-    },
-    /// Remove the note at PATH
-    Rm {
-        /// Note path
-        path: String,
-        /// Project name (default: the `.42ctl/` marker in the current directory)
-        #[arg(long, value_name = "NAME")]
-        project: Option<String>,
-    },
-}
-
-/// `db` subcommands.
-#[derive(Subcommand)]
-pub enum Db {
-    /// Read one encrypted record and decrypt it locally
-    Get {
-        /// Record path
-        path: String,
-    },
-    /// List readable records under a prefix
-    #[command(visible_alias = "list")]
-    Ls {
-        /// Only paths starting with this prefix
-        #[arg(default_value = "", value_name = "PREFIX")]
-        prefix: String,
     },
 }

@@ -23,6 +23,7 @@ use crate::core::manifest::{Entry, Manifest};
 use crate::core::{project, projpath};
 use crate::ops::sync::MAX_BLOB;
 use crate::ui;
+use std::collections::BTreeMap;
 use std::io::Write;
 use vault42_core::Kind;
 
@@ -78,6 +79,8 @@ impl Session {
             kind: Kind::Note as u8,
             chunked: false,
             rev: rev + 1,
+            size: 0,
+            labels: BTreeMap::new(),
         });
         self.push_manifest(&proj.project_id, &manifest).await?;
         ui::success(&format!(
@@ -105,21 +108,25 @@ impl Session {
         Ok(())
     }
 
-    /// List the project's notes (the `kind=Note` manifest entries).
-    pub async fn cmd_note_ls(&mut self, explicit_id: Option<&str>) -> anyhow::Result<()> {
+    /// List the project's notes (the `kind=Note` manifest entries): `Note`.
+    pub async fn cmd_note_ls(
+        &mut self,
+        explicit_id: Option<&str>,
+        format: Option<&str>,
+        filter: &[String],
+    ) -> anyhow::Result<()> {
         let (proj, _) = project::open(&std::env::current_dir()?, explicit_id)?;
         let manifest = self
             .load_manifest(&proj.project_id)
             .await?
             .unwrap_or_else(|| Manifest::new(&proj.project_id));
-        let rows: Vec<Vec<String>> = manifest
+        let rows = manifest
             .entries
             .iter()
             .filter(|e| e.kind == Kind::Note as u8)
-            .map(|e| vec![e.relative_path.clone()])
+            .map(|e| serde_json::json!({"Note": e.relative_path}))
             .collect();
-        ui::table(&["note"], &rows);
-        Ok(())
+        ui::render(&["Note"], rows, format, filter)
     }
 
     /// Remove the note's manifest entry, making it unreachable (ZK: no name↔blob link left).

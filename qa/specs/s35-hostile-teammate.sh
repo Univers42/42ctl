@@ -37,10 +37,10 @@ W="$QA_RESULTS/s35"
 rm -rf "$W"
 mkdir -p "$W" "$W/src/srcs" "$W/src/secrets" "$W/victim"
 ORG="org35-$N"
-PUUID="35353535-6767-4898-9abc-$(printf '%012d' $$)"
+PUUID="35353535-6767-4898-9abc-$(qa_uuid_tail)"
 
 for who in alice mallory victim; do qa_actor_reset "$who"; done
-A_ID="$(qa_actor_account alice "a35-$N@archicode.codes" "pw-a-$N")"; A_TOK="$(cat "$QA_RESULTS/actors/alice/session.tok")"
+A_ID="$(qa_actor_account alice "a35-$N@archicode.codes" "pw-a-$N")"; A_TOK="$(cat "$(qa_actor_dir alice)/session.tok")"
 M_ID="$(qa_actor_account mallory "m35-$N@archicode.codes" "pw-m-$N")"
 V_ID="$(qa_actor_account victim "v35-$N@archicode.codes" "pw-v-$N")"
 
@@ -50,7 +50,7 @@ qa_api POST "/v1/projects/$PUUID/environments" "$A_TOK" '{"name":"prod"}' >/dev/
 for pair in "mallory:m35" "victim:v35"; do
 	who="${pair%%:*}"; pfx="${pair#*:}"
 	t="$(qa_json "$(qa_api POST "/v1/orgs/$ORG/invites" "$A_TOK" "{\"email\":\"$pfx-$N@archicode.codes\",\"role\":\"member\"}" | cut -f2-)" token)"
-	qa_api POST /v1/orgs/invites/accept "$(cat "$QA_RESULTS/actors/$who/session.tok")" "{\"token\":\"$t\"}" >/dev/null
+	qa_api POST /v1/orgs/invites/accept "$(cat "$(qa_actor_dir "$who")/session.tok")" "{\"token\":\"$t\"}" >/dev/null
 done
 for id in "$M_ID" "$V_ID"; do
 	qa_api POST "/v1/orgs/$ORG/projects/$PUUID/grants" "$A_TOK" \

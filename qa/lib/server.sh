@@ -213,9 +213,24 @@ _qa_server_run() {
 # caller that needs a filename with a space must quote it inside that string.
 #
 # Usage: qa_actor <name> <workdir> "<42ctl args>"
+# Where an actor's state lives: under the SPEC that made them. `alice` in s10 and `alice`
+# in s34 are different people with different keys, and one shared directory would let a spec
+# inherit a keystore or a session from whichever spec ran before it. `SPEC_NAME` is exported
+# by `spec_begin`, so an assertion's `bash -c` child resolves the same directory; outside a
+# spec it is `standalone`.
+qa_actor_dir() {
+	printf '%s/actors/%s/%s' "$QA_RESULTS" "${SPEC_NAME:-standalone}" "$1"
+}
+# Twelve digits for the last group of a project UUID, from the PID AND the clock. The PID
+# alone is recycled, and a recycled PID against a database the previous run left behind
+# would re-propose a project id the authority already holds — a 409 that reads as a defect.
+qa_uuid_tail() {
+	printf '%04d%08d' $(($$ % 10000)) $(($(date +%s) % 100000000))
+}
 qa_actor() {
 	local who="$1" workdir="$2" args="$3"
-	local state="$QA_RESULTS/actors/$who"
+	local state
+	state="$(qa_actor_dir "$who")"
 	mkdir -p "$state"
 	# Run as the invoking user, not root. Docker's default root would write the pulled
 	# tree back root-owned, and a restored 0600 file would then be unreadable to the
@@ -255,8 +270,9 @@ qa_actor_token() {
 	# function had therefore never run to completion: s20 and s24 both call it at top level,
 	# and both silently stopped there, taking every later assertion with them while the
 	# battery still reported no regressions because it counts only reds it reached.
-	local path="$QA_RESULTS/actors/$who/session.tok"
-	mkdir -p "$QA_RESULTS/actors/$who"
+	local path
+	path="$(qa_actor_dir "$who")/session.tok"
+	mkdir -p "$(qa_actor_dir "$who")"
 	printf '%s' "$token" >"$path"
 	# Owner-only, because this is a real bearer token on a real developer's machine and the
 	# umask on an ordinary desktop is not. It also stops any assertion about credential file
@@ -274,8 +290,8 @@ qa_actor_account() {
 
 # Give an actor a fresh identity, discarding any previous one.
 qa_actor_reset() {
-	rm -rf "$QA_RESULTS/actors/$1"
-	mkdir -p "$QA_RESULTS/actors/$1"
+	rm -rf "$(qa_actor_dir "$1")"
+	mkdir -p "$(qa_actor_dir "$1")"
 }
 
 # Start the standalone authority: accounts, sessions and contract issuance over its own
@@ -455,6 +471,7 @@ qa_probe_route() {
 # as each bites is not.
 export -f qa_probe_route qa_base qa_adopt_running_ports qa_port_taken qa_pick_host_port
 export -f qa_actor qa_actor_reset qa_server_is_up qa_authority_is_up qa_dump_server_db
+export -f qa_actor_dir qa_uuid_tail
 export -f qa_api qa_json qa_signup qa_login qa_code qa_actor_token qa_actor_account
 export QA_HOST_PORT QA_AUTH_HOST_PORT QA_AUTHORITY_BASE QA_IMG C42_ROOT
 export QA_NET QA_SRV QA_PORT QA_AUTH_SRV QA_AUTH_PORT QA_RESULTS QA_C42_VOLS QA_V42_VOLS
@@ -522,7 +539,8 @@ export QA_OUTBOX QA_PASS_OVERRIDE
 # Usage: qa_actor_otp <who> <workdir> "<42ctl args>" <email>
 qa_actor_otp() {
 	local who="$1" workdir="$2" args="$3" email="$4"
-	local state="$QA_RESULTS/actors/$who" before
+	local state before
+	state="$(qa_actor_dir "$who")"
 	mkdir -p "$state"
 	before=$(qa_code_count "$email")
 	docker run --rm -i --network "$QA_NET" --user "$(id -u):$(id -g)" \

@@ -52,7 +52,7 @@ fixture_project_marker "$OVER" s14-oversize '"*"'
 fixture_sized_file "$OVER/too-big.bin" 8388608
 # A DEDICATED actor, reset here. The refusal only happens while no object store is
 # configured, and the section below configures one for bigalice — whose state persists in
-# qa/results/actors between runs, so the next battery found the store already set and the
+# qa/results/actors/<spec>/ between runs, so the next battery found the store already set and the
 # file was chunked instead of refused. A green that depends on what the previous RUN left
 # behind is worse than an order-dependent one, because it survives a shuffle.
 qa_actor_reset refuser

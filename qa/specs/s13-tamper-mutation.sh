@@ -88,7 +88,7 @@ assert_green "a mutated server database never yields altered plaintext" \
 	-- bash -c '[ ! -f "$2" ] || cmp -s "$1" "$2"' _ "$ORIG" "$WORK/tampered/.env"
 
 # ── 2. the local keystore is mutated ─────────────────────────────────────────
-KS="$QA_RESULTS/actors/mallory/keystore.v42"
+KS="$(qa_actor_dir mallory)/keystore.v42"
 if [ -f "$KS" ]; then
 	cp "$KS" "$WORK/keystore.orig"
 	python3 - "$KS" <<'PY'

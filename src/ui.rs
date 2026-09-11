@@ -134,6 +134,53 @@ pub fn field(label: &str, value: &str) {
     println!("{} {value}", accent(&format!("{label:<9}")));
 }
 
+/// Render listing `rows` (JSON objects keyed by the names in `headers`) as the operator asked.
+///
+/// No `--format` is today's table, so nothing changes by default. `json` is the kept rows as a
+/// JSON array. Anything else is a `{{.Field}}` template rendered once per row. `--filter`
+/// narrows first and is ANDed. A filter that keeps nothing is refused by name rather than
+/// printing an empty table that reads as "there is nothing here" — the same posture as
+/// `pull-env --only`, and for the same reason: the operator asked for a subset because the
+/// rest matters.
+pub fn render(
+    headers: &[&str],
+    rows: Vec<serde_json::Value>,
+    format: Option<&str>,
+    filter: &[String],
+) -> anyhow::Result<()> {
+    let kept: Vec<serde_json::Value> = rows
+        .into_iter()
+        .filter(|row| crate::core::template::matches(row, filter))
+        .collect();
+    if kept.is_empty() && !filter.is_empty() {
+        anyhow::bail!("no row matches {}", filter.join(", "));
+    }
+    match format {
+        None => table(headers, &cells(headers, &kept)),
+        Some("json") => println!("{}", serde_json::to_string_pretty(&kept)?),
+        Some(template) => kept
+            .iter()
+            .for_each(|row| println!("{}", crate::core::template::render(template, row))),
+    }
+    Ok(())
+}
+
+/// Project JSON rows onto the header order as display strings, for the table.
+fn cells(headers: &[&str], rows: &[serde_json::Value]) -> Vec<Vec<String>> {
+    rows.iter()
+        .map(|row| {
+            headers
+                .iter()
+                .map(|key| {
+                    crate::core::template::lookup(row, key)
+                        .map(crate::core::template::display)
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// Print `rows` under `headers` as a bold-headed, dim-ruled, space-aligned table. Callers
 /// use this only on a TTY; piped call sites stay tab-separated so scripts keep working.
 pub fn table(headers: &[&str], rows: &[Vec<String>]) {
@@ -141,11 +188,11 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) {
     let widths = column_widths(&head, rows);
     println!(
         "{}",
-        paint(&format!("{BOLD}{CYAN}"), &render(&head, &widths))
+        paint(&format!("{BOLD}{CYAN}"), &render_row(&head, &widths))
     );
     println!("{}", dim(&rule(&widths)));
     for row in rows {
-        println!("{}", render(row, &widths));
+        println!("{}", render_row(row, &widths));
     }
 }
 
@@ -164,7 +211,7 @@ fn column_widths(head: &[String], rows: &[Vec<String>]) -> Vec<usize> {
 }
 
 /// Render one row as left-padded columns separated by a two-space gutter.
-fn render(cells: &[String], widths: &[usize]) -> String {
+fn render_row(cells: &[String], widths: &[usize]) -> String {
     let mut out = String::new();
     for (i, cell) in cells.iter().enumerate() {
         let pad = widths.get(i).copied().unwrap_or(0);
@@ -249,6 +296,6 @@ mod tests {
     #[test]
     fn render_pads_to_width_with_a_gutter() {
         let row = vec!["a".to_string(), "b".to_string()];
-        assert_eq!(render(&row, &[3, 1]), "a    b");
+        assert_eq!(render_row(&row, &[3, 1]), "a    b");
     }
 }

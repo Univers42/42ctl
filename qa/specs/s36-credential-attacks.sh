@@ -54,7 +54,7 @@ PW="s36-password-$N"
 qa_actor_reset victim
 V_ID="$(qa_actor_account victim "$MAIL" "$PW")"
 qa_actor victim "$W" "auth whoami" >/dev/null 2>&1
-STATE="$QA_RESULTS/actors/victim"
+STATE="$(qa_actor_dir victim)"
 assert_green "the victim has a session and a keystore on disk" \
 	-- bash -c '[ -s "$1/session.tok" ] && [ -s "$1/keystore.v42" ]' _ "$STATE"
 
@@ -77,7 +77,7 @@ done
 assert_green "a credential file left wide by an older version is narrowed on the next write" \
 	-- bash -c 'qa_actor_reset repairee >/dev/null
 		qa_actor repairee "$1" "keys init" >/dev/null 2>&1
-		k="$QA_RESULTS/actors/repairee/keystore.v42"
+		k="$(qa_actor_dir repairee)/keystore.v42"
 		[ -s "$k" ] || { printf "no keystore was written, so nothing was narrowed\n"; exit 1; }
 		chmod 644 "$k"
 		[ "$(stat -c %a "$k")" = 644 ] || { printf "the widening did not take\n"; exit 1; }
@@ -183,11 +183,11 @@ assert_green "a session can be obtained with an email and a password, without Gi
 		mail="door-$2@archicode.codes"
 		qa_signup "$mail" "door-pw-$2" >/dev/null
 		out=$(QA_ACCOUNT_PASSWORD="door-pw-$2" qa_actor doorway "$1" "auth login --password --email $mail" 2>&1) || { printf "%s\n" "$out" | tail -3; exit 1; }
-		[ -s "$QA_RESULTS/actors/doorway/session.tok" ]' _ "$W" "$N"
+		[ -s "$(qa_actor_dir doorway)/session.tok" ]' _ "$W" "$N"
 assert_green "the session that login saved is one the authority accepts" \
-	-- bash -c '[ "$(qa_code GET /v1/auth/me "$(cat "$QA_RESULTS/actors/doorway/session.tok")")" = 200 ]'
+	-- bash -c '[ "$(qa_code GET /v1/auth/me "$(cat "$(qa_actor_dir doorway)/session.tok")")" = 200 ]'
 assert_green "the saved session file is readable only by its owner" \
-	-- bash -c 'm=$(stat -c %a "$QA_RESULTS/actors/doorway/session.tok") || exit 1
+	-- bash -c 'm=$(stat -c %a "$(qa_actor_dir doorway)/session.tok") || exit 1
 		[ $((0$m & 0077)) -eq 0 ] || { printf "mode %s\n" "$m"; exit 1; }'
 
 # ── on the network: the layer that holds when a credential is already stolen ─

@@ -17,10 +17,12 @@
 //! walkthrough), and operator-only `unseal`. Types only — handlers live under `cmd/`.
 
 mod rbac;
+mod store;
 mod vault;
 
 pub use rbac::{Env, Group, Invite, Org, OrgGithub, Project, Team};
-pub use vault::{Db, Note, Vault};
+pub use store::{Db, Note};
+pub use vault::Vault;
 
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
@@ -270,6 +272,23 @@ pub enum Account {
         #[arg(long)]
         yes: bool,
     },
+}
+
+/// Output shaping shared by every listing verb, in the shape `docker ps` taught everyone.
+#[derive(Args, Default)]
+pub struct Output {
+    /// Render each row with a template instead of a table, or `json` for the whole list
+    ///
+    /// Fields are the column names as printed, capitalised: `{{.ID}} {{.Name}}`. Labels are
+    /// nested: `{{.Labels.app}}`. `{{json .}}` is the whole row. An unknown field renders as
+    /// nothing, so one template can be aimed at several verbs.
+    #[arg(long, value_name = "TEMPLATE")]
+    pub format: Option<String>,
+    /// Keep only rows where KEY equals VALUE; `label=K=V` matches a label. Repeatable, all must hold
+    ///
+    /// A filter that keeps nothing is an error, never an empty table.
+    #[arg(long, value_name = "KEY=VALUE")]
+    pub filter: Vec<String>,
 }
 
 /// The endpoints a profile can name.

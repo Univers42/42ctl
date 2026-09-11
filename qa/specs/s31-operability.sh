@@ -55,7 +55,7 @@ restore_and_read() {
 	local i
 	for i in $(seq 1 120); do docker logs qa42-restore 2>&1 | grep -q listening && break; sleep 1; done
 	docker run --rm --network "$QA_NET" -v "$C42_ROOT":/work \
-		-v "$QA_RESULTS/actors/baker":/state -w /tmp --user "$(id -u):$(id -g)" \
+		-v "$(qa_actor_dir baker)":/state -w /tmp --user "$(id -u):$(id -g)" \
 		-e HOME=/state -e FT_PASSPHRASE=qa-pass-baker -e FT_CONFIG=/state/config.json \
 		-e FT_KEYSTORE=/state/keystore.v42 -e FT_CONTRACT=/state/contract.tok "$QA_IMG" \
 		sh -c '/work/target/debug/42ctl config endpoint --server http://qa42-restore:8443 --authority http://unused >/dev/null 2>&1

@@ -60,7 +60,7 @@ assert_green "the CLI accepts an object store endpoint setting" \
 assert_green "the resolved configuration reports the object store" \
 	-- bash -c 'qa_actor chunker "$1" "config show" 2>&1 | grep -qi "object-store"' _ "$W/src"
 assert_green "the saved configuration holds no credential" \
-	-- bash -c '! grep -qiE "secret|password|access[_-]?key" "$QA_RESULTS/actors/chunker/config.json"'
+	-- bash -c '! grep -qiE "secret|password|access[_-]?key" "$(qa_actor_dir chunker)/config.json"'
 
 # ── the transfer ─────────────────────────────────────────────────────────────
 # NOTE: no --project on push. Passing it replaces the marker's configured scan patterns

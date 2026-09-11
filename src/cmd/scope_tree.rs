@@ -26,68 +26,135 @@
 //! `push` does: real paths live only inside the sealed manifest.
 
 use crate::adapters::api::Session;
-use crate::adapters::blobstore::BlobStore;
-use crate::adapters::compose::{self, ScopeChunkSeal, ScopeSeal};
+use crate::adapters::compose::{self, ScopeSeal};
 use crate::adapters::scope as crypto;
 use crate::adapters::scope_env_grpc::EnvSecretPut;
 use crate::adapters::{decrypt, derive};
 use crate::cmd::scope::Ctx;
+use crate::cmd::scope_chunks;
+use crate::cmd::scope_private::{self, Pick, Scanned};
 use crate::cmd::scope_recover::recover_scope_secret;
 use crate::core::chunk::{self, ChunkSet, Naming};
 use crate::core::manifest::{Entry, Manifest};
 use crate::core::materialize::Opts;
 use crate::core::{materialize, project, projpath};
-use crate::ops::largeobj;
 use crate::ui;
-use vault42_core::{Kind, ReadScope};
+use std::collections::BTreeMap;
+use std::path::Path;
+use vault42_core::{ReadScope, RecipientPublicKey};
 use zeroize::Zeroizing;
 
 /// The reserved env-secret path holding the tree manifest.
-const TREE_MANIFEST: &str = "__42ctl/tree";
+pub(super) const TREE_MANIFEST: &str = "__42ctl/tree";
 
-/// Scan the project at the working directory and seal every file to the environment.
+/// Which key opens an environment secret: the environment's recovered secret for a shared
+/// file, or the caller's own identity for one sealed to them alone.
+pub(super) enum Key<'a> {
+    Scope(&'a Zeroizing<[u8; 32]>),
+    Me,
+}
+
+/// The operator's push flags, parsed: extra private patterns and the labels for every file.
+pub struct PushRules {
+    pub private: Vec<String>,
+    pub labels: BTreeMap<String, String>,
+}
+
+/// A push in progress: what every file of it shares — the environment's owner id, the
+/// project it belongs to, the operator's flags, and the chunk naming, derived on first need.
+struct Push<'a> {
+    owner: String,
+    project_id: String,
+    scope_id: [u8; 16],
+    naming: Option<Naming>,
+    rules: &'a PushRules,
+}
+
+/// Scan the project at the working directory and seal every file to the environment — or,
+/// for the private ones, to the pusher alone (`scope_private`).
 ///
-/// The manifest goes last, so an interrupted push leaves files nobody references rather than
+/// Each manifest goes last, so an interrupted push leaves files nobody references rather than
 /// a manifest naming files that are not there — the same commit-point rule the chunked-object
-/// path uses, for the same reason.
-pub async fn push_env(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
+/// path uses, for the same reason. An oversized private file is refused before anything is
+/// uploaded, so a push is never half done.
+pub async fn push_env(session: &mut Session, ctx: &Ctx, rules: &PushRules) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let (proj, _) = project::open(&cwd, None)?;
     let files = project::scan(&proj)?.files;
+    let (shared, private) = scope_private::partition(&files, &proj.root, &rules.private)?;
+    scope_private::refuse_oversized(&private)?;
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
-    let owner = hex::encode(scope_id);
-    let mut manifest = Manifest::new(&proj.project_id);
-    let mut naming: Option<Naming> = None;
-    for file in &files {
-        let rel = projpath::canonicalize_for_storage(file, &proj.root)?;
-        let plaintext = Zeroizing::new(std::fs::read(file)?);
-        let entry = if chunk::needs_chunking(plaintext.len() as u64) {
-            if naming.is_none() {
-                naming = Some(environment_naming(session, ctx, scope_id).await?);
-            }
-            let named = naming.as_ref().expect("just derived");
-            seal_large(session, ctx, (&owner, rel.as_str(), named), &plaintext).await?
-        } else {
-            seal_one(session, ctx, (&owner, rel.as_str()), &plaintext).await?
-        };
-        manifest.upsert(Entry {
-            mode: file_mode(file),
-            ..entry
-        });
-    }
-    put_one(session, ctx, &owner, TREE_MANIFEST, &manifest.to_bytes()?).await?;
+    let mut push = Push {
+        owner: hex::encode(scope_id),
+        project_id: proj.project_id.clone(),
+        scope_id,
+        naming: None,
+        rules,
+    };
+    seal_tree(session, ctx, &mut push, &shared).await?;
+    let ids = (push.owner.as_str(), proj.project_id.as_str());
+    let mine = scope_private::push(session, ctx, ids, (&private, &rules.labels)).await?;
     ui::success(&format!(
-        "pushed {} file(s) to environment '{}'",
-        files.len(),
+        "pushed {} shared and {mine} private file(s) to environment '{}'",
+        shared.len(),
         ctx.env_name
     ));
     Ok(())
 }
 
-/// Recover the environment's key, fetch the manifest, and restore every file it names.
+/// Seal every shared file and commit their manifest last, so an interrupted push leaves
+/// files nobody references rather than a manifest naming files that are not there.
+async fn seal_tree(
+    session: &mut Session,
+    ctx: &Ctx,
+    push: &mut Push<'_>,
+    shared: &[Scanned],
+) -> anyhow::Result<()> {
+    let mut manifest = Manifest::new(&push.project_id);
+    for (file, rel) in shared {
+        let entry = seal_scanned(session, ctx, push, (rel, file)).await?;
+        manifest.upsert(labelled(entry, file, &push.rules.labels));
+    }
+    let to = scope_public(ctx)?;
+    let at = (push.owner.as_str(), TREE_MANIFEST, to);
+    put_one(session, ctx, at, &manifest.to_bytes()?).await?;
+    Ok(())
+}
+
+/// Seal one shared file — whole, or chunked to the object store above the ceiling.
+async fn seal_scanned(
+    session: &mut Session,
+    ctx: &Ctx,
+    push: &mut Push<'_>,
+    at: (&str, &Path),
+) -> anyhow::Result<Entry> {
+    let (rel, file) = at;
+    let plaintext = Zeroizing::new(std::fs::read(file)?);
+    if !chunk::needs_chunking(plaintext.len() as u64) {
+        return seal_one(session, ctx, (&push.owner, rel), &plaintext).await;
+    }
+    if push.naming.is_none() {
+        push.naming = Some(scope_chunks::environment_naming(session, ctx, push.scope_id).await?);
+    }
+    let named = push.naming.as_ref().expect("just derived");
+    scope_chunks::seal_large(session, ctx, (&push.owner, rel, named), &plaintext).await
+}
+
+/// Finish an entry with the file's on-disk mode and this push's labels.
+fn labelled(entry: Entry, file: &Path, labels: &BTreeMap<String, String>) -> Entry {
+    Entry {
+        mode: file_mode(file),
+        labels: labels.clone(),
+        ..entry
+    }
+}
+
+/// Recover the environment's key, fetch the manifests, and restore every file they name.
 ///
-/// Dry-run unless `opts.apply`. Every stored path is validated before any filesystem call,
-/// so a manifest that has been tampered with cannot write outside the project root.
+/// The shared manifest opens with the scope secret; the caller's private one, if any, with
+/// their own identity, and a private file wins over a shared file at the same path. Dry-run
+/// unless `opts.apply`. Every stored path is validated before any filesystem call, so a
+/// manifest that has been tampered with cannot write outside the project root.
 pub async fn pull_env(
     session: &mut Session,
     ctx: &Ctx,
@@ -97,28 +164,42 @@ pub async fn pull_env(
     let root = std::env::current_dir()?;
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let owner = hex::encode(scope_id);
-    let epoch = ctx.scope_epoch.max(1);
     let secret =
-        recover_scope_secret(session, scope_id, epoch, ctx.scope_pubkey.as_deref()).await?;
-    let raw = open_one(session, ctx, (&owner, TREE_MANIFEST), &secret).await?;
-    let manifest = Manifest::parse(&raw)?;
-    let files: Vec<&Entry> = manifest
-        .entries
+        recover_scope_secret(session, scope_id, ctx.epoch(), ctx.scope_pubkey.as_deref()).await?;
+    let (shared, mine) = scope_private::both_manifests(session, ctx, (&owner, &secret)).await?;
+    let merged = scope_private::merge(&shared, mine.as_ref());
+    scope_private::report_shadows(&merged.shadowed);
+    let selected: Vec<&Pick> = merged
+        .picks
         .iter()
-        .filter(|e| e.kind != Kind::Note as u8)
+        .filter(|p| selects(&p.entry.relative_path, only))
         .collect();
-    let selected: Vec<&&Entry> = files
-        .iter()
-        .filter(|e| selects(&e.relative_path, only))
-        .collect();
-    refuse_empty_selection(&selected, only, &ctx.env_name)?;
+    refuse_empty_selection(selected.len(), only, &ctx.env_name)?;
+    restore_all(session, ctx, (&owner, &secret), (&root, &selected, opts)).await?;
+    report(selected.len(), merged.picks.len(), &ctx.env_name);
+    Ok(())
+}
+
+/// Restore every selected file, opening each with the key its manifest came from.
+async fn restore_all(
+    session: &mut Session,
+    ctx: &Ctx,
+    key: (&str, &Zeroizing<[u8; 32]>),
+    what: (&Path, &[&Pick<'_>], &Opts),
+) -> anyhow::Result<()> {
+    let (owner, secret) = key;
+    let (root, selected, opts) = what;
     if !opts.apply {
         ui::field("pull-env", "dry-run — re-run with --apply to write");
     }
-    for entry in &selected {
-        restore_one(session, ctx, (&owner, &secret), (&root, entry, opts)).await?;
+    for pick in selected {
+        let key = if pick.private {
+            Key::Me
+        } else {
+            Key::Scope(secret)
+        };
+        restore_one(session, ctx, (owner, &key), (root, pick.entry, opts)).await?;
     }
-    report(selected.len(), files.len(), &ctx.env_name);
     Ok(())
 }
 
@@ -135,8 +216,8 @@ fn selects(relative_path: &str, only: &[String]) -> bool {
 /// An empty restore is otherwise indistinguishable from a clean one: `--only 'secret/*'` for
 /// `secrets/` writes no files, exits 0, and reads as "nothing to do". The whole reason to
 /// select a subset is that the rest matters too much to touch, so a typo has to stop.
-fn refuse_empty_selection(selected: &[&&Entry], only: &[String], env: &str) -> anyhow::Result<()> {
-    if !selected.is_empty() || only.is_empty() {
+fn refuse_empty_selection(selected: usize, only: &[String], env: &str) -> anyhow::Result<()> {
+    if selected > 0 || only.is_empty() {
         return Ok(());
     }
     anyhow::bail!(
@@ -169,26 +250,21 @@ async fn seal_one(
 ) -> anyhow::Result<Entry> {
     let (owner, rel) = at;
     let vault_path = tree_path(owner, rel);
-    let rev = put_one(session, ctx, owner, &vault_path, plaintext).await?;
-    Ok(Entry {
-        relative_path: rel.to_string(),
-        vault_path,
-        mode: 0o600,
-        kind: Kind::EnvFile as u8,
-        chunked: false,
-        rev,
-    })
+    let to = scope_public(ctx)?;
+    let rev = put_one(session, ctx, (owner, &vault_path, to), plaintext).await?;
+    Ok(Entry::file(rel, vault_path, rev, plaintext.len() as u64))
 }
 
-/// Seal `plaintext` to the environment's public key and store it at `path`.
-async fn put_one(
+/// Seal `plaintext` to `to` — the environment's key, or the caller's own for a private
+/// file — and store it at `path` under the environment's owner.
+pub(super) async fn put_one(
     session: &mut Session,
     ctx: &Ctx,
-    owner: &str,
-    path: &str,
+    at: (&str, &str, RecipientPublicKey),
     plaintext: &[u8],
 ) -> anyhow::Result<u64> {
-    let epoch = ctx.scope_epoch.max(1);
+    let (owner, path, to) = at;
+    let epoch = ctx.epoch();
     let current = head_version(session, owner, epoch, path).await?;
     let envelope = compose::scope_envelope(
         &session.identity,
@@ -196,7 +272,7 @@ async fn put_one(
             owner,
             vault_path: path,
             project_id: owner,
-            scope_pub: scope_public(ctx)?,
+            scope_pub: to,
             rev: current + 1,
             plaintext,
         },
@@ -212,48 +288,62 @@ async fn put_one(
         .await
 }
 
-/// Fetch and decrypt one env secret with the recovered scope secret.
-async fn open_one(
+/// Fetch and decrypt one env secret, or `None` when the environment holds nothing at `path`.
+pub(super) async fn fetch_one(
     session: &mut Session,
     ctx: &Ctx,
     at: (&str, &str),
-    secret: &Zeroizing<[u8; 32]>,
-) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    key: &Key<'_>,
+) -> anyhow::Result<Option<Zeroizing<Vec<u8>>>> {
     let (owner, path) = at;
-    let epoch = ctx.scope_epoch.max(1);
-    let (envelope, author) = session
-        .get_env_secret(owner, epoch, path)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("environment '{}' holds no tree", ctx.env_name))?;
+    let Some((envelope, author)) = session.get_env_secret(owner, ctx.epoch(), path).await? else {
+        return Ok(None);
+    };
     let expected = derive::secret_id(owner, path);
     let scope = ReadScope {
         secret_id: &expected,
         min_rev: 0,
     };
-    decrypt::open_env_envelope(secret, &envelope, &author, scope)
+    let plain = match key {
+        Key::Scope(secret) => decrypt::open_env_envelope(secret, &envelope, &author, scope)?,
+        Key::Me => decrypt::open_private_envelope(&session.identity, &envelope, &author, scope)?,
+    };
+    Ok(Some(plain))
+}
+
+/// Fetch and decrypt one env secret that has to be there.
+pub(super) async fn open_one(
+    session: &mut Session,
+    ctx: &Ctx,
+    at: (&str, &str),
+    key: &Key<'_>,
+) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    fetch_one(session, ctx, at, key)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("environment '{}' holds no tree", ctx.env_name))
 }
 
 /// Restore one file from the manifest, validating its stored path before touching disk.
 async fn restore_one(
     session: &mut Session,
     ctx: &Ctx,
-    key: (&str, &Zeroizing<[u8; 32]>),
-    what: (&std::path::Path, &Entry, &Opts),
+    key: (&str, &Key<'_>),
+    what: (&Path, &Entry, &Opts),
 ) -> anyhow::Result<()> {
-    let (owner, secret) = key;
+    let (owner, key) = key;
     let (root, entry, opts) = what;
     let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
-    let stored = open_one(session, ctx, (owner, &entry.vault_path), secret).await?;
-    let bytes = if entry.chunked {
-        open_large(
-            session,
-            ctx,
-            (owner, secret),
-            &ChunkSet::from_bytes(&stored)?,
-        )
-        .await?
-    } else {
-        stored
+    let stored = open_one(session, ctx, (owner, &entry.vault_path), key).await?;
+    let bytes = match (entry.chunked, key) {
+        (false, _) => stored,
+        (true, Key::Scope(secret)) => {
+            let set = ChunkSet::from_bytes(&stored)?;
+            scope_chunks::open_large(session, ctx, (owner, secret), &set).await?
+        }
+        (true, Key::Me) => anyhow::bail!(
+            "private file '{}' claims to be chunked, which this client never writes",
+            entry.relative_path
+        ),
     };
     if !opts.apply {
         ui::field(rel.as_str(), &format!("{} byte(s)", bytes.len()));
@@ -262,122 +352,6 @@ async fn restore_one(
     materialize::write_one(root, &rel, &bytes, owner_only(entry.mode), opts.backup)?;
     ui::field(rel.as_str(), "restored");
     Ok(())
-}
-
-/// Split a large file into chunks in the object store and keep only the list in the vault.
-///
-/// The chunks are sealed to the ENVIRONMENT rather than to the pusher, so every member who
-/// holds a wrap can open them. Sealing them to one identity would put the team's archive
-/// somewhere only its author can read, which is the failure the shared tree exists to avoid.
-async fn seal_large(
-    session: &mut Session,
-    ctx: &Ctx,
-    at: (&str, &str, &Naming),
-    plaintext: &[u8],
-) -> anyhow::Result<Entry> {
-    let (owner, rel, naming) = at;
-    let vault_path = tree_path(owner, rel);
-    let store = store_for(session, rel, plaintext.len())?;
-    store.ensure_bucket().await?;
-    let scope_pub = scope_public(ctx)?;
-    let identity = &session.identity;
-    let author = identity.author_public().to_bytes();
-    let set = largeobj::put_chunks(store, (&vault_path, naming), plaintext, |part, bytes| {
-        let envelope = compose::scope_chunk_envelope(
-            identity,
-            &ScopeChunkSeal {
-                scope_owner: owner,
-                name: &part.name,
-                scope_pub,
-                plaintext: bytes,
-            },
-        )?;
-        Ok(compose::chunkframe::wrap(&author, &envelope))
-    })
-    .await?;
-    let rev = put_one(session, ctx, owner, &vault_path, &set.to_bytes()?).await?;
-    ui::field(
-        rel,
-        &format!("{} chunk(s) in the object store", set.chunks.len()),
-    );
-    Ok(Entry {
-        relative_path: rel.to_string(),
-        vault_path,
-        mode: 0o600,
-        kind: Kind::EnvFile as u8,
-        chunked: true,
-        rev,
-    })
-}
-
-/// Fetch and reassemble a chunked entry, opening each chunk with the environment's key.
-async fn open_large(
-    session: &mut Session,
-    ctx: &Ctx,
-    key: (&str, &Zeroizing<[u8; 32]>),
-    set: &ChunkSet,
-) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-    let (owner, secret) = key;
-    let naming = Naming::new(owner, secret.as_slice());
-    let store = store_for(session, &ctx.env_name, set.total_len as usize)?;
-    largeobj::get_chunks(store, set, |name, stored| {
-        let (author, envelope) = compose::chunkframe::unwrap(stored)?;
-        let expected = derive::secret_id(owner, name);
-        let scope = ReadScope {
-            secret_id: &expected,
-            min_rev: 0,
-        };
-        let plain = decrypt::open_env_envelope(secret, envelope, &author, scope)?;
-        verify_name(&naming, name, &plain)?;
-        Ok(plain)
-    })
-    .await
-}
-
-/// Require a chunk's name to be the keyed hash of the bytes it turned out to hold.
-///
-/// Deduplication is what makes this necessary. A writer whose chunk name already exists skips
-/// the upload and points at what is there, so a member who seals unrelated bytes under a name
-/// they computed dishonestly poisons every later writer of that content: the honest writer
-/// stores nothing, and their restore returns the poisoner's bytes. Nothing else notices —
-/// the envelope is validly sealed, validly signed, and bound to the right secret id.
-///
-/// Checked on READ rather than on write, because the write side is where the dishonest party
-/// stands. Recomputing costs one keyed hash per chunk against bytes already in memory.
-fn verify_name(naming: &Naming, name: &str, plaintext: &[u8]) -> anyhow::Result<()> {
-    if chunk::chunk_name(naming, plaintext) == name {
-        return Ok(());
-    }
-    anyhow::bail!("chunk {name} does not hold the bytes its name says it does")
-}
-
-/// The configured object store, or a refusal naming what to configure.
-fn store_for<'a>(session: &'a Session, what: &str, len: usize) -> anyhow::Result<&'a BlobStore> {
-    session.store.as_ref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "{what} is {len} bytes, above the transport ceiling, and this profile names no \
-             object store — set one with `42ctl config endpoint --blobstore <url> --bucket \
-             <name>` and export FT_S3_KEY and FT_S3_SECRET"
-        )
-    })
-}
-
-/// How this environment names its chunks: a prefix and key derived from the scope secret.
-///
-/// Derived from the SCOPE rather than from a person, so two members holding the same bytes
-/// compute the same name and the second one stores nothing. That is the deduplication a team
-/// actually wants, and it needs no convergent ciphertext: identical names plus the
-/// already-present check mean the first copy is the only copy, and every member can open it
-/// because it is sealed to the environment.
-async fn environment_naming(
-    session: &mut Session,
-    ctx: &Ctx,
-    scope_id: [u8; 16],
-) -> anyhow::Result<Naming> {
-    let epoch = ctx.scope_epoch.max(1);
-    let secret =
-        recover_scope_secret(session, scope_id, epoch, ctx.scope_pubkey.as_deref()).await?;
-    Ok(Naming::new(&hex::encode(scope_id), secret.as_slice()))
 }
 
 /// Narrow a mode from the manifest to the owner alone.
@@ -401,12 +375,12 @@ fn owner_only(mode: u32) -> u32 {
 }
 
 /// The opaque env-secret path for one real relative path (the real path never appears here).
-fn tree_path(owner: &str, rel: &str) -> String {
+pub(super) fn tree_path(owner: &str, rel: &str) -> String {
     format!("__42ctl/f/{}", derive::secret_id(owner, rel))
 }
 
 /// The file's Unix mode (low 9 bits), or 0o600 on non-Unix.
-fn file_mode(file: &std::path::Path) -> u32 {
+pub(super) fn file_mode(file: &Path) -> u32 {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -422,7 +396,7 @@ fn file_mode(file: &std::path::Path) -> u32 {
 }
 
 /// Decode the env's published scope public key, erroring when the env has no keyset yet.
-fn scope_public(ctx: &Ctx) -> anyhow::Result<vault42_core::RecipientPublicKey> {
+pub(super) fn scope_public(ctx: &Ctx) -> anyhow::Result<RecipientPublicKey> {
     let b64 = ctx
         .scope_pubkey
         .as_deref()
@@ -437,7 +411,7 @@ fn scope_public(ctx: &Ctx) -> anyhow::Result<vault42_core::RecipientPublicKey> {
 }
 
 /// The current head version of `path` within `(scope_id, epoch)`, or 0 if absent.
-async fn head_version(
+pub(super) async fn head_version(
     session: &mut Session,
     owner: &str,
     epoch: u32,
@@ -499,36 +473,6 @@ mod tests {
         assert_eq!(owner_only(0o044), 0o600);
     }
 
-    /// A chunk whose plaintext does not hash to the name it was fetched under is refused.
-    ///
-    /// This is the poisoning case, and it is the one a substituted OBJECT cannot show: copying
-    /// a whole stored chunk over another's name is caught earlier, by the secret id bound to
-    /// the name it was sealed for. What this catches is a dishonest client that seals
-    /// correctly FOR a name while putting unrelated bytes inside — which every later writer of
-    /// those real bytes then points at, storing nothing and restoring the poisoner's content.
-    #[test]
-    fn a_chunk_holding_other_bytes_than_its_name_says_is_refused() {
-        let naming = Naming::new("scope-id", &[3u8; 32]);
-        let honest = b"the real chunk bytes";
-        let name = chunk::chunk_name(&naming, honest);
-        verify_name(&naming, &name, honest).expect("the honest chunk must open");
-        assert!(
-            verify_name(&naming, &name, b"unrelated bytes").is_err(),
-            "a chunk must not hold bytes other than the ones its name names"
-        );
-    }
-
-    /// And the check is keyed: a different environment's key must not validate this one's
-    /// chunk, or the poisoning defence would be portable between environments.
-    #[test]
-    fn the_name_check_is_bound_to_the_environment_key() {
-        let bytes = b"shared content";
-        let mine = Naming::new("scope-id", &[3u8; 32]);
-        let theirs = Naming::new("scope-id", &[9u8; 32]);
-        let name = chunk::chunk_name(&mine, bytes);
-        assert!(verify_name(&theirs, &name, bytes).is_err());
-    }
-
     /// Two files must not collide, and two ENVIRONMENTS must not either: the owner is the
     /// scope id, so the same path in a different environment is a different secret.
     #[test]
@@ -587,7 +531,7 @@ mod selection_tests {
     #[test]
     fn a_selection_matching_nothing_is_refused() {
         let only = vec!["secret/*".to_string()];
-        let err = refuse_empty_selection(&[], &only, "prod")
+        let err = refuse_empty_selection(0, &only, "prod")
             .expect_err("a typo must not look like success");
         let said = err.to_string();
         assert!(said.contains("secret/*"), "must name the pattern: {said}");
@@ -597,6 +541,6 @@ mod selection_tests {
     /// An empty ENVIRONMENT with no pattern is a legitimate no-op, not an error.
     #[test]
     fn an_empty_environment_without_a_pattern_is_not_an_error() {
-        refuse_empty_selection(&[], &[], "prod").expect("no pattern means no selection to miss");
+        refuse_empty_selection(0, &[], "prod").expect("no pattern means no selection to miss");
     }
 }

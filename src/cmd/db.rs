@@ -13,7 +13,11 @@ pub async fn run(cmd: &Db, profile: &str) -> anyhow::Result<()> {
     let mut session = open_session(profile).await?;
     match cmd {
         Db::Get { path } => session.cmd_get(path, 0).await,
-        Db::Ls { prefix } => session.cmd_ls(prefix).await,
+        Db::Ls { prefix, out } => {
+            session
+                .cmd_ls(prefix, out.format.as_deref(), &out.filter)
+                .await
+        }
     }
 }
 

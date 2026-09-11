@@ -25,7 +25,7 @@ pub async fn run(cmd: &Team, profile: &str) -> anyhow::Result<()> {
     let (grobase, token) = session::connect(profile)?;
     match cmd {
         Team::Create { org, slug, name } => create(&grobase, &token, (org, slug, name)).await,
-        Team::List { org } => list(&grobase, &token, org).await,
+        Team::List { org, out } => list(&grobase, &token, org, out).await,
         _ => team_members::run(cmd, &grobase, &token).await,
     }
 }
@@ -42,13 +42,22 @@ async fn create(grobase: &str, token: &str, spec: (&str, &str, &str)) -> anyhow:
     Ok(())
 }
 
-/// List an org's teams as an `id slug name` table.
-async fn list(grobase: &str, token: &str, org: &str) -> anyhow::Result<()> {
-    let teams = team::list(grobase, token, org).await?;
-    let rows: Vec<Vec<String>> = teams
+/// List an org's teams: `ID Slug Name`.
+async fn list(
+    grobase: &str,
+    token: &str,
+    org: &str,
+    out: &crate::cli::Output,
+) -> anyhow::Result<()> {
+    let rows = team::list(grobase, token, org)
+        .await?
         .iter()
-        .map(|t| vec![t.id.clone(), t.slug.clone(), t.name.clone()])
+        .map(|t| serde_json::json!({"ID": t.id, "Slug": t.slug, "Name": t.name}))
         .collect();
-    ui::table(&["id", "slug", "name"], &rows);
-    Ok(())
+    ui::render(
+        &["ID", "Slug", "Name"],
+        rows,
+        out.format.as_deref(),
+        &out.filter,
+    )
 }

@@ -20,7 +20,8 @@ use crate::adapters::api::Session;
 use crate::adapters::rbac::{grant, org, project as rbac_project, pubkey, GrantScope};
 use crate::adapters::session;
 use crate::cli::Vault;
-use crate::cmd::{scope_init, scope_rotate, scope_secret, scope_status, scope_sync, scope_tree};
+use crate::cmd::{scope_init, scope_ls, scope_private, scope_rotate, scope_secret};
+use crate::cmd::{scope_status, scope_sync, scope_tree};
 
 /// The resolved orchestration context: the base URL + session token and the project/env
 /// identifiers a scope verb operates on.
@@ -62,8 +63,22 @@ impl Ctx {
     }
 }
 
-/// Route the scope-key verbs, resolving their shared context first.
+/// Route the scope-key verbs to the half that owns them.
+///
+/// Split by what they act on rather than by size: the KEYSET verbs manage who can open an
+/// environment, the TREE verbs move data in and out of one. They share only `Ctx`.
 pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
+    match cmd {
+        Vault::EnvInit { .. }
+        | Vault::SyncKeys { .. }
+        | Vault::ScopeStatus { .. }
+        | Vault::RotateScope { .. } => keyset(session, cmd, profile).await,
+        _ => tree(session, cmd, profile).await,
+    }
+}
+
+/// The verbs that manage an environment's keyset and who holds a wrap of it.
+async fn keyset(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
     match cmd {
         Vault::EnvInit { org, project, env } => {
             scope_init::env_init(session, &resolve(profile, org, project, env).await?).await
@@ -71,9 +86,25 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
         Vault::SyncKeys { org, project, env } => {
             scope_sync::sync_keys(session, &resolve(profile, org, project, env).await?).await
         }
-        Vault::ScopeStatus { org, project, env } => {
-            scope_status::scope_status(session, &resolve(profile, org, project, env).await?).await
+        Vault::RotateScope { org, project, env } => {
+            scope_rotate::rotate_scope(session, &resolve(profile, org, project, env).await?).await
         }
+        Vault::ScopeStatus {
+            org,
+            project,
+            env,
+            out,
+        } => {
+            let ctx = resolve(profile, org, project, env).await?;
+            scope_status::scope_status(session, &ctx, out).await
+        }
+        _ => unreachable!("keyset only handles the keyset verbs"),
+    }
+}
+
+/// The verbs that move data through an environment: one secret, or the whole tree.
+async fn tree(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
+    match cmd {
         Vault::SetEnv {
             org,
             project,
@@ -92,8 +123,35 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
             let ctx = resolve(profile, org, project, env).await?;
             scope_secret::get_env(session, &ctx, path).await
         }
-        Vault::PushEnv { org, project, env } => {
-            scope_tree::push_env(session, &resolve(profile, org, project, env).await?).await
+        Vault::LsEnv {
+            org,
+            project,
+            env,
+            out,
+        } => {
+            let ctx = resolve(profile, org, project, env).await?;
+            scope_ls::ls_env(session, &ctx, out).await
+        }
+        _ => transfer(session, cmd, profile).await,
+    }
+}
+
+/// Push or pull a whole tree, with the operator's private patterns, labels and selection.
+async fn transfer(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
+    match cmd {
+        Vault::PushEnv {
+            org,
+            project,
+            env,
+            private,
+            label,
+        } => {
+            let rules = scope_tree::PushRules {
+                private: private.clone(),
+                labels: scope_private::parse_labels(label)?,
+            };
+            let ctx = resolve(profile, org, project, env).await?;
+            scope_tree::push_env(session, &ctx, &rules).await
         }
         Vault::PullEnv {
             org,
@@ -110,9 +168,6 @@ pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::R
                 backup: *backup,
             };
             scope_tree::pull_env(session, &ctx, &opts, only).await
-        }
-        Vault::RotateScope { org, project, env } => {
-            scope_rotate::rotate_scope(session, &resolve(profile, org, project, env).await?).await
         }
         _ => unreachable!("scope::run only handles the scope-key verbs"),
     }
