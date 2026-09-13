@@ -54,15 +54,16 @@ restore_and_read() {
 		"$QA_IMG" sh -c 'cargo run --quiet --bin vault42-server' >/dev/null 2>&1
 	local i
 	for i in $(seq 1 120); do docker logs qa42-restore 2>&1 | grep -q listening && break; sleep 1; done
+	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
 	docker run --rm --network "$QA_NET" -v "$C42_ROOT":/work \
-		-v "$(qa_actor_dir baker)":/state -w /tmp --user "$(id -u):$(id -g)" \
+		-v "$(qa_actor_dir baker)":/state -w /tmp $QA_DOCKER_USER \
 		-e HOME=/state -e FT_PASSPHRASE=qa-pass-baker -e FT_CONFIG=/state/config.json \
 		-e FT_KEYSTORE=/state/keystore.v42 -e FT_CONTRACT=/state/contract.tok "$QA_IMG" \
 		sh -c '/work/target/debug/42ctl config endpoint --server http://qa42-restore:8443 --authority http://unused >/dev/null 2>&1
 			/work/target/debug/42ctl vault get canary/one' 2>/dev/null
 	docker rm -fv qa42-restore >/dev/null 2>&1
 }
-export -f restore_and_read; export QA_NET VAULT42_DIR QA_V42_VOLS QA_IMG C42_ROOT QA_RESULTS
+export -f restore_and_read; export QA_NET VAULT42_DIR QA_V42_VOLS QA_IMG C42_ROOT QA_RESULTS QA_DOCKER_USER
 
 assert_green "a full backup restores into a fresh server and reproduces the secret" \
 	-- bash -c 'restore_and_read "$1" | grep -qF "$2"' _ "$W/full" "$CANARY"
