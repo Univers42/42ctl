@@ -231,8 +231,33 @@ expect_as "a group invite is accepted by its addressee" dot "accepted invite" "i
 assert_green "a member is removed from the group" \
 	-- bash -c 'act ada "group member rm --group $GROUP --user $(mail eve)" 2>/dev/null | grep -q "removed $(mail eve) from group"'
 
+# ── a group that carries a role ──────────────────────────────────────────────
+# gus holds no grant of their own. Their rights come only from the group they are put in, which
+# is what groups exist for — and which silently granted nothing until the authority admitted them.
+qa_actor_reset gus
+mkdir -p "$W/gus"
+assert_green "gus signs up and logs in" \
+	-- bash -c 'act gus "auth signup --email $(mail gus)" >/dev/null 2>&1 &&
+		act gus "auth login --password --email $(mail gus)" >/dev/null 2>&1'
+GUS_INVITE="$(act ada "org invite --org $ORG --email $(mail gus) --role member" 2>/dev/null | field token)"
+export GUS_INVITE
+expect_as "gus joins the organisation" gus "accepted invite" "invite accept --token $GUS_INVITE"
+AUDITORS="$(act ada "group create --project $PROJECT" 2>/dev/null | field id)"
+export AUDITORS
+assert_green "the owner creates an auditors group and puts gus in it" \
+	-- bash -c '[ -n "$AUDITORS" ] && act ada "group member add --group $AUDITORS --user $(mail gus)" 2>/dev/null | grep -q "added $(mail gus) to group"'
+assert_green "the auditors group is granted READ on prod" \
+	-- bash -c 'out="$(act ada "project grant add --org $ORG --project $PROJECT --group $AUDITORS --role read --env prod" 2>&1)" &&
+		grep -q "granted group $AUDITORS .read. on project" <<<"$out" || { printf "%s\n" "$out"; exit 1; }'
+expect_as "the grant listing shows it as a group grant, by the group's name" ada "group:group-${AUDITORS:0:8}:read" \
+	"project grant ls --org $ORG --project $PROJECT --format {{.Kind}}:{{.Grantee}}:{{.Role}} --filter Kind=group"
+refused_as "a plain member cannot grant a group anything" eve "" \
+	"project grant add --org $ORG --project $PROJECT --group $AUDITORS --role admin"
+refused_as "a grant naming a user and a group at once is refused" ada "" \
+	"project grant add --org $ORG --project $PROJECT --user $(mail eve) --group $AUDITORS --role read"
+
 # ── the environment's key, and who ends up holding it ────────────────────────
-for who in ada ben cy dot eve; do
+for who in ada ben cy dot eve gus; do
 	assert_green "$who publishes their public keys to the organisation" \
 		-- bash -c 'act "$1" "keys enroll --org $ORG" >/dev/null 2>&1' _ "$who"
 done
@@ -254,6 +279,7 @@ CANARY="DB_PASSWORD=s41-team-only-$N"
 printf '%s\n' "$CANARY" >"$W/ada/secret.txt"
 printf '%s\n' "DB_PASSWORD=s41-reader-overwrite-$N" >"$W/dot/secret.txt"
 printf '%s\n' "DB_PASSWORD=s41-writer-update-$N" >"$W/cy/secret.txt"
+printf '%s\n' "DB_PASSWORD=s41-group-overwrite-$N" >"$W/gus/secret.txt"
 export CANARY
 assert_green "the owner stores a secret in prod" \
 	-- bash -c 'act ada "env secret set --org $ORG --project api --env prod app/db < /project/secret.txt" >/dev/null 2>&1'
@@ -261,6 +287,10 @@ for who in cy dot; do
 	assert_green "$who reads it, because their TEAM was granted prod" \
 		-- bash -c '[ "$(act "$1" "env secret get --org $ORG --project api --env prod app/db" 2>/dev/null)" = "$CANARY" ]' _ "$who"
 done
+assert_green "gus reads it, because their GROUP was granted prod" \
+	-- bash -c '[ "$(act gus "env secret get --org $ORG --project api --env prod app/db" 2>/dev/null)" = "$CANARY" ]'
+refused_as "and the group's read grant does not let gus overwrite it" gus "" \
+	"env secret set --org $ORG --project api --env prod app/db < /project/secret.txt"
 for who in eve fox; do
 	assert_green "$who cannot read it — not refused politely, unable to decrypt" \
 		-- bash -c '! act "$1" "env secret get --org $ORG --project api --env prod app/db" 2>/dev/null | grep -qF "$CANARY"' _ "$who"
@@ -311,6 +341,8 @@ assert_green "removing the reader says a rotation is still needed" \
 	-- bash -c 'out="$(act ada "org member rm --org $ORG --user $(mail dot)" 2>/dev/null)" || exit 1
 		grep -q "removed $(mail dot) from org" <<<"$out" && grep -qi "rotat\|remain readable" <<<"$out"'
 refused_as "the removed member can no longer read the organisation" dot "" "org member ls --org $ORG"
+assert_green "gus is taken out of the auditors group" \
+	-- bash -c 'act ada "group member rm --group $AUDITORS --user $(mail gus)" >/dev/null 2>&1'
 assert_green "the owner rotates prod's key" \
 	-- bash -c 'act ada "env keys rotate --org $ORG --project api --env prod" >/dev/null 2>&1'
 printf '%s\n' "DB_PASSWORD=s41-after-rotation-$N" >"$W/ada/secret.txt"
@@ -318,6 +350,8 @@ assert_green "the owner stores a secret after the rotation" \
 	-- bash -c 'act ada "env secret set --org $ORG --project api --env prod app/db < /project/secret.txt" >/dev/null 2>&1'
 assert_green "the writer, still entitled, reads the new secret" \
 	-- bash -c 'act cy "env secret get --org $ORG --project api --env prod app/db" 2>/dev/null | grep -qx "DB_PASSWORD=s41-after-rotation-$N"'
+assert_green "out of the group, gus cannot read anything written after the rotation" \
+	-- bash -c '! act gus "env secret get --org $ORG --project api --env prod app/db" 2>/dev/null | grep -qF "s41-after-rotation-$N"'
 assert_green "the removed member cannot read anything written after the rotation" \
 	-- bash -c '! act dot "env secret get --org $ORG --project api --env prod app/db" 2>/dev/null | grep -qF "s41-after-rotation-$N"'
 assert_green "a member may always leave on their own" \
