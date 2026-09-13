@@ -28,7 +28,7 @@ async fn dispatch(session: &mut Session, cmd: &Vault) -> anyhow::Result<()> {
     match cmd {
         Vault::Get { path, version } => session.cmd_get(path, *version).await,
         Vault::Set { path, file } => session.cmd_set(path, read_input(file.as_deref())?).await,
-        Vault::Ls { prefix, out } => session.cmd_ls(prefix, out.shape()).await,
+        Vault::Ls { prefix, all, out } => session.cmd_ls((prefix, *all), out.shape()).await,
         Vault::Rm { paths } => session.cmd_rm(paths).await,
         Vault::Gc { apply, grace_hours } => session.cmd_gc(*grace_hours, *apply).await,
         Vault::Rotate { path } => session.cmd_rotate(path).await,

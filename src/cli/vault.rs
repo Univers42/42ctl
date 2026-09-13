@@ -36,11 +36,18 @@ pub enum Vault {
         file: Option<String>,
     },
     /// List your secrets under an optional prefix
+    ///
+    /// 42ctl keeps its own records in the vault too — notes, and a push's manifest and chunk
+    /// lists, under `__42ctl/`. They are left out unless --all, because this listing feeds
+    /// `vault rm`, and removing one of them loses the notes or the pushed tree it holds.
     #[command(visible_alias = "list")]
     Ls {
         /// Only paths starting with this prefix
         #[arg(default_value = "", value_name = "PREFIX")]
         prefix: String,
+        /// Also list 42ctl's own records under `__42ctl/`
+        #[arg(short, long)]
+        all: bool,
         /// Output shaping: --format / --filter
         #[command(flatten)]
         out: super::Output,
@@ -49,7 +56,8 @@ pub enum Vault {
     ///
     /// Every path is attempted even if an earlier one fails, and the command fails once at
     /// the end naming what did not go — so `42ctl vault rm $(42ctl vault ls -q)` tells you
-    /// exactly which paths to retry rather than stopping at the first stale one.
+    /// exactly which paths to retry rather than stopping at the first stale one. A path under
+    /// `__42ctl/` is 42ctl's own record and is refused: `note rm` removes a note.
     Rm {
         /// Secret paths
         #[arg(required = true, num_args = 1.., value_name = "PATH")]

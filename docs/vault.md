@@ -221,12 +221,12 @@ org, until you `share` explicitly. Needs a contract.
 |---|---|
 | `vault set <PATH>` | Seal stdin (or `--file F`) and store it. |
 | `vault get <PATH>` | Fetch and decrypt to stdout. `--version N` reads an older version (`0` = latest). |
-| `vault ls [PREFIX]` | List your secrets. |
-| `vault rm <PATH>` | Remove a secret. |
+| `vault ls [PREFIX] [--all]` | List your secrets. 42ctl's own records — notes, a push's manifest and chunk lists, under `__42ctl/` — are left out unless `--all`. |
+| `vault rm <PATH>...` | Remove secrets, continuing past a failure. A path under `__42ctl/` is refused: removing it loses the notes or the pushed tree it holds. |
 | `vault rotate <PATH>` | Re-seal under a fresh data key; contents unchanged. |
 | `vault share <PATH> --to <v42:…>` | Re-seal so another identity can read it. |
 | `vault import <FILE>` | Seal each `KEY=VALUE` of a `.env` as `<prefix>/KEY`. |
-| `vault export --prefix <P>` | Print your secrets under a prefix as `KEY=value` lines. |
+| `vault export --prefix <P>` | Print your secrets under a prefix as `KEY=value` lines, never 42ctl's own records. |
 | `vault audit [--since <EPOCH>]` | Stream this identity's tamper-evident audit chain. |
 | `vault gc [--apply] [--grace-hours N]` | Remove stored chunks no manifest version still references. |
 
@@ -496,7 +496,7 @@ inspectable from the shell without touching the API:
 | `org member ls` | `UserID` `Role` `Joined` |
 | `team ls`, `project ls` | `ID` `Slug` `Name` |
 | `env ls` | `ID` `Name` |
-| `project grant ls` | `GrantID` `Role` `Env` |
+| `project grant ls` | `GrantID` `Kind` `Grantee` `Role` `Env` |
 | `note ls` | `Note` |
 
 `Size` is the plaintext length recorded at push, so a tree pushed before sizes existed shows `0`
