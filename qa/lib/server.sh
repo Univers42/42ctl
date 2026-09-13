@@ -89,6 +89,20 @@ qa_pick_host_port() {
 QA_V42_VOLS="-v vault42-cargo-registry:/usr/local/cargo/registry -v vault42-cargo-git:/usr/local/cargo/git"
 QA_C42_VOLS="-v 42ctl-cargo-registry:/usr/local/cargo/registry -v 42ctl-cargo-git:/usr/local/cargo/git"
 
+# Fetch the pinned revision from the sibling checkout's own remote, when the sibling lacks it.
+#
+# The pin is resolved from the sibling checkout, which only knows the commits somebody fetched
+# into it. A pin moved to a merge made on GitHub is therefore unresolvable until someone runs
+# `git fetch` there — and every spec that started before that skipped with "cannot resolve pinned
+# vault42 rev". That happened: six specs skipped in one run while another, s22, read a clone that
+# was never checked out. Fetching from the same remote the sibling tracks keeps the pin
+# reproducible without trusting the sibling's state.
+qa_fetch_pin_from_origin() {
+	local src="$1" cache="$2" url
+	url="$(git -C "$src" remote get-url origin 2>/dev/null)" || return 1
+	git -C "$cache" fetch --quiet "$url" >/dev/null 2>&1
+}
+
 # Resolve the pinned vault42 revision into a private clone and point VAULT42_DIR at it.
 # Set QA_VAULT42_REV= (empty) to build from the live sibling checkout instead.
 qa_pin_vault42() {
@@ -100,7 +114,10 @@ qa_pin_vault42() {
 		git clone --quiet --no-checkout "$src" "$cache" >/dev/null 2>&1 || return 1
 	fi
 	git -C "$cache" fetch --quiet "$src" >/dev/null 2>&1 || true
-	git -C "$cache" checkout --quiet --detach "$QA_VAULT42_REV" >/dev/null 2>&1 || return 1
+	if ! git -C "$cache" checkout --quiet --detach "$QA_VAULT42_REV" >/dev/null 2>&1; then
+		qa_fetch_pin_from_origin "$src" "$cache" || return 1
+		git -C "$cache" checkout --quiet --detach "$QA_VAULT42_REV" >/dev/null 2>&1 || return 1
+	fi
 	VAULT42_DIR="$cache"
 	export VAULT42_DIR
 }

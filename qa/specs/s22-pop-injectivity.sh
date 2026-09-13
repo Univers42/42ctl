@@ -28,8 +28,13 @@
 # stating plainly rather than dressing a grep up as a behavioural test.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/harness.sh"
+source "$QA_LIB_DIR/server.sh"
 
 spec_begin "s22-pop-injectivity"
+# Resolve the pin HERE rather than trusting that an earlier spec already did. Each spec runs in
+# its own process, so nothing another spec resolved reaches this one, and reading the cache
+# before anything checked it out reported a missing file as three regressions.
+qa_pin_vault42 || spec_skip "cannot resolve pinned vault42 rev ${QA_VAULT42_REV:-}"
 
 # The message now lives in vault42-core, where it belongs: one definition shared by the
 # signer and the verifier. Pinning this spec to 42ctl's old private copy broke it the
