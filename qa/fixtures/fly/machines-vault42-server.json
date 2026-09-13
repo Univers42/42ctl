@@ -1,0 +1,21 @@
+[
+  {
+    "id": "3d8e4a1f0b2c77",
+    "name": "stub-server-one",
+    "state": "started",
+    "region": "cdg",
+    "private_ip": "fdaa:0:0:a7b:1::2",
+    "created_at": "2026-09-13T10:00:00Z",
+    "updated_at": "2026-09-13T11:00:00Z",
+    "image_ref": { "repository": "univers42/vault42-server", "tag": "develop", "digest": "sha256:1111" },
+    "config": {
+      "image": "registry.fly.io/vault42-server:develop",
+      "env": { "VAULT42_SCOPE_KEYS_ENABLED": "1" },
+      "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+      "mounts": [ { "volume": "vol_server00000001", "name": "vault42_data", "path": "/data", "size_gb": 1, "encrypted": true } ],
+      "services": [ { "protocol": "tcp", "internal_port": 8443, "autostart": true, "ports": [ { "port": 443, "handlers": ["tls"], "force_https": false } ] } ]
+    },
+    "events": [ { "type": "start", "status": "started", "source": "flyd", "timestamp": 1789300800000 } ],
+    "checks": [ { "name": "grpc_port", "status": "passing", "output": "ok" } ]
+  }
+]

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# *************************************************************************** #
+#                                                                             #
+#   flyctl — a stand-in for Fly's CLI, for the cloud specs.                   #
+#                                                                             #
+#   42ctl's cloud verbs run whatever FT_FLYCTL names, which is how a battery  #
+#   exercises every one of them without a Fly account, a network, or a        #
+#   machine that could be stopped by mistake. It answers the read commands    #
+#   with the JSON flyctl prints (from $STUB_DIR, shaped by adapters/fly.rs),  #
+#   accepts the lifecycle commands, and RECORDS every invocation in           #
+#   $STUB_LOG so a spec can assert what 42ctl asked for — and what it never   #
+#   did.                                                                      #
+#                                                                             #
+#   STUB_READONLY=1 makes it refuse every change the way Fly refuses a        #
+#   read-only token, byte for byte what flyctl printed against production:    #
+#   "failed to obtain lease … unauthorized".                                  #
+#                                                                             #
+# *************************************************************************** #
+set -u
+
+log="${STUB_LOG:?STUB_LOG must name the invocation log}"
+dir="${STUB_DIR:?STUB_DIR must name the fixture directory}"
+
+# The token must arrive through the environment; its value on the command line would be
+# readable by every process on the machine. Recorded, never echoed.
+if [ -n "${FLY_API_TOKEN:-}" ]; then
+	printf 'token-in-env\n' >>"$log"
+else
+	printf 'token-missing\n' >>"$log"
+	echo "Error: no access token available" >&2
+	exit 1
+fi
+printf 'argv %s\n' "$*" >>"$log"
+
+# The value after --app, wherever it sits.
+app=""
+prev=""
+for arg in "$@"; do
+	[ "$prev" = "--app" ] && app="$arg"
+	prev="$arg"
+done
+
+refuse_readonly() {
+	if [ "${STUB_READONLY:-0}" = "1" ]; then
+		echo "Waiting on lease for machine $1..."
+		echo "Error: failed to obtain lease: failed to get lease on VM $1: unauthorized (Request ID: stub)" >&2
+		exit 1
+	fi
+}
+
+fixture() {
+	local file="$dir/$1"
+	[ -f "$file" ] || { echo "Error: stub has no fixture $1" >&2; exit 1; }
+	cat "$file"
+}
+
+case "$1 ${2:-} ${3:-}" in
+"machine list "*) fixture "machines-$app.json" ;;
+"volumes list "*) fixture "volumes-$app.json" ;;
+"volumes snapshots list") fixture "snapshots-$4.json" ;;
+"volumes snapshots create")
+	refuse_readonly "$4"
+	echo "Scheduled to snapshot volume $4"
+	;;
+"secrets list "*) fixture "secrets-$app.json" ;;
+"ips list "*) fixture "ips-$app.json" ;;
+"certs list "*) fixture "certs-$app.json" ;;
+"machine start "* | "machine stop "* | "machine restart "* | "machine suspend "*)
+	refuse_readonly "$3"
+	grep -q "\"id\": *\"$3\"" "$dir/machines-$app.json" 2>/dev/null || {
+		echo "Error: machine $3 was not found in app '$app'" >&2
+		exit 1
+	}
+	echo "$3 has been $2 (stub)"
+	;;
+"machine wait "*) echo "machine $3 reached the requested state (stub)" ;;
+"logs "*)
+	echo "2026-09-13T12:00:00Z app[stub] cdg [info] vault42 listening"
+	echo "2026-09-13T12:00:01Z app[stub] cdg [info] healthz ok"
+	;;
+*)
+	printf 'refused %s\n' "$*" >>"$log"
+	echo "Error: the flyctl stub was asked for something no 42ctl verb should run: $*" >&2
+	exit 97
+	;;
+esac
