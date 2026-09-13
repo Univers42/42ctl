@@ -253,6 +253,7 @@ qa_actor() {
 	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
 	docker run --rm --network "$QA_NET" $QA_DOCKER_USER \
 		-v "$C42_ROOT":/work -v "$workdir":/project -v "$state":/state -w /project \
+		-v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace \
 		-e HOME=/state \
 		-e FT_PASSPHRASE="${QA_PASS_OVERRIDE:-qa-pass-$who}" \
 		-e FT_CONFIG=/state/config.json \
@@ -562,6 +563,7 @@ qa_actor_otp() {
 	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
 	docker run --rm -i --network "$QA_NET" $QA_DOCKER_USER \
 		-v "$C42_ROOT":/work -v "$workdir":/project -v "$state":/state -w /project \
+		-v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace \
 		-e HOME=/state -e FT_PASSPHRASE="${QA_PASS_OVERRIDE:-qa-pass-$who}" \
 		-e FT_CONFIG=/state/config.json -e FT_KEYSTORE=/state/keystore.v42 \
 		-e FT_CONTRACT=/state/contract.tok -e FT_SESSION=/state/session.tok \

@@ -57,6 +57,7 @@ restore_and_read() {
 	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
 	docker run --rm --network "$QA_NET" -v "$C42_ROOT":/work \
 		-v "$(qa_actor_dir baker)":/state -w /tmp $QA_DOCKER_USER \
+		-v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace \
 		-e HOME=/state -e FT_PASSPHRASE=qa-pass-baker -e FT_CONFIG=/state/config.json \
 		-e FT_KEYSTORE=/state/keystore.v42 -e FT_CONTRACT=/state/contract.tok "$QA_IMG" \
 		sh -c '/work/target/debug/42ctl config endpoint --server http://qa42-restore:8443 --authority http://unused >/dev/null 2>&1

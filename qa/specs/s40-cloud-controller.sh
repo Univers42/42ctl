@@ -51,6 +51,7 @@ cloud() {
 	docker run --rm -i $QA_DOCKER_USER \
 		-v "$C42_ROOT":/work:ro -v "$W/fly":/fly:ro -v "$W/state":/state -w /state \
 		-e HOME=/state -e NO_COLOR=1 -e FT_CONFIG=/state/config.json \
+		-v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace \
 		-e FT_FLYCTL=/work/qa/fixtures/fly/flyctl -e STUB_DIR=/fly -e STUB_LOG=/state/flyctl.log \
 		-e FLY_API_TOKEN="$S40_TOKEN" -e STUB_READONLY="${STUB_READONLY:-0}" \
 		--entrypoint /work/target/debug/42ctl "$QA_IMG" "$@"

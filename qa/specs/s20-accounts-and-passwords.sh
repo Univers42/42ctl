@@ -29,7 +29,7 @@ qa_build_client >/dev/null 2>&1
 assert_green "vault42-server is listening" -- qa_server_up
 assert_green "the standalone authority is listening" -- qa_authority_up
 
-_help() { docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl "$@" --help 2>&1; }
+_help() { docker run --rm -v "$C42_ROOT":/work -v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace "$QA_IMG" /work/target/debug/42ctl "$@" --help 2>&1; }
 export -f _help
 export QA_IMG C42_ROOT
 
@@ -123,7 +123,7 @@ assert_green "the same request with a valid Ed25519 key is accepted" \
 # Must fail AND say why. A bare non-zero exit would also be produced by clap when the
 # subcommand does not exist, which would make this pass for the wrong reason.
 assert_green "'account delete' refuses without an explicit confirmation flag" \
-	-- bash -c 'out=$(docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl account delete 2>&1); [ $? -ne 0 ] && printf "%s" "$out" | grep -qi "confirm\|--yes\|irreversible"'
+	-- bash -c 'out=$(docker run --rm -v "$C42_ROOT":/work -v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace "$QA_IMG" /work/target/debug/42ctl account delete 2>&1); [ $? -ne 0 ] && printf "%s" "$out" | grep -qi "confirm\|--yes\|irreversible"'
 assert_green "'account delete' warns that the action is irreversible" \
 	-- bash -c '_help account delete 2>&1 | grep -qi "irreversible\|cannot be undone\|permanent"'
 # An accurate message gets read as a complete one, so the verb has to say what ELSE goes with
@@ -134,7 +134,7 @@ assert_green "'account delete' warns that the action is irreversible" \
 assert_green "'account delete' says the tenant claim is released" \
 	-- bash -c '_help account delete 2>&1 | grep -qi "tenant" && _help account delete 2>&1 | grep -qi "released"'
 assert_green "the refusal names the released tenant claim too" \
-	-- bash -c 'docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl account delete 2>&1 | grep -qi "released"'
+	-- bash -c 'docker run --rm -v "$C42_ROOT":/work -v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace "$QA_IMG" /work/target/debug/42ctl account delete 2>&1 | grep -qi "released"'
 
 # ── the whole deletion story, end to end ─────────────────────────────────────
 # The assertions above say the verb exists and refuses. These say it does what it claims and
