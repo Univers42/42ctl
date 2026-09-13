@@ -31,6 +31,7 @@ pub async fn run(cmd: &CloudMachine, fly: &Flyctl, endpoint: &Endpoint) -> anyho
         CloudMachine::Ls { app, out } => ls(fly, endpoint, app.as_deref(), out).await,
         CloudMachine::Inspect { ids, app } => inspect(fly, endpoint, app.as_deref(), ids).await,
         CloudMachine::Ports { app, out } => ports(fly, endpoint, app.as_deref(), out).await,
+        CloudMachine::Top { id, app, out } => top(fly, endpoint, app.as_deref(), id, out).await,
         CloudMachine::Events { id, app, out } => {
             events(fly, endpoint, app.as_deref(), id, out).await
         }
@@ -116,6 +117,58 @@ async fn raw_machine(
         }
     }
     Ok(None)
+}
+
+/// What is running inside one machine.
+///
+/// The app is resolved from the machine rather than required, so an operator who knows only
+/// the id — which is all `cloud machine ls` shows them — does not have to supply it.
+async fn top(
+    fly: &Flyctl,
+    endpoint: &Endpoint,
+    app: Option<&str>,
+    id: &str,
+    out: &Output,
+) -> anyhow::Result<()> {
+    let owner = app_of_machine(fly, endpoint, app, id).await?;
+    let rows = crate::adapters::flyapi::machine_ps(&owner, id)
+        .await?
+        .iter()
+        .map(|process| {
+            serde_json::json!({
+                "PID": process.pid,
+                "Command": if process.command.is_empty() { "-" } else { &process.command },
+                "RSS": ui::bytes(process.rss.max(0) as u64),
+                "CPU": process.cpu, "SysTime": process.stime, "Uptime": process.rtime,
+                "Dir": process.directory,
+            })
+        })
+        .collect();
+    ui::render(
+        &["PID", "Command", "RSS", "CPU", "SysTime", "Uptime", "Dir"],
+        rows,
+        out.shape(),
+    )
+}
+
+/// Which of this profile's apps owns `id`, or a refusal naming the ones searched.
+async fn app_of_machine(
+    fly: &Flyctl,
+    endpoint: &Endpoint,
+    app: Option<&str>,
+    id: &str,
+) -> anyhow::Result<String> {
+    let names = targets(endpoint, app)?;
+    for name in &names {
+        let all: Vec<serde_json::Value> = fly.json(&fly::args(&["machine", "list"], name)).await?;
+        if all
+            .iter()
+            .any(|m| m.get("id").and_then(serde_json::Value::as_str) == Some(id))
+        {
+            return Ok(name.clone());
+        }
+    }
+    anyhow::bail!("no machine {id} in {}", names.join(" or "))
 }
 
 /// Every published port of every machine.

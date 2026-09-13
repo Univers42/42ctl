@@ -63,11 +63,22 @@ Checked against `flyio/flyctl:v0.4.101`. Re-run `--help` before assuming a flag 
 | `config show` | `--app --local --config --toml --yaml` (JSON by default) |
 | `checks list` | `--app --json` |
 
-**Not available, and why:**
+**Not available through flyctl, and what happened to each:**
 
-- `machine stats` / `top` — flyctl has no command. They would need direct calls to Fly's
-  Prometheus endpoint and the Machines `/ps` route, the only two places where delegation is not
-  possible. Not shipped yet; when they are, they will say in their help that they bypass flyctl.
+- `machine top` — **shipped, and it is the one verb that bypasses flyctl.** flyctl has no
+  command for the processes inside a machine (`machine status` reports the machine), so
+  `adapters/flyapi.rs` calls the Machines REST route `GET /v1/apps/{app}/machines/{id}/ps`
+  directly. The module is deliberately one route wide, and its help says it bypasses flyctl.
+  A stopped machine answers `412 failed_precondition`, which is turned into a refusal naming
+  the machine and the command that would start it — there is no process table because there
+  is no process, and that is an answer rather than a fault.
+- `machine stats` — **not shipped, because it does not work with this token.** The plan called
+  for Fly's Prometheus endpoint, and that was probed rather than assumed:
+  `GET https://api.fly.io/prometheus/personal/api/v1/query?query=up` answers
+  `401 something went wrong resolving organization` for the same `FLY_API_TOKEN` that reaches
+  the Machines API and `fly orgs list` fine. Metrics read appears to need a personal access
+  token rather than a deploy-scoped one. A verb that always fails is worse than an absent one,
+  so there is no `stats`; re-probe that URL before writing one.
 - `machine exec … ps` is not a substitute: both images are distroless and have no shell.
 
 ## `cloud health`
