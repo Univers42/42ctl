@@ -45,8 +45,7 @@ pub async fn scope_status(
     ui::render(
         &["Member", "Pubkey", "Provisioned", "State"],
         rows,
-        out.format.as_deref(),
-        &out.filter,
+        out.shape(),
     )
 }
 

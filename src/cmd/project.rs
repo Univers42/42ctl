@@ -80,12 +80,7 @@ async fn list(
         .iter()
         .map(|p| serde_json::json!({"ID": p.id, "Slug": p.slug, "Name": p.name}))
         .collect();
-    ui::render(
-        &["ID", "Slug", "Name"],
-        rows,
-        out.format.as_deref(),
-        &out.filter,
-    )
+    ui::render(&["ID", "Slug", "Name"], rows, out.shape())
 }
 
 /// Grant a user a project role and print the grant id.
@@ -128,12 +123,7 @@ async fn grants(
         .iter()
         .map(grant_row)
         .collect();
-    ui::render(
-        &["GrantID", "Role", "Env"],
-        rows,
-        out.format.as_deref(),
-        &out.filter,
-    )
+    ui::render(&["GrantID", "Role", "Env"], rows, out.shape())
 }
 
 /// One grant row. A grant with no environment reaches every one, which is what the whole

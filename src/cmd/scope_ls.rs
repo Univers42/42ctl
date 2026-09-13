@@ -40,8 +40,7 @@ pub async fn ls_env(session: &mut Session, ctx: &Ctx, out: &Output) -> anyhow::R
     ui::render(
         &["Path", "Size", "Mode", "Kind", "Private", "Labels"],
         rows,
-        out.format.as_deref(),
-        &out.filter,
+        out.shape(),
     )
 }
 

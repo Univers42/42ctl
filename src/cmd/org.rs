@@ -71,12 +71,7 @@ async fn members(
             })
         })
         .collect();
-    ui::render(
-        &["UserID", "Role", "Joined"],
-        rows,
-        out.format.as_deref(),
-        &out.filter,
-    )
+    ui::render(&["UserID", "Role", "Joined"], rows, out.shape())
 }
 
 /// Run an `org github` verb against grobase using the saved session token.

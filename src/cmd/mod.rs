@@ -57,12 +57,13 @@ pub fn dispatch(cli: &Cli) -> anyhow::Result<()> {
     let Some(command) = &cli.command else {
         return help::run(None);
     };
+    let profile = crate::profile::active(cli.profile.as_deref());
     match command {
         Command::Version => version::run(),
         Command::Help { topic } => help::run(topic.as_deref()),
-        Command::Unseal => unseal::run(&cli.profile),
-        Command::Config(cmd) => config::run(cmd, &cli.profile),
-        _ => block_on_net(command, &cli.profile),
+        Command::Unseal => unseal::run(&profile),
+        Command::Config(cmd) => config::run(cmd, &profile),
+        _ => block_on_net(command, &profile),
     }
 }
 

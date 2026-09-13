@@ -64,14 +64,10 @@ Per-command help:    42ctl <command> --help";
 )]
 pub struct Cli {
     /// Profile (org / environment) to act on — see `42ctl config profile`.
-    #[arg(
-        long,
-        env = "FT_PROFILE",
-        default_value = "default",
-        global = true,
-        value_name = "NAME"
-    )]
-    pub profile: String,
+    ///
+    /// Unset, the profile `42ctl config profile <name>` last selected is used, then `default`.
+    #[arg(long, env = "FT_PROFILE", global = true, value_name = "NAME")]
+    pub profile: Option<String>,
     /// The verb to run; none at all shows the guided overview (`42ctl help`).
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -282,18 +278,39 @@ pub enum Account {
 /// Output shaping shared by every listing verb, in the shape `docker ps` taught everyone.
 #[derive(Args, Default)]
 pub struct Output {
-    /// Render each row with a template instead of a table, or `json` for the whole list
+    /// Render the list as `json`, as `table <template>`, or with a bare row template
     ///
     /// Fields are the column names as printed, capitalised: `{{.ID}} {{.Name}}`. Labels are
     /// nested: `{{.Labels.app}}`. `{{json .}}` is the whole row. An unknown field renders as
-    /// nothing, so one template can be aimed at several verbs.
+    /// nothing, so one template can be aimed at several verbs. A `table ` prefix keeps the
+    /// aligned columns and takes their headings from the template:
+    /// `--format 'table {{.ID}}\t{{.Name}}'`.
     #[arg(long, value_name = "TEMPLATE")]
     pub format: Option<String>,
     /// Keep only rows where KEY equals VALUE; `label=K=V` matches a label. Repeatable, all must hold
     ///
-    /// A filter that keeps nothing is an error, never an empty table.
+    /// KEY is a column name, matched whatever the case: `--filter role=member`. A key that
+    /// names no column is refused, so a typo cannot quietly read as "there is nothing here";
+    /// a key that does exist and matches no row prints nothing and succeeds.
     #[arg(long, value_name = "KEY=VALUE")]
     pub filter: Vec<String>,
+    /// Print only the first column, one id per line, for `$( … )` composition
+    ///
+    /// `42ctl vault rm $(42ctl vault ls -q --filter Private=true)` is what this exists for.
+    #[arg(short, long, conflicts_with = "format")]
+    pub quiet: bool,
+}
+
+impl Output {
+    /// The shaping the renderer takes. The conversion lives here so `ops/` and `core/` render
+    /// without ever depending on the clap types above them.
+    pub fn shape(&self) -> crate::ui::Shape<'_> {
+        crate::ui::Shape {
+            format: self.format.as_deref(),
+            filter: &self.filter,
+            quiet: self.quiet,
+        }
+    }
 }
 
 /// The endpoints a profile can name.
