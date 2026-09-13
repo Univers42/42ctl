@@ -37,6 +37,12 @@ const IMAGE: &str =
 /// The variable holding the Fly token. Named here once so every refusal can spell it.
 const TOKEN: &str = "FLY_API_TOKEN";
 
+/// Command words of a flyctl invocation that deletes, detaches, releases or scales something
+/// away. No 42ctl verb ever runs one — see `refuse_destructive`.
+const DESTRUCTIVE: &[&str] = &[
+    "destroy", "delete", "remove", "rm", "release", "unset", "scale", "detach", "revoke",
+];
+
 /// How flyctl is reached on this machine.
 enum Program {
     /// An installed binary, run directly.
@@ -102,7 +108,7 @@ impl Flyctl {
     pub async fn capture(&self, args: &[String]) -> anyhow::Result<String> {
         let token = token()?;
         let output = self
-            .command(args)
+            .command(args)?
             .stdin(Stdio::null())
             .output()
             .await
@@ -115,12 +121,41 @@ impl Flyctl {
         anyhow::bail!("{} failed: {}", self.rendered(args), stderr.trim())
     }
 
+    /// Run a flyctl command that CHANGES the deployment, printing what it reports.
+    ///
+    /// Captured rather than streamed so a refusal can be read: a read-only token is turned
+    /// away by Fly itself with a lease error that names neither the token nor what to do, and
+    /// this is the one place that knows both. Fly's refusal is the enforcement — a member
+    /// holding a read-only token cannot stop a machine however they call flyctl — so 42ctl
+    /// only has to say so plainly.
+    pub async fn change(&self, args: &[String]) -> anyhow::Result<()> {
+        let token = token()?;
+        let output = self
+            .command(args)?
+            .stdin(Stdio::null())
+            .output()
+            .await
+            .with_context(|| format!("could not run `{}`", self.rendered(args)))?;
+        print!(
+            "{}",
+            scrub(&String::from_utf8_lossy(&output.stdout), &token)
+        );
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = scrub(&String::from_utf8_lossy(&output.stderr), &token);
+        if stderr.contains("unauthorized") {
+            anyhow::bail!(not_allowed(&args.join(" ")));
+        }
+        anyhow::bail!("{} failed: {}", self.rendered(args), stderr.trim())
+    }
+
     /// Run flyctl with its output going straight to the terminal, for the streaming verbs
-    /// (`logs -f`, `deploy`) where waiting for the end would defeat the point.
+    /// (`logs`, `machine wait`) where waiting for the end would defeat the point.
     pub async fn stream(&self, args: &[String]) -> anyhow::Result<()> {
         let _ = token()?;
         let status = self
-            .command(args)
+            .command(args)?
             .stdin(Stdio::null())
             .status()
             .await
@@ -132,11 +167,15 @@ impl Flyctl {
     }
 
     /// Build the process, with the token passed by name rather than by value.
-    fn command(&self, args: &[String]) -> tokio::process::Command {
+    ///
+    /// Every invocation is built here, which is why the refusal of destructive commands is
+    /// here: a verb added later cannot delete anything by forgetting to check.
+    fn command(&self, args: &[String]) -> anyhow::Result<tokio::process::Command> {
+        refuse_destructive(args)?;
         let (program, prefix) = self.spelling();
         let mut command = tokio::process::Command::new(program);
         command.args(prefix).args(args).kill_on_drop(true);
-        command
+        Ok(command)
     }
 
     /// The program to run and the arguments that come before flyctl's own.
@@ -165,6 +204,36 @@ fn token() -> anyhow::Result<String> {
             "{TOKEN} is not set — export it (`export {TOKEN}=$(fly auth token)`) before a cloud verb"
         )
     })
+}
+
+/// Refuse any flyctl command that deletes, detaches, releases or scales something away.
+///
+/// 42ctl controls a deployment and never takes one apart. A machine, a volume, an app, a
+/// secret, an address or a certificate is removed with flyctl by somebody who means to, not
+/// through a verb here. Only the COMMAND words are checked — the leading arguments before the
+/// first flag — so an app or a secret that happens to be named `delete` is not mistaken for one.
+fn refuse_destructive(args: &[String]) -> anyhow::Result<()> {
+    let found = args
+        .iter()
+        .take_while(|arg| !arg.starts_with('-'))
+        .take(3)
+        .find(|word| DESTRUCTIVE.contains(&word.as_str()));
+    if let Some(word) = found {
+        anyhow::bail!(
+            "42ctl never runs `fly … {word}` — deleting or scaling away cloud resources is done \
+             with flyctl directly, on purpose"
+        );
+    }
+    Ok(())
+}
+
+/// What an operator is told when Fly refuses the token for `command` (flyctl's own words).
+fn not_allowed(command: &str) -> String {
+    format!(
+        "fly refused this {TOKEN} for `fly {command}` — changing a machine or a volume needs an \
+         administrator's token; a read-only token (`fly tokens create readonly`) can still ls, \
+         inspect, logs and health"
+    )
 }
 
 /// Replace the token with a marker wherever it appears, before the text can reach an error.
@@ -214,6 +283,67 @@ mod tests {
             fly.rendered(&["status".to_string(), "--json".to_string()]),
             "/usr/bin/fly status --json"
         );
+    }
+
+    fn words(line: &str) -> Vec<String> {
+        line.split_whitespace().map(ToString::to_string).collect()
+    }
+
+    /// Every flyctl command that takes something apart is refused before a process exists.
+    #[test]
+    fn a_destructive_command_is_refused_whatever_asks_for_it() {
+        for line in [
+            "machine destroy 8151d9a99540e8 --app vault42-authority --force",
+            "machine rm 8151d9a99540e8",
+            "volumes destroy vol_x --app vault42-server --yes",
+            "volumes snapshots delete snap_x",
+            "apps destroy vault42-server --yes",
+            "secrets unset VAULT42_CONTRACT_PUBKEY --app vault42-server",
+            "ips release 1.2.3.4 --app vault42-server",
+            "certs remove vault.example --app vault42-server",
+            "scale count 0 --app vault42-server",
+            "volumes detach vol_x",
+            "tokens revoke tok_x",
+        ] {
+            let refused = refuse_destructive(&words(line));
+            assert!(refused.is_err(), "must be refused: {line}");
+        }
+    }
+
+    /// The controller keeps every verb it is meant to have, lifecycle included.
+    #[test]
+    fn reading_and_lifecycle_commands_are_allowed() {
+        for line in [
+            "machine list --app vault42-server --json",
+            "machine stop 8151d9a99540e8 --app vault42-authority",
+            "machine start 8151d9a99540e8 --app vault42-authority",
+            "machine restart 8151d9a99540e8 --app vault42-authority",
+            "machine suspend 8151d9a99540e8 --app vault42-authority",
+            "machine wait 8151d9a99540e8 --app vault42-authority --state started",
+            "volumes list --app vault42-server --json",
+            "volumes snapshots create vol_x --app vault42-server",
+            "logs --app vault42-server --no-tail",
+            "secrets list --app vault42-server --json",
+            "ips list --app vault42-server --json",
+        ] {
+            assert!(refuse_destructive(&words(line)).is_ok(), "must run: {line}");
+        }
+    }
+
+    /// Only command words count: a resource merely NAMED like a destructive verb is not one.
+    #[test]
+    fn a_value_named_like_a_destructive_verb_is_not_a_command() {
+        assert!(refuse_destructive(&words("logs --app delete --no-tail")).is_ok());
+        assert!(refuse_destructive(&words("status --app rm --json")).is_ok());
+    }
+
+    /// The refusal names the token, the command, and the kind of token that would do.
+    #[test]
+    fn a_refused_change_says_whose_token_would_work() {
+        let message = not_allowed("machine stop 81 --app a");
+        assert!(message.contains("FLY_API_TOKEN"), "{message}");
+        assert!(message.contains("fly machine stop 81"), "{message}");
+        assert!(message.contains("administrator"), "{message}");
     }
 
     /// The token is removed from anything captured, so it cannot be folded into an error

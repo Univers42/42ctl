@@ -207,7 +207,7 @@ async fn lifecycle(
         if args.dry_run {
             continue;
         }
-        if let Err(error) = fly.stream(&invocation).await {
+        if let Err(error) = fly.change(&invocation).await {
             super::bulk::failure(id, &error);
             failed.push(id.clone());
         }

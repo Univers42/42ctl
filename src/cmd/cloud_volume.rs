@@ -160,5 +160,5 @@ async fn snapshot(
     if dry_run {
         return Ok(());
     }
-    fly.stream(&args).await
+    fly.change(&args).await
 }
