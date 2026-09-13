@@ -65,7 +65,7 @@ async fn device_start(grobase: &str) -> anyhow::Result<DeviceStart> {
     let url = format!("{}/v1/github/device/start", grobase.trim_end_matches('/'));
     let resp = reqwest::Client::new().post(url).send().await?;
     if !resp.status().is_success() {
-        anyhow::bail!("device start failed: HTTP {}", resp.status().as_u16());
+        return Err(refusal("could not start", resp).await);
     }
     Ok(resp.json::<DeviceStart>().await?)
 }
@@ -79,7 +79,25 @@ async fn device_poll(grobase: &str, device_code: &str) -> anyhow::Result<Option<
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("device poll failed: HTTP {}", resp.status().as_u16());
+        return Err(refusal("was refused", resp).await);
     }
     Ok(resp.json::<PollResp>().await?.access_token)
+}
+
+/// A failed step of the flow, with the authority's own reason when it gave one.
+///
+/// A bare status hid the answers that tell somebody what to do: "GitHub sign-in is not
+/// configured here" (use `--password`) and "no verified address on this GitHub account" both
+/// used to read as `HTTP 400`.
+async fn refusal(what: &str, resp: reqwest::Response) -> anyhow::Error {
+    let status = resp.status().as_u16();
+    let reason = resp
+        .json::<serde_json::Value>()
+        .await
+        .ok()
+        .and_then(|body| body.get("error")?.as_str().map(str::to_string));
+    match reason {
+        Some(reason) => anyhow::anyhow!("GitHub sign-in {what} (HTTP {status}): {reason}"),
+        None => anyhow::anyhow!("GitHub sign-in {what} (HTTP {status})"),
+    }
 }

@@ -24,7 +24,10 @@ use std::path::PathBuf;
 pub fn connect(profile: &str) -> anyhow::Result<(String, String)> {
     let grobase = Config::load()?.endpoint(profile)?.otp_base().to_string();
     let token = load(profile)
-        .context("not logged in to grobase — run `42ctl auth login --github` first")?;
+        .context(
+            "not logged in — run `42ctl auth login --password --email <address>` \
+             (or `--github`, where the authority has a GitHub app)",
+        )?;
     Ok((grobase, token))
 }
 
