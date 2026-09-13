@@ -81,7 +81,7 @@ grew out of `cmd/` as the verbs got real:
 
 | Layer | Role |
 |---|---|
-| `cli/` | clap types only — the whole command surface, no logic (`mod.rs` + `rbac.rs`, `store.rs`, `vault.rs`) |
+| `cli/` | clap types only — the whole command surface, no logic (`mod.rs` + `env.rs`, `rbac.rs`, `store.rs`, `vault.rs`, `cloud.rs`), plus `legacy.rs`, the argv rewrite for retired spellings |
 | `cmd/` | thin handlers: resolve profile → unlock identity → open a session → dispatch |
 | `core/` | pure use-cases: project scan, encrypted manifest, path model, merge, materialize |
 | `ops/` | `impl Session` verbs — the vault/sync/notes logic over an open session |
@@ -168,12 +168,12 @@ anyone to claim (vault42 `DECISIONS.md` D13; names used to outlive the account).
 so there is no way to spell somebody else's; removing another person is an org membership decision
 under `org`.
 
-### Sharing a whole tree with a team (`vault push-env` / `pull-env`)
+### Sharing a whole tree with a team (`env push` / `env pull`)
 
 `push`/`pull` seal to the caller's OWN identity, so a teammate cannot read a personally-pushed
-tree at all — that is measured in `s34`, not assumed. `vault push-env` seals every scanned file
+tree at all — that is measured in `s34`, not assumed. `env push` seals every scanned file
 to the ENVIRONMENT's scope key instead, with a manifest at a reserved env path holding the real
-relative paths and modes; `pull-env` recovers the scope secret and restores the tree. Access
+relative paths and modes; `env pull` recovers the scope secret and restores the tree. Access
 follows the grant, and a grant to a TEAM reaches every member of it.
 
 The refusal is cryptographic, not advisory: an unauthorised member holds ciphertext and no
@@ -191,21 +191,33 @@ chunks can have different authors and the object store hands back bytes alone.
 may write the environment may write the manifest a colleague's machine then acts on. The
 traversal guard already covered where files land; the MODE did not, and a manifest asking for
 0777 on a private key restored it world-readable with correct bytes, so nothing downstream
-would have noticed. `pull-env` clamps every restored mode to the owner alone. `s35` is the
+would have noticed. `env pull` clamps every restored mode to the owner alone. `s35` is the
 spec for that whole surface.
 
 ### Scope keys — the grobase ↔ vault42 bridge
 
-Shared per-environment secrets. The admin runs `vault env-init` (generate the scope keyset at epoch
+Shared per-environment secrets. The admin runs `env init` (generate the scope keyset at epoch
 1, publish its public key to grobase, self-wrap the secret), each member runs `keys enroll --org`,
-then `vault sync-keys` wraps the scope secret to every authorized member that has a registered
-pubkey. `set-env` seals to the scope **public** key; `get-env` recovers the scope **secret** from
-the caller's own wrap (the two-hop unwrap in `cmd/scope_recover.rs`). `rotate-scope` re-seals every
+then `env keys sync` wraps the scope secret to every authorized member that has a registered
+pubkey. `env secret set` seals to the scope **public** key; `env secret get` recovers the scope **secret** from
+the caller's own wrap (the two-hop unwrap in `cmd/scope_recover.rs`). `env keys rotate` re-seals every
 env secret at `epoch+1` and re-wraps only the remaining members, so a removed member loses access by
 absence. The scope secret never leaves a `Zeroizing` buffer. The server gates all of it behind
 `VAULT42_SCOPE_KEYS_ENABLED`.
 
 ## Trip-wires
+
+- **The command tree was reshaped into nouns and verbs, and the old spellings still work.**
+  `vault get-env` is `env secret get`, `org remove-member` is `org member rm`, `project grants` is
+  `project grant ls` — eighteen paths in all, listed in `cli/legacy.rs`, which rewrites argv BEFORE
+  clap parses it (an alias cannot change a command's depth). Every row is a pure change of path:
+  same flags and handler, and the only output that differs is text that used to NAME an old verb
+  ("run `env init` first"). Anything that also changes behaviour does not belong there.
+  The deprecation note prints only when stderr is a terminal, so a script's output is byte-identical.
+  **`qa/specs` deliberately still uses the old spellings** — a green battery is what proves the
+  rewrite holds — so do not migrate them until the legacy layer is being removed, and remove the
+  two together. Help text, docs and error messages use the new spellings only; the
+  `every_example_command_parses` drift test enforces that for the topics.
 
 - **`Cargo.toml` pins `vault42-core`/`vault42-proto` to a REV, not a tag** (`grep rev Cargo.toml`;
   it trails `develop`). The sibling `../vault42` checkout moves independently, so a server built from

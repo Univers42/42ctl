@@ -78,7 +78,7 @@ The checks, and what each one is protecting against:
 |---|---|---|
 | machine count | ≠ 1 per app | both apps keep SQLite **on a volume**; a second machine is two writers on one file, not redundancy |
 | machine state | not `started` / `stopped` / `suspended` | anything else is a machine mid-failure |
-| scope keys | `VAULT42_SCOPE_KEYS_ENABLED` is not `1` on the server | every `env-init`, `set-env`, `sync-keys`, `rotate-scope` answers `UNIMPLEMENTED`, which reads as a client bug |
+| scope keys | `VAULT42_SCOPE_KEYS_ENABLED` is not `1` on the server | every `env init`, `env secret set`, `env keys sync`, `env keys rotate` answers `UNIMPLEMENTED`, which reads as a client bug |
 | volume | detached, or not encrypted | the volume is the only copy of the database |
 | snapshot age | > 7 days (warns > 36 h, or when there is none) | says how much a mistake would cost |
 | authority `/healthz` | not `200 ok` | the control plane is down |
