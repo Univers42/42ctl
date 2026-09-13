@@ -54,7 +54,7 @@ run flyctl around 42ctl anyway. So the split is made with the token itself:
 | who | token | may |
 |---|---|---|
 | administrator | a deploy or org token | everything below, plus `machine start/stop/restart/suspend` and `volume snapshot` |
-| member | `fly tokens create readonly --from-existing --expiry …` | `apps`, `status`, `health`, `machine ls/inspect/ports/events/logs/wait`, `volume ls/inspect/snapshots`, `secret ls`, `net ips/certs` |
+| member | `fly tokens create readonly --from-existing --expiry …` | `apps`, `status`, `health`, `machine ls/inspect/ports/top/events/logs/wait`, `volume ls/inspect/snapshots`, `secret ls`, `net ips/certs` — `top` included: a read-only token reads `/ps` (HTTP 200, measured) |
 
 Measured against production rather than read off the docs: a read-only token lists machines and
 volumes, and `machine start` with it is refused by Fly with `failed to obtain lease … unauthorized`
