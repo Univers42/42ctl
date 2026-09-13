@@ -94,6 +94,22 @@ pub enum CloudMachine {
         #[command(flatten)]
         out: super::Output,
     },
+    /// The processes running inside a machine
+    ///
+    /// The one place a cloud verb calls Fly's API instead of flyctl: `fly machine status`
+    /// reports the machine, and nothing in flyctl reports what is running inside it. A
+    /// stopped machine has no process table and says so.
+    Top {
+        /// Machine id
+        #[arg(value_name = "ID")]
+        id: String,
+        /// The app the machine belongs to
+        #[arg(long, value_name = "NAME")]
+        app: Option<String>,
+        /// Output shaping: --format / --filter / -q
+        #[command(flatten)]
+        out: super::Output,
+    },
     /// What has happened to a machine, newest first
     Events {
         /// Machine id
