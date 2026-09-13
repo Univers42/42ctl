@@ -37,13 +37,19 @@ pub async fn run(cmd: &Project, profile: &str) -> anyhow::Result<()> {
             org: org_id,
             project,
             user,
+            group,
             role,
             env,
         }) => {
+            let grantee = match (user, group) {
+                (Some(user), _) => ("user", user.as_str()),
+                (None, Some(group)) => ("group", group.as_str()),
+                (None, None) => anyhow::bail!("name a grantee with --user or --group"),
+            };
             grant(
                 &grobase,
                 &token,
-                (org_id, project, user),
+                (org_id, project, grantee),
                 (role, env.as_deref()),
             )
             .await
@@ -87,14 +93,26 @@ async fn list(
 async fn grant(
     grobase: &str,
     token: &str,
-    ids: (&str, &str, &str),
+    ids: (&str, &str, (&str, &str)),
     spec: (&str, Option<&str>),
 ) -> anyhow::Result<()> {
-    let (org_id, project, user) = ids;
+    let (org_id, project, (kind, grantee)) = ids;
     let (role, env) = spec;
-    let g = org::grant_user(grobase, token, (org_id, project, user), role, env).await?;
+    let g = org::grant(
+        grobase,
+        token,
+        (org_id, project, (kind, grantee)),
+        role,
+        env,
+    )
+    .await?;
     ui::field("grant_id", &g.id);
-    ui::success(&format!("granted {user} '{role}' on project '{project}'"));
+    let who = if kind == "group" {
+        format!("group {grantee}")
+    } else {
+        grantee.to_string()
+    };
+    ui::success(&format!("granted {who} '{role}' on project '{project}'"));
     Ok(())
 }
 
