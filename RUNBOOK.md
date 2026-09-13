@@ -6,8 +6,11 @@ publish path as a security control, not a packaging convenience.
 
 Roles referenced below:
 
-- **`scripts/release.sh`** — the only way a release is cut: bumps the version, commits, tags,
-  pushes with the operator's `GH_PAT`. See "Cut a release".
+- **`auto-release.yml`** (ours) — cuts the patch release on its own once `ci` is green on `main`,
+  so `releases/latest` follows `main` instead of following somebody remembering. See "Cut a
+  release".
+- **`scripts/release.sh`** — the same bump, commit, tag and push by hand, for a `minor`, a `major`,
+  or a specific version. See "Cut a release".
 - **`release.yml`** (ours, SHA-pinned) — on a `vX.Y.Z` tag: static musl binaries for x86_64 +
   aarch64, `SHA256SUMS`, SLSA provenance, GitHub Release. What `install.sh` and `42ctl update`
   consume (D11).
@@ -43,12 +46,39 @@ sh scripts/release-dryrun.sh v0.2.0        # + a containerised release build; ve
 
 ## Cut a release
 
-Releases are **tag-driven**: one `vX.Y.Z` tag in, one GitHub Release out (D11). The tag is cut
-by `scripts/release.sh` — never by hand — so the crate version, the commit and the tag can't drift.
+Releases are **tag-driven**: one `vX.Y.Z` tag in, one GitHub Release out (D11). The tag is cut by
+`auto-release.yml` or by `scripts/release.sh` — never by hand — so the crate version, the commit
+and the tag can't drift.
+
+### The patch release cuts itself
+
+Merge to `main`, and when `ci` goes green `auto-release.yml` bumps the patch version, commits
+`release: vX.Y.Z`, tags, and pushes. Nothing to run.
+
+It exists because the two installers read `releases/latest`, so what a fresh machine gets is the
+last TAG, not `main` — and `main` once ran 47 commits past `v0.1.3` while every new install picked
+up a binary whose help still named retired hosts. A lagging release is a shipped defect here, not
+a paperwork gap.
+
+Three properties are worth knowing before touching it:
+
+- It triggers on `workflow_run` of `ci`, never on `push`, so a red commit is never released. It
+  also re-checks that `main` still points at the revision CI passed, and stands down if `main`
+  moved — that revision's own `ci` run releases it.
+- It pushes with the repository secret **`GH_PAT`**, not `GITHUB_TOKEN`. GitHub suppresses workflow
+  triggers for anything a job's own token pushes, so a tag pushed with `GITHUB_TOKEN` would create
+  a tag and build nothing — and `sign-release.yml` and `docker.yml` both chain off `release.yml`,
+  so the entire channel hangs off that push being a real `push: tags` event. The workflow fails
+  loudly when the secret is absent rather than tagging into silence.
+- Its own bump commit is a push to `main`, so it comes back around; the `release: v` subject is
+  what it skips to stop recursing. `scripts/release.sh` writes the same subject, so a hand-cut
+  release does not trigger a second automatic one either.
+
+### By hand, for a minor, a major, or a specific version
 
 ```sh
 sh scripts/release.sh patch --dry-run   # preview: what would be bumped, committed, tagged, pushed
-sh scripts/release.sh patch             # 0.1.0 → 0.1.1   (or: minor | major | vX.Y.Z)
+sh scripts/release.sh minor             # 0.1.7 → 0.2.0   (or: patch | major | vX.Y.Z)
 ```
 
 What it does, in order — each step refuses to continue if the previous one is not true:
@@ -109,13 +139,19 @@ docker run --rm -it debian:bookworm-slim sh -c \
 `DOCK_PAT` (a Docker Hub access token for the `dlesieur` account, which is also the image
 namespace `docker.io/dlesieur/42ctl`) is a **repository** Actions secret — never printed,
 committed, or baked into an image. `release.yml` needs nothing beyond the job's own
-`GITHUB_TOKEN`; cosign is keyless (OIDC) and needs no key at all. `GH_PAT` is an
-**operator-local** token (`./.env`, git-ignored) used only by `scripts/release.sh` to push the
-tag — it is not a CI secret.
+`GITHUB_TOKEN`; cosign is keyless (OIDC) and needs no key at all.
+
+`GH_PAT` lives in **both** places and they are not the same copy: the operator's git-ignored
+`./.env` for `scripts/release.sh`, and a repository Actions secret for `auto-release.yml`, which
+cannot use `GITHUB_TOKEN` because a tag pushed with it triggers no build. Scope the CI copy to
+`contents: write` on this repository alone and nothing else — a broader token in a public
+repository's Actions is reachable by anyone who can land a commit on `main`, which is the only
+thing `auto-release.yml` waits for.
 
 | Secret | Used by | Scope | Preferred replacement |
 |---|---|---|---|
 | `GH_PAT` | `scripts/release.sh` (push `main` + tag) | operator's `.env` | fine-grained PAT, `contents:write` on this repo, short expiry |
+| `GH_PAT` | `auto-release.yml` (push `main` + tag) | repository secret | a SEPARATE fine-grained PAT, `contents:write` on this repo only, short expiry |
 | `DOCK_PAT` | `docker.yml` (Docker Hub push, user `dlesieur`) | repository secret | short-lived access token, rotate on schedule |
 
 ### Rotate a publish credential
@@ -129,6 +165,7 @@ Set a secret (CLI):
 ```sh
 gh secret set DOCK_PAT --repo Univers42/42ctl      # paste the new Docker Hub token
 gh secret set DOCK_PAT --repo Univers42/vault42    # the server image uses the same account
+gh secret set GH_PAT   --repo Univers42/42ctl      # the tag-pushing token auto-release.yml uses
 ```
 
 - **`GH_PAT`** — revoke the old token in `github.com → Settings → Developer settings → Tokens`,

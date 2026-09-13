@@ -50,11 +50,16 @@ $C42 cargo test adapters::scope       # scope-id + member-id derivation
 `RUNBOOK.md` lists these commands in their bare (host-cargo) form; CI runs them that way plus
 `cargo audit`, `cargo deny check`, and a gitleaks scan. CI must be green to merge.
 
-Releasing is `sh scripts/release.sh patch --dry-run` (preflight: token loads, tree clean, on main,
-tag free) then `sh scripts/release.sh patch` (or `minor`/`major`/`vX.Y.Z`). `GH_PAT` comes from the
-environment or the git-ignored `.env`. The pushed tag runs `release.yml`, which refuses a tag that
-does not match `Cargo.toml`. `sign-release.yml` and `docker.yml` chain on a green `release.yml` and
-run unattended.
+**A patch release cuts itself.** `auto-release.yml` fires on a green `ci` run on `main`, bumps the
+patch version, commits `release: vX.Y.Z`, tags and pushes — so `releases/latest`, which is all
+`install.sh` and `42ctl update` ever read, follows `main`. It pushes with the repository secret
+`GH_PAT` and not `GITHUB_TOKEN`, because GitHub suppresses workflow triggers for anything a job's
+own token pushes and the tag would then build nothing; it skips its own `release: v` commit so it
+does not recurse. A `minor`, a `major` or a pinned version is still hand-cut with
+`sh scripts/release.sh minor --dry-run` then `sh scripts/release.sh minor` (`GH_PAT` from the
+environment, `./.env`, or the workspace `../.env`). Either way the pushed tag runs `release.yml`,
+which refuses a tag that does not match `Cargo.toml`; `sign-release.yml` and `docker.yml` chain on
+a green `release.yml` via `workflow_run` — which is why the tag must arrive as a real push event.
 
 ### The QA battery, and the older verify gates
 
@@ -214,7 +219,8 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
   `42ctl update` off the GitHub Release (D11), never a file in the tree.
 - **There is no crates.io, npm or Homebrew channel** and there will not be while the git deps stand.
   Distribution is `install.sh` and `42ctl update`, both reading the raw GitHub Release assets named
-  `42ctl-<target>` (D11). A release is cut only by `scripts/release.sh`; nothing is published by hand.
+  `42ctl-<target>` (D11). A release is cut by `auto-release.yml` or `scripts/release.sh`; nothing is
+  published by hand.
 - **`42ctl unseal` is a stub** pending the gRPC unseal surface; its help says so.
 - **CI's push trigger names `develop`, which does not exist here** (branches are `main` plus
   `feat/*`). Pull requests are what actually run CI.

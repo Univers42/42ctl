@@ -28,11 +28,15 @@ say() { printf '%s\n' "$*"; }
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 die() { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-# GH_PAT from the environment, else from the git-ignored ./.env.
+# GH_PAT from the environment, else from the git-ignored ./.env, else from the
+# workspace .env one level up — where a checkout that sits beside its sibling
+# repos keeps one shared credential file rather than a copy per repo.
 load_token() {
-	if [ -z "${GH_PAT:-}" ] && [ -f "${REPO_ROOT}/.env" ]; then
-		GH_PAT=$(sed -n 's/^GH_PAT=//p' "${REPO_ROOT}/.env" | head -1 | tr -d '"'"'")
-	fi
+	for env_file in "${REPO_ROOT}/.env" "${REPO_ROOT}/../.env"; do
+		[ -n "${GH_PAT:-}" ] && break
+		[ -f "$env_file" ] || continue
+		GH_PAT=$(sed -n 's/^GH_PAT=//p' "$env_file" | head -1 | tr -d '"'"'")
+	done
 	[ -n "${GH_PAT:-}" ] || die "GH_PAT is not set (export it, or put GH_PAT=… in ./.env)"
 	export GH_PAT
 }
