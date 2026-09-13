@@ -141,10 +141,9 @@ fn resolve(key: &str, known: &[&str]) -> String {
 
 /// Refuse a filter whose key names no column, before it is applied.
 ///
-/// This is what lets a filter legitimately match nothing and still succeed. A typo'd key and
-/// an honestly empty result are indistinguishable once the rows are gone, and reading
-/// `--filter rol=member` as "nobody is a member" is the answer you least want immediately
-/// before `rm $(… -q --filter …)`. Catching the typo here separates the two cases.
+/// A filter that keeps nothing is refused too (`ui::kept_rows`), but that message cannot say
+/// whether the key or the value was wrong. Checking the key first gives the mistyped key its
+/// own error — `--filter rol=member` names `rol` rather than reporting that nobody matched.
 pub fn check_keys(filters: &[String], known: &[&str]) -> anyhow::Result<()> {
     for filter in filters {
         let Some((key, _)) = filter.split_once('=') else {

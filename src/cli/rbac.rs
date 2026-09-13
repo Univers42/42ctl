@@ -10,9 +10,14 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! The RBAC verbs over the authority: `org`, `team`, `group`, `env`, `project`, `invite`. All
-//! of them need a session (`42ctl auth login --password --email <mail>`, or `--github`) and
-//! act on the org / project the flags name.
+//! The RBAC verbs over the authority: `org`, `team`, `group`, `project`, `invite`. All of them
+//! need a session (`42ctl auth login --password --email <mail>`, or `--github`) and act on the
+//! org / project the flags name.
+//!
+//! Shaped the way docker shapes its tree: a thing that has members has a `member` noun with
+//! `ls`, `add` and `rm` under it, and a project's grants are a `grant` noun of their own. The
+//! compound verbs they replace (`add-member`, `revoke-grant` …) are still accepted through
+//! `cli/legacy.rs`.
 
 use clap::Subcommand;
 
@@ -28,15 +33,9 @@ pub enum Org {
         #[arg(long, value_name = "TEXT")]
         name: String,
     },
-    /// List an org's members
-    Members {
-        /// Org slug
-        #[arg(long, value_name = "SLUG")]
-        org: String,
-        /// Output shaping: --format / --filter
-        #[command(flatten)]
-        out: super::Output,
-    },
+    /// An org's members: ls, rm
+    #[command(subcommand)]
+    Member(OrgMember),
     /// Invite an email to an org with a role (prints the one-time token)
     Invite {
         /// Org slug
@@ -49,27 +48,8 @@ pub enum Org {
         #[arg(long, value_name = "ROLE")]
         role: String,
     },
-    /// Remove a member from an org, with every membership derived from it
-    ///
-    /// Administrators, or the member themselves — leaving is always allowed, so nobody can be
-    /// trapped in an organisation. Their teams, groups, published public key and direct grants
-    /// go with them.
-    ///
-    /// This removes AUTHORIZATION, not access already held: a scope key they hold stays
-    /// readable until you `vault rotate-scope` the environments they could read.
-    RemoveMember {
-        /// Org slug
-        #[arg(long, value_name = "SLUG")]
-        org: String,
-        /// User ids or emails — repeat the flag, or list several after it
-        ///
-        /// `42ctl org remove-member --org acme --user $(42ctl org members --org acme -q
-        /// --filter Role=member)` removes everyone who is only a member. Each removal is
-        /// authorised on its own; one refusal does not stop the rest.
-        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
-        user: Vec<String>,
-    },
-    /// Accept an org invite with its one-time token
+    /// Accept an org invite with its one-time token — `invite accept` is the same door
+    #[command(hide = true)]
     AcceptInvite {
         /// The token printed by `org invite`
         #[arg(long, value_name = "TOKEN")]
@@ -78,6 +58,41 @@ pub enum Org {
     /// GitHub App connect / link / sync for an org (needs `auth login --github`)
     #[command(subcommand)]
     Github(OrgGithub),
+}
+
+/// `org member` subcommands.
+#[derive(Subcommand)]
+pub enum OrgMember {
+    /// List an org's members
+    #[command(visible_alias = "list")]
+    Ls {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Output shaping: --format / --filter
+        #[command(flatten)]
+        out: super::Output,
+    },
+    /// Remove members from an org, with every membership derived from it
+    ///
+    /// Administrators, or the member themselves — leaving is always allowed, so nobody can be
+    /// trapped in an organisation. Their teams, groups, published public key and direct grants
+    /// go with them.
+    ///
+    /// This removes AUTHORIZATION, not access already held: a scope key they hold stays
+    /// readable until you `env keys rotate` the environments they could read.
+    Rm {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// User ids or emails — repeat the flag, or list several after it
+        ///
+        /// `42ctl org member rm --org acme --user $(42ctl org member ls --org acme -q
+        /// --filter Role=member)` removes everyone who is only a member. Each removal is
+        /// authorised on its own; one refusal does not stop the rest.
+        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
+        user: Vec<String>,
+    },
 }
 
 /// `team` subcommands — team RBAC within an org.
@@ -96,8 +111,8 @@ pub enum Team {
         name: String,
     },
     /// List an org's teams
-    #[command(visible_alias = "ls")]
-    List {
+    #[command(visible_alias = "list")]
+    Ls {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
@@ -105,21 +120,9 @@ pub enum Team {
         #[command(flatten)]
         out: super::Output,
     },
-    /// Add a user to a team
-    AddMember {
-        /// Org slug
-        #[arg(long, value_name = "SLUG")]
-        org: String,
-        /// Team slug
-        #[arg(long, value_name = "SLUG")]
-        team: String,
-        /// User id or email
-        #[arg(long, value_name = "USER")]
-        user: String,
-        /// Role inside the team
-        #[arg(long, default_value = "member", value_name = "ROLE")]
-        role: String,
-    },
+    /// A team's members: add, rm
+    #[command(subcommand)]
+    Member(TeamMember),
     /// Invite an email to a team (prints the one-time token)
     Invite {
         /// Org slug
@@ -135,22 +138,8 @@ pub enum Team {
         #[arg(long, default_value = "member", value_name = "ROLE")]
         role: String,
     },
-    /// Remove a member from a team, leaving their org membership intact
-    ///
-    /// Only the team's grants stop reaching them; a grant held directly still does.
-    RemoveMember {
-        /// Org slug
-        #[arg(long, value_name = "SLUG")]
-        org: String,
-        /// Team slug
-        #[arg(long, value_name = "SLUG")]
-        team: String,
-        /// User ids or emails — repeat the flag, or list several after it
-        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
-        user: Vec<String>,
-    },
     /// Grant a team a role on a project (optionally one environment only)
-    GrantProject {
+    Grant {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
@@ -166,6 +155,40 @@ pub enum Team {
         /// Restrict the grant to this environment
         #[arg(long, value_name = "NAME")]
         env: Option<String>,
+    },
+}
+
+/// `team member` subcommands.
+#[derive(Subcommand)]
+pub enum TeamMember {
+    /// Add a user to a team
+    Add {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Team slug
+        #[arg(long, value_name = "SLUG")]
+        team: String,
+        /// User id or email
+        #[arg(long, value_name = "USER")]
+        user: String,
+        /// Role inside the team
+        #[arg(long, default_value = "member", value_name = "ROLE")]
+        role: String,
+    },
+    /// Remove members from a team, leaving their org membership intact
+    ///
+    /// Only the team's grants stop reaching them; a grant held directly still does.
+    Rm {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Team slug
+        #[arg(long, value_name = "SLUG")]
+        team: String,
+        /// User ids or emails — repeat the flag, or list several after it
+        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
+        user: Vec<String>,
     },
 }
 
@@ -178,15 +201,9 @@ pub enum Group {
         #[arg(long, value_name = "NAME")]
         project: String,
     },
-    /// Add a user to a group
-    AddMember {
-        /// Group id
-        #[arg(long, value_name = "ID")]
-        group: String,
-        /// User id or email
-        #[arg(long, value_name = "USER")]
-        user: String,
-    },
+    /// A group's members: add, rm
+    #[command(subcommand)]
+    Member(GroupMember),
     /// Invite an email to a group (prints the one-time token)
     Invite {
         /// Group id
@@ -196,8 +213,22 @@ pub enum Group {
         #[arg(long, value_name = "EMAIL")]
         email: String,
     },
-    /// Remove a member from a group
-    RemoveMember {
+}
+
+/// `group member` subcommands.
+#[derive(Subcommand)]
+pub enum GroupMember {
+    /// Add a user to a group
+    Add {
+        /// Group id
+        #[arg(long, value_name = "ID")]
+        group: String,
+        /// User id or email
+        #[arg(long, value_name = "USER")]
+        user: String,
+    },
+    /// Remove members from a group
+    Rm {
         /// Group id
         #[arg(long, value_name = "ID")]
         group: String,
@@ -207,37 +238,13 @@ pub enum Group {
     },
 }
 
-/// `env` subcommands — per-project environments.
-#[derive(Subcommand)]
-pub enum Env {
-    /// Create an environment under a project
-    Create {
-        /// Project name
-        #[arg(long, value_name = "NAME")]
-        project: String,
-        /// Environment name (dev, staging, prod …)
-        #[arg(long, value_name = "NAME")]
-        name: String,
-    },
-    /// List a project's environments
-    #[command(visible_alias = "ls")]
-    List {
-        /// Project name
-        #[arg(long, value_name = "NAME")]
-        project: String,
-        /// Output shaping: --format / --filter
-        #[command(flatten)]
-        out: super::Output,
-    },
-}
-
-/// `project` subcommands — projects themselves, and user-scoped grants on them.
+/// `project` subcommands — projects themselves, and the grants on them.
 #[derive(Subcommand)]
 pub enum Project {
     /// [admin] Create a project under an org
     ///
     /// A project is the parent every environment, group and grant hangs off. Until one
-    /// exists, `env create`, `team grant-project` and every scope-key verb answer 404.
+    /// exists, `env create`, `team grant` and every `env` key verb answer 404.
     Create {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
@@ -250,8 +257,8 @@ pub enum Project {
         name: String,
     },
     /// List an org's projects
-    #[command(visible_alias = "ls")]
-    List {
+    #[command(visible_alias = "list")]
+    Ls {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
@@ -259,8 +266,17 @@ pub enum Project {
         #[command(flatten)]
         out: super::Output,
     },
-    /// List a project's live grants, with the ids `revoke-grant` takes
-    Grants {
+    /// A project's grants: ls, add, rm
+    #[command(subcommand)]
+    Grant(ProjectGrant),
+}
+
+/// `project grant` subcommands.
+#[derive(Subcommand)]
+pub enum ProjectGrant {
+    /// List a project's live grants, with the ids `project grant rm` takes
+    #[command(visible_alias = "list")]
+    Ls {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
@@ -270,27 +286,9 @@ pub enum Project {
         /// Output shaping: --format / --filter
         #[command(flatten)]
         out: super::Output,
-    },
-    /// Revoke a grant, so it authorizes nobody from now on
-    ///
-    /// Find the id with `project grants`. The row is kept with a revocation time, because
-    /// "who used to be able to read this" outlives the grant; every read filters it out.
-    ///
-    /// This removes AUTHORIZATION, not access already held — rotate the environment if a
-    /// key they already hold matters.
-    RevokeGrant {
-        /// Org slug
-        #[arg(long, value_name = "SLUG")]
-        org: String,
-        /// Project slug or id
-        #[arg(long, value_name = "NAME")]
-        project: String,
-        /// Grant ids, from `project grants` — repeat the flag, or list several after it
-        #[arg(long, required = true, num_args = 1.., value_name = "ID")]
-        grant: Vec<String>,
     },
     /// Grant a user a role on a project (optionally one environment only)
-    Grant {
+    Add {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
@@ -306,6 +304,24 @@ pub enum Project {
         /// Restrict the grant to this environment
         #[arg(long, value_name = "NAME")]
         env: Option<String>,
+    },
+    /// Revoke grants, so they authorize nobody from now on
+    ///
+    /// Find the ids with `project grant ls`. The row is kept with a revocation time, because
+    /// "who used to be able to read this" outlives the grant; every read filters it out.
+    ///
+    /// This removes AUTHORIZATION, not access already held — `env keys rotate` the
+    /// environment if a key they already hold matters.
+    Rm {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// Project slug or id
+        #[arg(long, value_name = "NAME")]
+        project: String,
+        /// Grant ids, from `project grant ls` — repeat the flag, or list several after it
+        #[arg(long, required = true, num_args = 1.., value_name = "ID")]
+        grant: Vec<String>,
     },
 }
 

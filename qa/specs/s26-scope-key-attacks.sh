@@ -129,7 +129,7 @@ assert_green "a recovered scope secret is checked against the advertised scope p
 		sed -n "/fn recover_scope_secret/,/^}/p" "$f" | grep -q advertised &&
 		grep -qE "PublicKey::from|x25519_pub" "$f"' _ "$C42_ROOT"
 assert_green "the mismatch is reported to the operator with what to do about it" \
-	-- bash -c 'grep -qi "sync-keys" "$1/src/cmd/scope_recover.rs"' _ "$C42_ROOT"
+	-- bash -c 'grep -qi "env keys sync" "$1/src/cmd/scope_recover.rs"' _ "$C42_ROOT"
 
 # The server still accepts a wrap into any member's namespace and overwrites what is
 # there; its own doc comment states the caller need not own member_id. The severity is

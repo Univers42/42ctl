@@ -10,8 +10,13 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `42ctl env` — per-project environments (the key-bearing scope grants can target):
-//! create and list. Authenticates with the grobase session token from `auth login --github`.
+//! `42ctl env` — per-project environments (the key-bearing scope grants can target), and what
+//! a team shares through one.
+//!
+//! `create` and `ls` are control-plane records and need only a session. Every other verb seals
+//! or opens something, so it unlocks the identity FIRST and then resolves the environment —
+//! the order these verbs had when they were `vault set-env` and its siblings, kept so the
+//! error a half-configured machine sees first is the one it always saw.
 
 use crate::adapters::rbac::env;
 use crate::adapters::session;
@@ -20,10 +25,19 @@ use crate::ui;
 
 /// Dispatch an `env` subcommand for `profile`.
 pub async fn run(cmd: &Env, profile: &str) -> anyhow::Result<()> {
-    let (grobase, token) = session::connect(profile)?;
     match cmd {
-        Env::Create { project, name } => create(&grobase, &token, project, name).await,
-        Env::List { project, out } => list(&grobase, &token, project, out).await,
+        Env::Create { project, name } => {
+            let (grobase, token) = session::connect(profile)?;
+            create(&grobase, &token, project, name).await
+        }
+        Env::Ls { project, out } => {
+            let (grobase, token) = session::connect(profile)?;
+            list(&grobase, &token, project, out).await
+        }
+        _ => {
+            let mut vault = crate::cmd::vault::open_session(profile).await?;
+            crate::cmd::scope::run(&mut vault, cmd, profile).await
+        }
     }
 }
 

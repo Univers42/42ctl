@@ -108,7 +108,8 @@ async fn raw_machine(
     id: &str,
 ) -> anyhow::Result<Option<serde_json::Value>> {
     for name in targets(endpoint, app)? {
-        let all: Vec<serde_json::Value> = fly.json(&fly::args(&["machine", "list"], &name)).await?;
+        let listed = fly.raw(&fly::args(&["machine", "list"], &name)).await?;
+        let all = listed.as_array().cloned().unwrap_or_default();
         if let Some(found) = all
             .into_iter()
             .find(|m| m.get("id").and_then(serde_json::Value::as_str) == Some(id))
@@ -260,7 +261,7 @@ async fn lifecycle(
         if args.dry_run {
             continue;
         }
-        if let Err(error) = fly.stream(&invocation).await {
+        if let Err(error) = fly.change(&invocation).await {
             super::bulk::failure(id, &error);
             failed.push(id.clone());
         }

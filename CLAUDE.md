@@ -63,11 +63,30 @@ a green `release.yml` via `workflow_run` — which is why the tag must arrive as
 
 ### The QA battery, and the older verify gates
 
-`./qa/run.sh` is the real end-to-end coverage: 27 specs standing up vault42-server, the authority
+`./qa/run.sh` is the real end-to-end coverage: 30 specs standing up vault42-server, the authority
 and a MinIO chunk store in Docker. Its exit status counts REGRESSIONS ONLY, so it works as a merge
 gate while `assert_spec` assertions stay red on purpose. `QA_SHUFFLE=1` randomises the order —
-use it, because two specs have already passed only because of what ran before them. `qa/README.md`
+use it, because specs have passed or failed because of what ran before them. `qa/README.md`
 has the rules; the one that matters most is that an absence assertion must prove its haystack.
+
+What to know before running it:
+
+- **It runs on rootless Docker** (this workstation): `QA_DOCKER_USER` drops `--user` there, since
+  rootless maps the container's root to you and refuses any other uid.
+- **One battery per Docker daemon.** Every run starts by tearing down the shared qa42-* containers,
+  so `run.sh` holds a flock and a second run exits 3. Running a spec file with `bash` directly
+  bypasses the lock — don't, while a battery is going.
+- **It measures which commands RAN.** 42ctl writes each parsed command path (never an argument) to
+  `FT_TRACE_COMMANDS`; after a full run the summary prints "commands exercised X of Y" against
+  `42ctl help commands`, and `QA_REQUIRE_COVERAGE=1` fails the run if any command never ran. A new
+  verb therefore needs a spec that runs it. `org github link`/`sync` count by being refused.
+- **Name specs as separate arguments.** A name that selects nothing is an error (exit 2); it used to
+  run the preflight alone and print "No regressions".
+- **The server rev matters**: s41 asserts authorization fixes that go red on older vault42 revs, and
+  `QA_VAULT42_REV` defaults to one that has them.
+- s40 (cloud) needs no server: `qa/fixtures/fly/flyctl` stands in for flyctl and records every
+  command, which is how "no destructive command ever ran" is asserted. s41 is who-may-do-what
+  through the CLI alone; s42 is one user's first day from an empty machine.
 
 `scripts/verify/v10-secret-sync.sh` … `v13-github-cli.sh` predate it and still work, but **both
 their defaults are wrong on this machine**: they need `RUST_TOOLCHAIN_IMG` (the default image is
@@ -81,7 +100,7 @@ grew out of `cmd/` as the verbs got real:
 
 | Layer | Role |
 |---|---|
-| `cli/` | clap types only — the whole command surface, no logic (`mod.rs` + `rbac.rs`, `store.rs`, `vault.rs`) |
+| `cli/` | clap types only — the whole command surface, no logic (`mod.rs` + `env.rs`, `rbac.rs`, `store.rs`, `vault.rs`, `cloud.rs`), plus `legacy.rs`, the argv rewrite for retired spellings |
 | `cmd/` | thin handlers: resolve profile → unlock identity → open a session → dispatch |
 | `core/` | pure use-cases: project scan, encrypted manifest, path model, merge, materialize |
 | `ops/` | `impl Session` verbs — the vault/sync/notes logic over an open session |
@@ -168,12 +187,12 @@ anyone to claim (vault42 `DECISIONS.md` D13; names used to outlive the account).
 so there is no way to spell somebody else's; removing another person is an org membership decision
 under `org`.
 
-### Sharing a whole tree with a team (`vault push-env` / `pull-env`)
+### Sharing a whole tree with a team (`env push` / `env pull`)
 
 `push`/`pull` seal to the caller's OWN identity, so a teammate cannot read a personally-pushed
-tree at all — that is measured in `s34`, not assumed. `vault push-env` seals every scanned file
+tree at all — that is measured in `s34`, not assumed. `env push` seals every scanned file
 to the ENVIRONMENT's scope key instead, with a manifest at a reserved env path holding the real
-relative paths and modes; `pull-env` recovers the scope secret and restores the tree. Access
+relative paths and modes; `env pull` recovers the scope secret and restores the tree. Access
 follows the grant, and a grant to a TEAM reaches every member of it.
 
 The refusal is cryptographic, not advisory: an unauthorised member holds ciphertext and no
@@ -191,21 +210,33 @@ chunks can have different authors and the object store hands back bytes alone.
 may write the environment may write the manifest a colleague's machine then acts on. The
 traversal guard already covered where files land; the MODE did not, and a manifest asking for
 0777 on a private key restored it world-readable with correct bytes, so nothing downstream
-would have noticed. `pull-env` clamps every restored mode to the owner alone. `s35` is the
+would have noticed. `env pull` clamps every restored mode to the owner alone. `s35` is the
 spec for that whole surface.
 
 ### Scope keys — the grobase ↔ vault42 bridge
 
-Shared per-environment secrets. The admin runs `vault env-init` (generate the scope keyset at epoch
+Shared per-environment secrets. The admin runs `env init` (generate the scope keyset at epoch
 1, publish its public key to grobase, self-wrap the secret), each member runs `keys enroll --org`,
-then `vault sync-keys` wraps the scope secret to every authorized member that has a registered
-pubkey. `set-env` seals to the scope **public** key; `get-env` recovers the scope **secret** from
-the caller's own wrap (the two-hop unwrap in `cmd/scope_recover.rs`). `rotate-scope` re-seals every
+then `env keys sync` wraps the scope secret to every authorized member that has a registered
+pubkey. `env secret set` seals to the scope **public** key; `env secret get` recovers the scope **secret** from
+the caller's own wrap (the two-hop unwrap in `cmd/scope_recover.rs`). `env keys rotate` re-seals every
 env secret at `epoch+1` and re-wraps only the remaining members, so a removed member loses access by
 absence. The scope secret never leaves a `Zeroizing` buffer. The server gates all of it behind
 `VAULT42_SCOPE_KEYS_ENABLED`.
 
 ## Trip-wires
+
+- **The command tree was reshaped into nouns and verbs, and the old spellings still work.**
+  `vault get-env` is `env secret get`, `org remove-member` is `org member rm`, `project grants` is
+  `project grant ls` — eighteen paths in all, listed in `cli/legacy.rs`, which rewrites argv BEFORE
+  clap parses it (an alias cannot change a command's depth). Every row is a pure change of path:
+  same flags and handler, and the only output that differs is text that used to NAME an old verb
+  ("run `env init` first"). Anything that also changes behaviour does not belong there.
+  The deprecation note prints only when stderr is a terminal, so a script's output is byte-identical.
+  **`qa/specs` deliberately still uses the old spellings** — a green battery is what proves the
+  rewrite holds — so do not migrate them until the legacy layer is being removed, and remove the
+  two together. Help text, docs and error messages use the new spellings only; the
+  `every_example_command_parses` drift test enforces that for the topics.
 
 - **`Cargo.toml` pins `vault42-core`/`vault42-proto` to a REV, not a tag** (`grep rev Cargo.toml`;
   it trails `develop`). The sibling `../vault42` checkout moves independently, so a server built from
@@ -221,7 +252,8 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
   Distribution is `install.sh` and `42ctl update`, both reading the raw GitHub Release assets named
   `42ctl-<target>` (D11). A release is cut by `auto-release.yml` or `scripts/release.sh`; nothing is
   published by hand.
-- **`42ctl unseal` is a stub** pending the gRPC unseal surface; its help says so.
+- **`42ctl unseal` refuses, exit 1.** vault42 has no seal state (its `Unseal` RPC always reports
+  unsealed), so the verb says it is not implemented rather than printing a line that reads as success.
 - **CI's push trigger names `develop`, which does not exist here** (branches are `main` plus
   `feat/*`). Pull requests are what actually run CI.
 

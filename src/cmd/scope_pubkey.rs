@@ -42,7 +42,7 @@ use serde_json::json;
 use vault42_core::{pop_message, sign_request, verify_request, Identity};
 
 /// Register the caller's OWN public keys (idempotent). Signs the canonical
-/// proof-of-possession with the identity's Ed25519 key so `sync-keys` can verify it.
+/// proof-of-possession with the identity's Ed25519 key so `env keys sync` can verify it.
 pub async fn register_self(
     grobase: &str,
     token: &str,

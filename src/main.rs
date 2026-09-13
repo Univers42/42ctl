@@ -23,7 +23,7 @@ mod profile;
 mod ui;
 
 use clap::error::ErrorKind;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 use std::process::ExitCode;
 
 /// Entry point: parse, dispatch, map errors to an exit code.
@@ -40,11 +40,66 @@ fn main() -> ExitCode {
 /// Parse the CLI and dispatch to the command layer, answering a help request for a command
 /// that has subcommands ourselves so its verbs print in sections rather than one flat list.
 fn run() -> anyhow::Result<()> {
-    let argv: Vec<String> = std::env::args().collect();
-    match cli::Cli::try_parse_from(&argv) {
-        Ok(cli) => cmd::dispatch(&cli),
+    let argv = current_spelling(std::env::args().collect());
+    match cli::Cli::command().try_get_matches_from(&argv) {
+        Ok(matches) => {
+            record_command(&matches);
+            cmd::dispatch(&cli::Cli::from_arg_matches(&matches)?)
+        }
         Err(error) => help_or_exit(&error, &argv),
     }
+}
+
+/// Append the command path this invocation parsed to (`env secret get`) to the file
+/// `FT_TRACE_COMMANDS` names, when it names one.
+///
+/// This is how the QA battery measures which verbs it actually RAN, rather than which ones a
+/// spec happens to mention: a verb spelled in a spec may never execute, and one reached through a
+/// helper is invisible to a text search. Only command names are written — never an argument, so
+/// no path, email, token or value can reach the file. Old spellings are recorded as the path
+/// they were rewritten to. Tracing failures are deliberately ignored: switching on a measurement
+/// must never change what the command does or how it exits.
+fn record_command(matches: &clap::ArgMatches) {
+    let Some(file) = std::env::var_os("FT_TRACE_COMMANDS") else {
+        return;
+    };
+    let mut path = Vec::new();
+    let mut at = matches;
+    while let Some((name, sub)) = at.subcommand() {
+        path.push(name.to_string());
+        at = sub;
+    }
+    if path.is_empty() {
+        return;
+    }
+    use std::io::Write;
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+        .and_then(|mut out| writeln!(out, "{}", path.join(" ")));
+}
+
+/// `argv` with a retired command path rewritten to the one that replaced it.
+///
+/// The notice goes to a terminal only. A script, a Makefile or the QA battery reading this
+/// process's stderr must see exactly what it saw before the rename, or the rename breaks the
+/// very callers the old spelling is being kept for.
+fn current_spelling(argv: Vec<String>) -> Vec<String> {
+    use std::io::IsTerminal;
+    let Some(done) = cli::legacy::rewrite(&argv) else {
+        return argv;
+    };
+    if std::io::stderr().is_terminal() {
+        eprintln!(
+            "{}",
+            ui::dim(&format!(
+                "note: `42ctl {}` is now `42ctl {}` — the old spelling still works, for now",
+                done.old, done.new
+            ))
+        );
+    }
+    done.argv
 }
 
 /// Render the grouped page when the failed parse was a help request for a command group;

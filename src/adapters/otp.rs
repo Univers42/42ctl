@@ -43,7 +43,7 @@ pub async fn email_otp(authority_url: &str, email: &str) -> anyhow::Result<Strin
         .json(&json!({ "email": email }))
         .send()
         .await?; // always 200 (no email-enumeration oracle)
-    println!(
+    eprintln!(
         "{}",
         ui::accent(&format!("A 6-digit code was sent to {email}."))
     );
@@ -64,15 +64,20 @@ pub async fn email_otp(authority_url: &str, email: &str) -> anyhow::Result<Strin
 
 /// Prompt for the code on stdin and wait up to OTP_TIMEOUT for it (the terminal blocks,
 /// then gives up). The reader runs on a thread so the timeout is enforced.
+///
+/// The prompt and the "code was sent" line go to stderr, like every password prompt does. On
+/// stdout they ran into the command's own result on one line — `Enter the code (waiting 300s):
+/// second factor REQUIRED for …` — so a script reading what `auth mfa` or `keys recover`
+/// reported read the prompt too.
 fn prompt_code() -> anyhow::Result<String> {
-    print!(
+    eprint!(
         "{}",
         ui::dim(&format!(
             "Enter the code (waiting {}s): ",
             OTP_TIMEOUT.as_secs()
         ))
     );
-    std::io::stdout().flush().ok();
+    std::io::stderr().flush().ok();
     let (tx, rx) = mpsc::channel();
     // ponytail: the reader thread parks on stdin if it times out — the process exits right after, so it is reaped
     thread::spawn(move || {

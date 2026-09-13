@@ -11,11 +11,11 @@
 /* ************************************************************************** */
 
 //! Recover the env scope SECRET from the caller's OWN wrap — the two-hop unwrap shared by
-//! every scope verb that must touch plaintext (`sync-keys`, `set-env`, `get-env`,
-//! `rotate-scope`). Fetch the caller's wrap for `(scope_id, epoch)`, deserialize the grant,
-//! pin the granter (the Ed25519 key the wire returned), unwrap with the caller's X25519 key,
-//! and check the result against the key the environment advertises. The recovered secret
-//! stays in a `Zeroizing` buffer; only members ever get this far.
+//! every scope verb that must touch plaintext (`env keys sync`, `env secret set`,
+//! `env secret get`, `env keys rotate`). Fetch the caller's wrap for `(scope_id, epoch)`,
+//! deserialize the grant, pin the granter (the Ed25519 key the wire returned), unwrap with the
+//! caller's X25519 key, and check the result against the key the environment advertises. The
+//! recovered secret stays in a `Zeroizing` buffer; only members ever get this far.
 //!
 //! That last check is what makes the granter pin meaningful. The granter is whatever key the
 //! wire returned, and a wrap deposit is not restricted to the depositor's own namespace, so
@@ -44,7 +44,7 @@ pub async fn recover_scope_secret(
     let (blob, granter) = session
         .get_scope_key(&hex::encode(scope_id), epoch)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("no scope key for this env — run `vault env-init` first"))?;
+        .ok_or_else(|| anyhow::anyhow!("no scope key for this env — run `env init` first"))?;
     let grant = GrantedScopeKey::from_bytes(&blob)
         .map_err(|_| anyhow::anyhow!("stored scope-key grant is malformed"))?;
     let granter_pub = granter_key(&granter)?;
@@ -71,7 +71,7 @@ fn check_advertised(secret: &Zeroizing<[u8; 32]>, advertised: Option<&str>) -> a
     if derived.to_bytes() != expected.to_bytes() {
         anyhow::bail!(
             "the scope key you recovered is not the one this environment publishes — \
-             your wrap was replaced; ask an administrator to run `vault sync-keys`"
+             your wrap was replaced; ask an administrator to run `env keys sync`"
         );
     }
     Ok(())

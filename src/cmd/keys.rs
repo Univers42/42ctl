@@ -37,7 +37,7 @@ pub async fn run(cmd: &Keys, profile: &str) -> anyhow::Result<()> {
 }
 
 /// Publish this identity's public keys to grobase's wrap-target registry so a scope admin's
-/// `sync-keys` can wrap environment keys to this member. Unlocks the keystore only to sign
+/// `env keys sync` can wrap environment keys to this member. Unlocks the keystore only to sign
 /// the proof-of-possession; the private key never leaves the machine.
 async fn enroll(profile: &str, org: &str) -> anyhow::Result<()> {
     let (grobase, token) = session::connect(profile)?;

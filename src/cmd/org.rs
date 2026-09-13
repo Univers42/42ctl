@@ -10,13 +10,13 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `42ctl org` — org-scoped RBAC (create / members / invite / accept-invite) plus the
+//! `42ctl org` — org-scoped RBAC (create / member ls|rm / invite / accept-invite) plus the
 //! GitHub App verbs. Each call sends the grobase session token (from `auth login --github`)
 //! to grobase, which RBAC-checks it. Invites print the one-time cleartext token.
 
 use crate::adapters::rbac::org;
 use crate::adapters::{github_org, session};
-use crate::cli::{Org, OrgGithub};
+use crate::cli::{Org, OrgGithub, OrgMember};
 use crate::cmd::bulk;
 use crate::profile::Config;
 use crate::ui;
@@ -39,14 +39,16 @@ async fn rbac(cmd: &Org, profile: &str) -> anyhow::Result<()> {
             ui::field("id", &o.id);
             ui::success(&format!("created org '{}' ({})", o.name, o.slug));
         }
-        Org::Members { org, out } => members(&grobase, &token, org, out).await?,
+        Org::Member(OrgMember::Ls { org, out }) => members(&grobase, &token, org, out).await?,
         Org::Invite { org, email, role } => {
             let inv = org::invite(&grobase, &token, org, email, role).await?;
             ui::field("invite_id", &inv.id);
             ui::field("token", &inv.token);
             ui::success(&format!("invited {email} to org '{org}' as '{role}'"));
         }
-        Org::RemoveMember { org, user } => remove_member(&grobase, &token, org, user).await?,
+        Org::Member(OrgMember::Rm { org, user }) => {
+            remove_member(&grobase, &token, org, user).await?
+        }
         Org::AcceptInvite { token: invite } => {
             org::accept_invite(&grobase, &token, invite).await?;
             ui::success("accepted org invite");

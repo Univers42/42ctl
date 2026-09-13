@@ -296,8 +296,12 @@ mod tests {
             "an alias resolves too"
         );
         assert!(
-            page("42ctl org members --help").is_none(),
+            page("42ctl org member ls --help").is_none(),
             "a leaf belongs to clap"
+        );
+        assert!(
+            page("42ctl org member --help").is_some(),
+            "and the noun above it is a group, so it gets the grouped page"
         );
         assert!(
             page("42ctl bogus --help").is_none(),

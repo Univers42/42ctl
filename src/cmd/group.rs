@@ -16,7 +16,7 @@
 
 use crate::adapters::rbac::group;
 use crate::adapters::session;
-use crate::cli::Group;
+use crate::cli::{Group, GroupMember};
 use crate::ui;
 
 /// Dispatch a `group` subcommand for `profile`.
@@ -24,8 +24,12 @@ pub async fn run(cmd: &Group, profile: &str) -> anyhow::Result<()> {
     let (grobase, token) = session::connect(profile)?;
     match cmd {
         Group::Create { project } => create(&grobase, &token, project).await,
-        Group::AddMember { group, user } => add_member(&grobase, &token, group, user).await,
-        Group::RemoveMember { group, user } => remove_member(&grobase, &token, group, user).await,
+        Group::Member(GroupMember::Add { group, user }) => {
+            add_member(&grobase, &token, group, user).await
+        }
+        Group::Member(GroupMember::Rm { group, user }) => {
+            remove_member(&grobase, &token, group, user).await
+        }
         Group::Invite { group, email } => invite(&grobase, &token, group, email).await,
     }
 }

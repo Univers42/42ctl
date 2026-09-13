@@ -1,0 +1,21 @@
+[
+  {
+    "id": "91c5d2e6a7f0b3",
+    "name": "stub-authority-one",
+    "state": "stopped",
+    "region": "cdg",
+    "private_ip": "fdaa:0:0:a7b:1::3",
+    "created_at": "2026-09-13T10:00:00Z",
+    "updated_at": "2026-09-13T11:30:00Z",
+    "image_ref": { "repository": "univers42/vault42-authority", "tag": "develop", "digest": "sha256:2222" },
+    "config": {
+      "image": "registry.fly.io/vault42-authority:develop",
+      "env": {},
+      "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+      "mounts": [ { "volume": "vol_authority000001", "name": "vault42_authority_data", "path": "/data", "size_gb": 1, "encrypted": true } ],
+      "services": [ { "protocol": "tcp", "internal_port": 8444, "autostart": true, "ports": [ { "port": 80, "handlers": ["http"], "force_https": true }, { "port": 443, "handlers": ["tls", "http"], "force_https": false } ] } ]
+    },
+    "events": [ { "type": "stop", "status": "stopped", "source": "flyd", "timestamp": 1789306200000 } ],
+    "checks": [ { "name": "healthz", "status": "passing", "output": "ok" } ]
+  }
+]

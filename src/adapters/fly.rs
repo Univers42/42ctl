@@ -276,6 +276,31 @@ mod tests {
 
     /// An empty object still decodes, so a machine flyctl reports with almost nothing on it
     /// lists as a row rather than failing the whole listing.
+    /// flyctl prints `null` for any field Go left nil — measured: a snapshot listed while it is
+    /// still being created carried a null where retention_days belongs, and listing it failed
+    /// with "invalid type: null, expected u32". A null must read as the field's default, exactly
+    /// as a missing field does.
+    #[test]
+    fn a_null_anywhere_reads_as_the_default_rather_than_failing_the_listing() {
+        let snapshots: Vec<Snapshot> = crate::adapters::flyctl::decode(
+            r#"[{"id":"vs_1","size":null,"status":"creating","created_at":null,"retention_days":null}]"#,
+        )
+        .expect("a snapshot being created still lists");
+        assert_eq!(snapshots[0].id, "vs_1");
+        assert_eq!(snapshots[0].retention_days, 0);
+        assert!(snapshots[0].created_at.is_empty());
+
+        let machines: Vec<Machine> = crate::adapters::flyctl::decode(
+            r#"[{"id":"m1","config":{"guest":{"cpus":null,"memory_mb":256},
+                "services":[{"internal_port":8443,"force_instance_key":null,"ports":null}]},
+                "checks":null}]"#,
+        )
+        .expect("nested nulls decode");
+        assert_eq!(machines[0].config.guest.memory_mb, 256);
+        assert!(machines[0].config.services[0].ports.is_empty());
+        assert_eq!(machines[0].check_state(), "0/0");
+    }
+
     #[test]
     fn a_sparse_machine_still_decodes() {
         let machine: Machine = serde_json::from_value(serde_json::json!({})).expect("sparse");

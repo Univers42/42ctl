@@ -171,12 +171,14 @@ assert_green "a granted teammate cannot pull a personally-pushed tree — it is 
 	-- bash -c '! qa_actor bob "$2" "pull --project inception-$3 --apply" >/dev/null 2>&1
 		[ -z "$(find "$2" -type f 2>/dev/null)" ]' _ "$INC" "$W/bob-personal" "$N"
 
-# The verb that would answer the question. Named to sit beside set-env / get-env, because it
-# is the same sharing model applied to a tree rather than to one value.
+# The verb that would answer the question. It lives under `env`, beside `env secret set|get`,
+# because it is the same sharing model applied to a tree rather than to one value. It was
+# `vault push-env` until the tree was reshaped into nouns; the invocations below still use
+# that spelling on purpose, since a green run is what proves the old one keeps working.
 assert_green "the CLI exposes an environment-scoped tree push" \
-	-- bash -c 'qa_actor alice "$1" "vault --help" 2>&1 | grep -q "push-env"' _ "$W"
+	-- bash -c 'qa_actor alice "$1" "env --help" 2>&1 | grep -qE "^ +push +"' _ "$W"
 assert_green "the CLI exposes an environment-scoped tree pull" \
-	-- bash -c 'qa_actor alice "$1" "vault --help" 2>&1 | grep -q "pull-env"' _ "$W"
+	-- bash -c 'qa_actor alice "$1" "env --help" 2>&1 | grep -qE "^ +pull +"' _ "$W"
 assert_green "alice pushes the whole tree to the environment" \
 	-- bash -c 'qa_actor alice "$1" "vault push-env --org $2 --project $3 --env prod" >/dev/null 2>&1' \
 	_ "$INC" "$ORG" "$PUUID"

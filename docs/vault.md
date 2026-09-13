@@ -21,7 +21,7 @@ really about which one is missing.**
 | Stored at | `session-<profile>.tok` | `contract-<profile>.tok` |
 | Needed by | `org` `team` `group` `env` `project` `invite` `account` | `vault` `push` `pull` `note` `db` |
 
-The scope-key verbs (`vault env-init`, `sync-keys`, `push-env`, …) need **both**, because they
+The scope-key verbs (`env init`, `env keys sync`, `env push`, …) need **both**, because they
 bridge the two planes: membership comes from the authority, the wrapped keys live in the vault.
 
 Get both in one command:
@@ -147,39 +147,39 @@ Access is `org → team → project → environment`. Every verb here needs a **
 ```sh
 # Organisation
 42ctl org create --slug acme --name 'ACME Inc'
-42ctl org members --org acme
+42ctl org member ls --org acme
 42ctl org invite --org acme --email dev@x.com --role member    # prints a one-time token
 42ctl invite accept --token <TOKEN>                            # the invitee redeems it
 42ctl invite show --id <ID>
 
 # Project (must exist before environments, groups or grants)
 42ctl project create --org acme --slug api --name 'API'
-42ctl project list --org acme
+42ctl project ls --org acme
 
 # Environment
 42ctl env create --project api --name prod
-42ctl env list --project api
+42ctl env ls --project api
 
 # Team
 42ctl team create --org acme --slug backend --name Backend
-42ctl team list --org acme
-42ctl team add-member --org acme --team backend --user dev@x.com --role member
+42ctl team ls --org acme
+42ctl team member add --org acme --team backend --user dev@x.com --role member
 42ctl team invite --org acme --team backend --email dev@x.com --role member
 
 # Grants — who may do what on a project
-42ctl team grant-project --org acme --team backend --project api --role write --env prod
-42ctl project grant --org acme --project api --user dev@x.com --role read
-42ctl project grants --org acme --project api                  # the live grants, with their ids
-42ctl project revoke-grant --org acme --project api --grant <GRANT_ID>
+42ctl team grant --org acme --team backend --project api --role write --env prod
+42ctl project grant add --org acme --project api --user dev@x.com --role read
+42ctl project grant ls --org acme --project api                  # the live grants, with their ids
+42ctl project grant rm --org acme --project api --grant <GRANT_ID>
 
 # Removal — authorization, not erasure (see §13)
-42ctl org remove-member   --org acme --user dev@x.com
-42ctl team remove-member  --org acme --team backend --user dev@x.com
-42ctl group remove-member --group <GROUP_ID> --user dev@x.com
+42ctl org member rm   --org acme --user dev@x.com
+42ctl team member rm  --org acme --team backend --user dev@x.com
+42ctl group member rm --group <GROUP_ID> --user dev@x.com
 
 # Groups
 42ctl group create --project api
-42ctl group add-member --group <GROUP_ID> --user dev@x.com
+42ctl group member add --group <GROUP_ID> --user dev@x.com
 42ctl group invite --group <GROUP_ID> --email dev@x.com
 ```
 
@@ -188,7 +188,7 @@ Access is `org → team → project → environment`. Every verb here needs a **
 | Where | Accepted values |
 |---|---|
 | org role (`org invite --role`) | `owner`, `admin`, `member` |
-| team role (`team add-member --role`) | `admin`, `member` |
+| team role (`team member add --role`) | `admin`, `member` |
 | **project** role (`--role` on both grant verbs) | `admin`, `write`, `read` |
 
 Project roles are **not** `reader`/`writer`. Anything outside the set is refused.
@@ -299,25 +299,25 @@ To share, seal to the **environment's** key instead.
 ### Admin: bootstrap once
 
 ```sh
-42ctl vault env-init     --org acme --project api --env prod    # generate + publish + self-wrap
-42ctl vault scope-status --org acme --project api --env prod    # who is active / pending
-42ctl vault sync-keys    --org acme --project api --env prod    # wrap the key to new members
+42ctl env init     --org acme --project api --env prod    # generate + publish + self-wrap
+42ctl env keys ls --org acme --project api --env prod    # who is active / pending
+42ctl env keys sync    --org acme --project api --env prod    # wrap the key to new members
 ```
 
 ### Member: enroll once, then read and write
 
 ```sh
 42ctl keys enroll --org acme
-printf 'postgres://…' | 42ctl vault set-env --org acme --project api --env prod DATABASE_URL
-42ctl vault get-env --org acme --project api --env prod DATABASE_URL
+printf 'postgres://…' | 42ctl env secret set --org acme --project api --env prod DATABASE_URL
+42ctl env secret get --org acme --project api --env prod DATABASE_URL
 ```
 
 ### The whole tree, shared
 
 ```sh
-42ctl vault push-env --org acme --project api --env prod
-42ctl vault pull-env --org acme --project api --env prod            # PREVIEW — writes nothing
-42ctl vault pull-env --org acme --project api --env prod --apply
+42ctl env push --org acme --project api --env prod
+42ctl env pull --org acme --project api --env prod            # PREVIEW — writes nothing
+42ctl env pull --org acme --project api --env prod --apply
 ```
 
 Files come back **byte-exact, at their original paths**, and any missing directory is
@@ -339,16 +339,16 @@ Some of what sits in a project tree is one person's — a `.env.local`, a person
 travel **with** the tree but are sealed to the pusher alone:
 
 ```sh
-42ctl vault push-env --org acme --project api --env prod                 # *.local is private already
-42ctl vault push-env --org acme --project api --env prod --private 'secrets/me.*' --label app=api
+42ctl env push --org acme --project api --env prod                 # *.local is private already
+42ctl env push --org acme --project api --env prod --private 'secrets/me.*' --label app=api
 ```
 
 - **`*.local` is always private**, flag or not. `--private <PATTERN>` adds more (same grammar as
   `--only`, repeatable); nothing makes a `.local` file shared — rename it if it must be.
 - A private file is stored under the same environment but sealed to **your** identity, and named
   only in a second manifest sealed the same way. A teammate who pulls gets neither its bytes nor
-  its **path**: to them the environment does not contain it, and their `ls-env` does not list it.
-- Your own `pull-env` restores both sets. On a path both name — a teammate pushed a shared
+  its **path**: to them the environment does not contain it, and their `env files` does not list it.
+- Your own `env pull` restores both sets. On a path both name — a teammate pushed a shared
   `secrets/me.key` where you keep a private one — **your copy wins**, and the pull prints
   `secrets/me.key: your private copy shadows the shared one` on stderr.
 - A private file is sealed whole: one above the chunking ceiling (about 4 MiB) is refused **before
@@ -357,17 +357,17 @@ travel **with** the tree but are sealed to the pusher alone:
   your published key; a "private" file authored by somebody else is refused and the pull fails
   closed rather than restore what they planted.
 - `--label KEY=VALUE` (repeatable) tags **every** file of that push, shared and private; it is what
-  `ls-env --filter label=…` selects on.
+  `env files --filter label=…` selects on.
 
 > **Upgrade hazard.** A client from before private files has no such concept and pushes
-> `.env.local` into the *shared* manifest. After upgrading, do not `push-env` the same project
+> `.env.local` into the *shared* manifest. After upgrading, do not `env push` the same project
 > from an old binary. The old-client compatibility gate proves an old client can *read* a new
 > tree, never that it *writes* one safely.
 
 ### Somebody left
 
 ```sh
-42ctl vault rotate-scope --org acme --project api --env prod
+42ctl env keys rotate --org acme --project api --env prod
 ```
 
 Fresh key at `epoch+1`, everything re-sealed, re-wrapped **only** to the remaining members. The
@@ -385,8 +385,8 @@ absence — nothing needs to reach into their machine.
 written, at the paths it would be written to, and touches nothing — not even the directories.
 
 ```sh
-42ctl vault pull-env --org acme --project api --env prod
-#   pull-env  dry-run — re-run with --apply to write
+42ctl env pull --org acme --project api --env prod
+#   env pull  dry-run — re-run with --apply to write
 #   secrets/ca.crt 806 byte(s)
 #   …
 #   12 file(s) from environment 'prod'
@@ -406,8 +406,8 @@ one optional leading and/or trailing `*`:
 Preview the selection first, then apply exactly that:
 
 ```sh
-42ctl vault pull-env … --only 'secrets/*'            # 9 of 12 file(s) — 3 not selected
-42ctl vault pull-env … --only 'secrets/*' --apply
+42ctl env pull … --only 'secrets/*'            # 9 of 12 file(s) — 3 not selected
+42ctl env pull … --only 'secrets/*' --apply
 ```
 
 - Anything **not selected is left exactly as it is on disk**, local edits included.
@@ -419,7 +419,7 @@ Preview the selection first, then apply exactly that:
 `pull` (personal) previews the same way; it has no `--only`, but `--at <VERSION>` previews any
 historical version before you take it.
 
-To see what an environment holds without even a dry run, `42ctl vault ls-env` reads the two
+To see what an environment holds without even a dry run, `42ctl env files` reads the two
 manifests and fetches no file at all — size, mode, labels and whether a file is yours alone,
 at the same cost however large the tree is (§12).
 
@@ -436,7 +436,7 @@ printf 'rotate the API key on the 1st' | 42ctl note add reminders --project api
 ```
 
 Notes ride the same manifest as your env files and carry the same guarantee. Inside a directory
-with a `.42ctl/` marker, `--project` is optional. `pull-env` does not restore notes — they are
+with a `.42ctl/` marker, `--project` is optional. `env pull` does not restore notes — they are
 a different kind in the manifest and are read with `note get`.
 
 ```sh
@@ -460,12 +460,12 @@ no `db set`/`rm`.
 | Is my second factor on? | `42ctl auth me` → `second factor` |
 | What secrets do I have? | `42ctl vault ls [prefix]` |
 | What happened to them? | `42ctl vault audit --since <epoch>` |
-| Who is in the org? | `42ctl org members --org acme` |
-| What teams / projects / envs exist? | `42ctl team list --org acme`, `project list --org acme`, `env list --project api` |
-| Who is granted what on a project? | `42ctl project grants --org acme --project api` |
-| **Who can read this environment, and are they provisioned?** | `42ctl vault scope-status --org acme --project api --env prod` |
-| **What does this environment hold, and which files are mine alone?** | `42ctl vault ls-env --org acme --project api --env prod` |
-| What would a restore change? | `42ctl vault pull-env …` (no `--apply`) |
+| Who is in the org? | `42ctl org member ls --org acme` |
+| What teams / projects / envs exist? | `42ctl team ls --org acme`, `project ls --org acme`, `env ls --project api` |
+| Who is granted what on a project? | `42ctl project grant ls --org acme --project api` |
+| **Who can read this environment, and are they provisioned?** | `42ctl env keys ls --org acme --project api --env prod` |
+| **What does this environment hold, and which files are mine alone?** | `42ctl env files --org acme --project api --env prod` |
+| What would a restore change? | `42ctl env pull …` (no `--apply`) |
 | What version am I running? | `42ctl version` |
 
 ### Shaping any list: `--format` and `--filter`
@@ -474,11 +474,11 @@ Every listing verb takes the Docker-style output flags, so the project "database
 inspectable from the shell without touching the API:
 
 ```sh
-42ctl vault ls-env --org acme --project api --env prod --format '{{.Path}} {{.Size}} {{.Labels.app}}'
-42ctl vault ls-env --org acme --project api --env prod --format json
-42ctl vault ls-env --org acme --project api --env prod --filter Private=true
-42ctl vault ls-env --org acme --project api --env prod --filter label=app=api --filter label=team=backend
-42ctl org members --org acme --filter Role=admin --format '{{.UserID}}'
+42ctl env files --org acme --project api --env prod --format '{{.Path}} {{.Size}} {{.Labels.app}}'
+42ctl env files --org acme --project api --env prod --format json
+42ctl env files --org acme --project api --env prod --filter Private=true
+42ctl env files --org acme --project api --env prod --filter label=app=api --filter label=team=backend
+42ctl org member ls --org acme --filter Role=admin --format '{{.UserID}}'
 ```
 
 - `{{.Field}}` substitutes a field; `{{.Labels.key}}` descends; `{{json .}}` prints the whole row
@@ -490,20 +490,20 @@ inspectable from the shell without touching the API:
 
 | Command | Fields |
 |---|---|
-| `vault ls-env` | `Path` `Size` `Mode` `Kind` `Private` `Labels` |
+| `env files` | `Path` `Size` `Mode` `Kind` `Private` `Labels` |
 | `vault ls`, `db ls` | `Path` `Version` `Updated` |
-| `vault scope-status` | `Member` `Pubkey` `Provisioned` `State` |
-| `org members` | `UserID` `Role` `Joined` |
-| `team list`, `project list` | `ID` `Slug` `Name` |
-| `env list` | `ID` `Name` |
-| `project grants` | `GrantID` `Role` `Env` |
+| `env keys ls` | `Member` `Pubkey` `Provisioned` `State` |
+| `org member ls` | `UserID` `Role` `Joined` |
+| `team ls`, `project ls` | `ID` `Slug` `Name` |
+| `env ls` | `ID` `Name` |
+| `project grant ls` | `GrantID` `Role` `Env` |
 | `note ls` | `Note` |
 
 `Size` is the plaintext length recorded at push, so a tree pushed before sizes existed shows `0`
 until it is pushed again. `Mode` is the mode recorded at push; what a restore *writes* is still
 clamped to the owner (§9).
 
-### Reading `scope-status`
+### Reading `env keys ls`
 
 ```
 member                pubkey  provisioned  state
@@ -513,10 +513,10 @@ member                pubkey  provisioned  state
 | State | Means | Fix |
 |---|---|---|
 | `active` | holds the current scope key | — |
-| `pending-provision` | enrolled, waiting for a wrap | an admin runs `vault sync-keys` |
+| `pending-provision` | enrolled, waiting for a wrap | an admin runs `env keys sync` |
 | `pending-enrollment` | no public key published yet | **they** run `keys enroll --org <slug>` |
 
-This is the one command that answers "why can my colleague not read prod". `sync-keys` reports
+This is the one command that answers "why can my colleague not read prod". `env keys sync` reports
 `provisioned N` and `skipped N (no registered pubkey)` — a non-zero `skipped` is always
 somebody who has not enrolled.
 
@@ -533,10 +533,10 @@ What the CLI can delete today:
 | Unreferenced chunks | `vault gc --apply` | no (respects a grace period) |
 | Manifest entries for vanished files | `push --prune` | re-push restores |
 | Your saved credentials on this machine | `auth logout` | log in again |
-| A member's org membership, with every derived one | `org remove-member --org X --user Y` | re-invite |
-| A member's team membership only | `team remove-member --org X --team Y --user Z` | re-add |
-| A member's group membership only | `group remove-member --group X --user Y` | re-add |
-| One grant | `project revoke-grant --org X --project Y --grant Z` | re-grant |
+| A member's org membership, with every derived one | `org member rm --org X --user Y` | re-invite |
+| A member's team membership only | `team member rm --org X --team Y --user Z` | re-add |
+| A member's group membership only | `group member rm --group X --user Y` | re-add |
+| One grant | `project grant rm --org X --project Y --grant Z` | re-grant |
 | Your whole account | `account delete --yes` | **no** |
 
 Every removal above answers with what it did **not** do, and the CLI prints it:
@@ -544,7 +544,7 @@ Every removal above answers with what it did **not** do, and the CLI prints it:
 ```
 removed dev@x.com from org 'acme'
 authorization removed; scope keys already held remain readable until the
-environment is rotated — run `vault rotate-scope` for each environment
+environment is rotated — run `env keys rotate` for each environment
 ```
 
 That warning is the whole subtlety of offboarding. Removal stops somebody being
@@ -556,7 +556,7 @@ Removing anyone else needs admin, and unseating an owner or admin needs owner. T
 of an organisation can be removed by no route at all, because an org with no owner cannot be
 administered, invited to, or repaired.
 
-**Access removal without deletion** is usually what you actually want: `vault rotate-scope`
+**Access removal without deletion** is usually what you actually want: `env keys rotate`
 ends a departed member's access at the next epoch without touching anything they hold.
 
 There is deliberately **no crypto-shred verb** and no bulk "delete everything" — see below for
@@ -596,8 +596,8 @@ docker run -d --name v42-server --network v42 -p 127.0.0.1:8443:8443 \
 Two knobs decide whether anything works at all:
 
 - **`VAULT42_SCOPE_KEYS_ENABLED=1`** — without it every scope and environment RPC answers
-  `UNIMPLEMENTED`, so `env-init`, `sync-keys`, `set-env`, `get-env`, `push-env`, `pull-env` and
-  `rotate-scope` all fail while everything else works perfectly.
+  `UNIMPLEMENTED`, so `env init`, `env keys sync`, `env secret set`, `env secret get`, `env push`, `env pull` and
+  `env keys rotate` all fail while everything else works perfectly.
 - **`VAULT42_CONTRACT_PUBKEY`** — the authority's key. Unset, the server refuses to start
   unless you also say `VAULT42_ALLOW_UNGATED=1`, because an ungated server accepts any
   self-generated keypair. **Check the key before pinning it**: piping a failed `curl` straight
@@ -612,10 +612,10 @@ For CI or a machine without the binary — nothing is left running:
 
 ```sh
 cd <project>
-sh scripts/42ctl-oneshot.sh vault pull-env --org acme --project api --env prod --apply
+sh scripts/42ctl-oneshot.sh env pull --org acme --project api --env prod --apply
 ```
 
-The wrapper exists because a naive `docker run` gets three things wrong: `pull-env` **writes**
+The wrapper exists because a naive `docker run` gets three things wrong: `env pull` **writes**
 your files and the image's `nonroot` uid would own them, the keystore must be mounted rather
 than baked in, and a vault on `127.0.0.1` is unreachable from a bridge namespace.
 
@@ -655,9 +655,9 @@ both would silently make them the same value in every automated run.
 | `no member "x@y.z" in this organization` | They have not joined — invite and have them accept first. |
 | `project_role must be admin, write or read` | Not `reader`/`writer`. |
 | `no file in environment 'prod' matches …` | Your `--only` pattern matched nothing. |
-| `already has a scope key … with N provisioned member(s)` | A real bootstrap exists; use `rotate-scope`. |
-| `advertises a scope key … that vault42 never received` | An interrupted `env-init`; it is completing at the next epoch. Informational. |
-| `could not open the scope key — are you a wrapped member?` | You are granted but not provisioned. An admin runs `sync-keys`. |
+| `already has a scope key … with N provisioned member(s)` | A real bootstrap exists; use `env keys rotate`. |
+| `advertises a scope key … that vault42 never received` | An interrupted `env init`; it is completing at the next epoch. Informational. |
+| `could not open the scope key — are you a wrapped member?` | You are granted but not provisioned. An admin runs `env keys sync`. |
 | `refusing to write through a symlinked path` | An ancestor of a restore target is a symlink. |
 | `this account already holds its maximum tenant names` | Quota (default 8). |
 
@@ -668,14 +668,15 @@ both would silently make them the same value in every automated run.
 Stated plainly, because a manual that implies a verb exists costs more than one that admits it
 does not.
 
-- **`42ctl unseal` is a stub.** It prints a line and drives nothing; the server's unseal RPC
-  authenticates and then always reports 100% unsealed, so there is no seal state to manage.
+- **`42ctl unseal` is not implemented, and says so with exit 1.** The server's unseal RPC
+  authenticates and then always reports 100% unsealed, so there is no seal state to manage. It
+  used to print a line and exit 0, which reads as an unseal that happened.
 - **No `org`, `team`, `project`, `env` or `group` deletion.** Nothing removes an organisation,
   a team, a project, an environment or a group once created.
 - **No variables verbs.** The authority serves org/project/environment variables with
   precedence and resolution; the CLI has no command for them.
 - **No `db set` / `db rm`.** `db` reads only.
-- **`--only` is pull-side only.** Not added to `push-env` on purpose: push rebuilds the
+- **`--only` is pull-side only.** Not added to `env push` on purpose: push rebuilds the
   manifest from a scan, so a filtered push would silently drop every unmatched file from the
   environment.
 - **Labels are per push, not per file.** `--label` tags every file of that push; there is no
@@ -701,14 +702,14 @@ cd ~/Documents/inception
 42ctl env create     --project inception --name prod
 42ctl keys enroll    --org univers42
 42ctl project grant  --org univers42 --project inception --user you@example.com --role admin
-42ctl vault env-init  --org univers42 --project inception --env prod
-42ctl vault sync-keys --org univers42 --project inception --env prod
+42ctl env init  --org univers42 --project inception --env prod
+42ctl env keys sync --org univers42 --project inception --env prod
 
-42ctl vault push-env  --org univers42 --project inception --env prod    # 12 file(s)
+42ctl env push  --org univers42 --project inception --env prod    # 12 file(s)
 rm -rf secrets srcs/.env .env.example                                   # now really gone
 
-42ctl vault pull-env  --org univers42 --project inception --env prod            # preview
-42ctl vault pull-env  --org univers42 --project inception --env prod --apply    # restore
+42ctl env pull  --org univers42 --project inception --env prod            # preview
+42ctl env pull  --org univers42 --project inception --env prod --apply    # restore
 sha256sum -c baseline.sha                                                       # byte-exact
 ```
 
@@ -720,7 +721,7 @@ sha256sum -c baseline.sha                                                       
 # You (admin)
 42ctl org invite --org acme --email dev@x.com --role member       # send the token
 42ctl team create --org acme --slug backend --name Backend
-42ctl team grant-project --org acme --team backend --project api --role write --env prod
+42ctl team grant --org acme --team backend --project api --role write --env prod
 
 # Them
 42ctl auth signup --email dev@x.com
@@ -729,45 +730,45 @@ sha256sum -c baseline.sha                                                       
 42ctl keys enroll --org acme                                      # publishes their pubkey
 
 # You again
-42ctl team add-member --org acme --team backend --user dev@x.com
-42ctl vault scope-status --org acme --project api --env prod      # them: pending-provision
-42ctl vault sync-keys    --org acme --project api --env prod      # provisioned 1
-42ctl vault scope-status --org acme --project api --env prod      # them: active
+42ctl team member add --org acme --team backend --user dev@x.com
+42ctl env keys ls --org acme --project api --env prod      # them: pending-provision
+42ctl env keys sync    --org acme --project api --env prod      # provisioned 1
+42ctl env keys ls --org acme --project api --env prod      # them: active
 
 # Them: the whole tree
-42ctl vault pull-env --org acme --project api --env prod --apply
+42ctl env pull --org acme --project api --env prod --apply
 
 # Offboarding — they leave
-42ctl project grants --org acme --project api                   # find the grant
-42ctl project revoke-grant --org acme --project api --grant <ID>
-42ctl team remove-member --org acme --team backend --user dev@x.com
-42ctl org remove-member  --org acme --user dev@x.com            # takes every derived membership
-42ctl vault rotate-scope --org acme --project api --env prod    # ends access already held
+42ctl project grant ls --org acme --project api                   # find the grant
+42ctl project grant rm --org acme --project api --grant <ID>
+42ctl team member rm --org acme --team backend --user dev@x.com
+42ctl org member rm  --org acme --user dev@x.com            # takes every derived membership
+42ctl env keys rotate --org acme --project api --env prod    # ends access already held
 ```
 
 Order matters less than the last line. The first three stop them being re-wrapped; only the
-rotation ends access to a key they already hold. `scope-status` afterwards shows them gone
+rotation ends access to a key they already hold. `env keys ls` afterwards shows them gone
 from the member set that rotation re-wraps to.
 
 ### C. A shared `.env` and a private `.env.local`, in one project
 
 ```sh
 # You: srcs/.env is the team's; srcs/.env.local is yours and is private by default
-42ctl vault push-env --org acme --project api --env prod --label app=api
+42ctl env push --org acme --project api --env prod --label app=api
 #   pushed 12 shared and 1 private file(s) to environment 'prod'
-42ctl vault ls-env --org acme --project api --env prod --filter Private=true --format '{{.Path}}'
+42ctl env files --org acme --project api --env prod --filter Private=true --format '{{.Path}}'
 #   srcs/.env.local
 
 # A teammate: the shared tree, and no trace of your file — not even its name
-42ctl vault ls-env --org acme --project api --env prod --format '{{.Path}}'    # 12 lines
-42ctl vault pull-env --org acme --project api --env prod --apply              # 12 file(s)
+42ctl env files --org acme --project api --env prod --format '{{.Path}}'    # 12 lines
+42ctl env pull --org acme --project api --env prod --apply              # 12 file(s)
 
 # You, on a fresh machine: everything, private file included
-42ctl vault pull-env --org acme --project api --env prod --apply              # 13 file(s)
+42ctl env pull --org acme --project api --env prod --apply              # 13 file(s)
 ```
 
 This is exactly the `inception` run this manual was checked against: 13 files deleted from
-disk (the `secrets/` directory with them), `pull-env --apply`, 13 back byte-exact at their
+disk (the `secrets/` directory with them), `env pull --apply`, 13 back byte-exact at their
 recorded modes, the teammate's restore holding 12 with the sentinel absent, and the Docker
 stack brought up cold through its compliance suite afterwards.
 

@@ -10,36 +10,36 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `42ctl team {add-member,invite,grant-project}` — the team membership + grant verbs, split
+//! `42ctl team {member add|rm, invite, grant}` — the team membership + grant verbs, split
 //! out of `team.rs` to keep each file within the 42 norm. Invites print the one-time token.
 
 use crate::adapters::rbac::team;
-use crate::cli::Team;
+use crate::cli::{Team, TeamMember};
 use crate::ui;
 
 /// Run a team membership/grant verb already resolved to its grobase base + session token.
 pub async fn run(cmd: &Team, grobase: &str, token: &str) -> anyhow::Result<()> {
     match cmd {
-        Team::AddMember {
+        Team::Member(TeamMember::Add {
             org,
             team,
             user,
             role,
-        } => add_member(grobase, token, (org, team), (user, role)).await,
+        }) => add_member(grobase, token, (org, team), (user, role)).await,
         Team::Invite {
             org,
             team,
             email,
             role,
         } => invite(grobase, token, (org, team), (email, role)).await,
-        Team::GrantProject {
+        Team::Grant {
             org,
             team,
             project,
             role,
             env,
         } => grant(grobase, token, (org, team, project), (role, env.as_deref())).await,
-        Team::RemoveMember { org, team, user } => {
+        Team::Member(TeamMember::Rm { org, team, user }) => {
             remove_member(grobase, token, (org, team), user).await
         }
         _ => unreachable!("create/list are handled in team::run"),

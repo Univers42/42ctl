@@ -215,9 +215,10 @@ mod tests {
     fn nested_groups_reach_their_leaves_and_groups_are_not_leaves() {
         let paths = all_paths();
         assert!(paths.contains(&"42ctl org github sync".to_string()));
-        assert!(paths.contains(&"42ctl vault push-env".to_string()));
+        assert!(paths.contains(&"42ctl env keys sync".to_string()));
         assert!(!paths.contains(&"42ctl org github".to_string()));
-        assert!(!paths.contains(&"42ctl vault".to_string()));
+        assert!(!paths.contains(&"42ctl env keys".to_string()));
+        assert!(!paths.contains(&"42ctl env".to_string()));
     }
 
     /// The synopsis says what the parser enforces: required flags bare, optional ones in

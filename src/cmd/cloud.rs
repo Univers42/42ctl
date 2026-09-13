@@ -34,7 +34,7 @@ const FLY_HOST: &str = ".fly.dev";
 pub async fn run(command: &Cloud, profile: &str) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
     match command {
-        Cloud::Apps => apps(&endpoint),
+        Cloud::Apps { out } => apps(&endpoint, out),
         Cloud::Status { app, out } => {
             let fly = Flyctl::discover()?;
             status(&fly, &targets(&endpoint, app.as_deref())?, out).await
@@ -55,7 +55,7 @@ pub async fn run(command: &Cloud, profile: &str) -> anyhow::Result<()> {
 }
 
 /// The apps a profile is bound to, and where each came from.
-fn apps(endpoint: &Endpoint) -> anyhow::Result<()> {
+fn apps(endpoint: &Endpoint, out: &crate::cli::Output) -> anyhow::Result<()> {
     let rows = [
         ("server", &endpoint.server),
         ("authority", &endpoint.authority),
@@ -67,7 +67,7 @@ fn apps(endpoint: &Endpoint) -> anyhow::Result<()> {
         })
     })
     .collect();
-    ui::render(&["App", "Role", "Endpoint"], rows, ui::Shape::default())
+    ui::render(&["App", "Role", "Endpoint"], rows, out.shape())
 }
 
 /// Both apps of a profile, or the one `--app` names.

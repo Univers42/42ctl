@@ -10,6 +10,21 @@
 set -uo pipefail
 
 : "${QA_IMG:=public.ecr.aws/docker/library/rust:1.96-slim-bookworm}"
+
+# Who the CLI containers run as.
+#
+# Rootful Docker runs a container as root by default, which would write the pulled tree back
+# root-owned — hence `--user` below on the actor containers. ROOTLESS Docker already maps the
+# container's root to the invoking user, so files come back owned correctly without it, and
+# it has no mapping for any other uid: `--user $(id -u)` there is refused outright with
+# "cannot setuid to unmapped uid". Passing it unconditionally made the battery impossible to
+# run on a rootless workstation, and worse, every refusal read as a failing assertion.
+if docker info --format '{{json .SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+	: "${QA_DOCKER_USER:=}"
+else
+	: "${QA_DOCKER_USER:=--user $(id -u):$(id -g)}"
+fi
+export QA_DOCKER_USER
 : "${VAULT42_DIR:=$C42_ROOT/../vault42}"
 # Build from a PINNED commit, not from the sibling working tree. The vault42 session
 # edits that tree continuously, so building from it makes every result depend on what
@@ -20,7 +35,13 @@ set -uo pipefail
 # specs in s20 sign in before they assert, and `account delete` releases the tenant name
 # rather than keeping it. Moving the pin BACK below this commit turns those specs red, which
 # is correct — they describe an authority that answers differently.
-: "${QA_VAULT42_REV:=f699f61}"
+#
+# 2e8f33c is vault42 develop with #4 and #5 merged: the three authorization fixes (an admin
+# cannot mint an owner, a group invite records its membership, rotating a scope needs Writer), the
+# group route that resolves a member by email, and the removal hint in the current spelling. s41
+# asserts all of them and goes red against f699f61 — proved, not assumed: eight regressions, each
+# one a hole.
+: "${QA_VAULT42_REV:=2e8f33c}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"
@@ -68,6 +89,20 @@ qa_pick_host_port() {
 QA_V42_VOLS="-v vault42-cargo-registry:/usr/local/cargo/registry -v vault42-cargo-git:/usr/local/cargo/git"
 QA_C42_VOLS="-v 42ctl-cargo-registry:/usr/local/cargo/registry -v 42ctl-cargo-git:/usr/local/cargo/git"
 
+# Fetch the pinned revision from the sibling checkout's own remote, when the sibling lacks it.
+#
+# The pin is resolved from the sibling checkout, which only knows the commits somebody fetched
+# into it. A pin moved to a merge made on GitHub is therefore unresolvable until someone runs
+# `git fetch` there — and every spec that started before that skipped with "cannot resolve pinned
+# vault42 rev". That happened: six specs skipped in one run while another, s22, read a clone that
+# was never checked out. Fetching from the same remote the sibling tracks keeps the pin
+# reproducible without trusting the sibling's state.
+qa_fetch_pin_from_origin() {
+	local src="$1" cache="$2" url
+	url="$(git -C "$src" remote get-url origin 2>/dev/null)" || return 1
+	git -C "$cache" fetch --quiet "$url" >/dev/null 2>&1
+}
+
 # Resolve the pinned vault42 revision into a private clone and point VAULT42_DIR at it.
 # Set QA_VAULT42_REV= (empty) to build from the live sibling checkout instead.
 qa_pin_vault42() {
@@ -79,7 +114,10 @@ qa_pin_vault42() {
 		git clone --quiet --no-checkout "$src" "$cache" >/dev/null 2>&1 || return 1
 	fi
 	git -C "$cache" fetch --quiet "$src" >/dev/null 2>&1 || true
-	git -C "$cache" checkout --quiet --detach "$QA_VAULT42_REV" >/dev/null 2>&1 || return 1
+	if ! git -C "$cache" checkout --quiet --detach "$QA_VAULT42_REV" >/dev/null 2>&1; then
+		qa_fetch_pin_from_origin "$src" "$cache" || return 1
+		git -C "$cache" checkout --quiet --detach "$QA_VAULT42_REV" >/dev/null 2>&1 || return 1
+	fi
 	VAULT42_DIR="$cache"
 	export VAULT42_DIR
 }
@@ -235,8 +273,10 @@ qa_actor() {
 	# Run as the invoking user, not root. Docker's default root would write the pulled
 	# tree back root-owned, and a restored 0600 file would then be unreadable to the
 	# host — surfacing as a phantom "bytes differ" that is really permission denied.
-	docker run --rm --network "$QA_NET" --user "$(id -u):$(id -g)" \
+	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
+	docker run --rm --network "$QA_NET" $QA_DOCKER_USER \
 		-v "$C42_ROOT":/work -v "$workdir":/project -v "$state":/state -w /project \
+		-v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace \
 		-e HOME=/state \
 		-e FT_PASSPHRASE="${QA_PASS_OVERRIDE:-qa-pass-$who}" \
 		-e FT_CONFIG=/state/config.json \
@@ -543,8 +583,10 @@ qa_actor_otp() {
 	state="$(qa_actor_dir "$who")"
 	mkdir -p "$state"
 	before=$(qa_code_count "$email")
-	docker run --rm -i --network "$QA_NET" --user "$(id -u):$(id -g)" \
+	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
+	docker run --rm -i --network "$QA_NET" $QA_DOCKER_USER \
 		-v "$C42_ROOT":/work -v "$workdir":/project -v "$state":/state -w /project \
+		-v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace \
 		-e HOME=/state -e FT_PASSPHRASE="${QA_PASS_OVERRIDE:-qa-pass-$who}" \
 		-e FT_CONFIG=/state/config.json -e FT_KEYSTORE=/state/keystore.v42 \
 		-e FT_CONTRACT=/state/contract.tok -e FT_SESSION=/state/session.tok \
@@ -601,6 +643,18 @@ export -f qa_try_authority_fresh
 : "${QA_S3_SECRET:=qa42minioadmin-secret}"
 : "${QA_S3_BUCKET:=qa42chunks}"
 
+# The store and its client, from MinIO's own registry and pinned by digest.
+#
+# These were `minio/minio:latest` and `minio/mc:latest` on Docker Hub until both repositories
+# were deleted. The same battery commit passed on 2026-09-11 and failed every scheduled run
+# after, with every chunked-object spec reporting "an object store is available" as a
+# regression and everything downstream of it cascading — a supply-chain outage that read as
+# eight code regressions. quay.io is where MinIO publishes, and its community build has been
+# frozen since 2025-09-07, so a digest pin costs nothing and a moved tag can never do this
+# again. Override with QA_S3_IMAGE / QA_MC_IMAGE to try a newer build deliberately.
+: "${QA_S3_IMAGE:=quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e}"
+: "${QA_MC_IMAGE:=quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727}"
+
 # Start a real S3-compatible store. Chunks are meant to live outside the vault, so the
 # battery needs somewhere outside the vault to put them — and it has to be a real S3
 # implementation, because the thing most likely to be wrong is the request signing.
@@ -611,7 +665,7 @@ qa_s3_up() {
 	docker run -d --name "$QA_S3_SRV" --network "$QA_NET" \
 		-p "$QA_S3_HOST_PORT:9000" \
 		-e MINIO_ROOT_USER="$QA_S3_KEY" -e MINIO_ROOT_PASSWORD="$QA_S3_SECRET" \
-		minio/minio:latest server /data >/dev/null 2>&1 || return 1
+		"$QA_S3_IMAGE" server /data >/dev/null 2>&1 || return 1
 	local i
 	for i in $(seq 1 60); do
 		curl -sS -m 2 -o /dev/null "http://127.0.0.1:$QA_S3_HOST_PORT/minio/health/live" 2>/dev/null && return 0
@@ -639,8 +693,8 @@ qa_s3_count() {
 # runs as the invoking user, who does not own /root.
 qa_mc() {
 	# shellcheck disable=SC2086 # QA_MC_DOCKER_ARGS is a deliberate argument list
-	docker run --rm --network "$QA_NET" --user "$(id -u):$(id -g)" -e HOME=/tmp \
-		${QA_MC_DOCKER_ARGS:-} --entrypoint sh minio/mc:latest -c \
+	docker run --rm --network "$QA_NET" $QA_DOCKER_USER -e HOME=/tmp \
+		${QA_MC_DOCKER_ARGS:-} --entrypoint sh "$QA_MC_IMAGE" -c \
 		"mc alias set qa http://$QA_S3_SRV:9000 $QA_S3_KEY $QA_S3_SECRET >/dev/null 2>&1 && $*" \
 		2>/dev/null
 }
@@ -674,4 +728,4 @@ qa_s3_rm() { qa_mc "mc rm qa/$QA_S3_BUCKET/$1" >/dev/null; }
 
 export -f qa_s3_up qa_s3_down qa_s3_internal qa_s3_external qa_s3_count
 export -f qa_mc qa_s3_names qa_s3_dump qa_s3_substitute qa_s3_rm
-export QA_S3_SRV QA_S3_HOST_PORT QA_S3_KEY QA_S3_SECRET QA_S3_BUCKET
+export QA_S3_SRV QA_S3_HOST_PORT QA_S3_KEY QA_S3_SECRET QA_S3_BUCKET QA_S3_IMAGE QA_MC_IMAGE

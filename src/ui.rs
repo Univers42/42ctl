@@ -159,8 +159,8 @@ impl Shape<'_> {
 /// No `--format` is today's table, so nothing changes by default. `-q` prints the first column
 /// alone. `json` is the kept rows as a JSON array. `table {{.A}}\t{{.B}}` is a table whose
 /// columns the template chooses; anything else is that template rendered once per row.
-/// `--filter` narrows first and is ANDed; its keys are checked against `headers`, so a typo is
-/// refused by name while a key that exists may honestly match nothing and still succeed.
+/// `--filter` narrows first and is ANDed. A key that is not a column is refused by name, and a
+/// filter that keeps no row is refused too — both are typos an operator must hear about.
 pub fn render(
     headers: &[&str],
     rows: Vec<serde_json::Value>,
@@ -179,16 +179,26 @@ pub fn render(
 }
 
 /// Apply `filter` to `rows` after checking that every key it names is a column that exists.
+///
+/// A filter that keeps nothing is an error, as `docs/vault.md` has always said. A mistyped
+/// VALUE (`Role=memebr`) otherwise prints the same clean nothing as a true "nobody", and the key
+/// check cannot catch it. The rule is as old as `env files --filter` and was briefly reversed
+/// in favour of docker's empty success; that reversal broke `s38`, contradicted the manual, and
+/// bought nothing for `rm $(… -q --filter …)`, since every `rm` refuses an empty target list.
 fn kept_rows(
     rows: Vec<serde_json::Value>,
     filter: &[String],
     headers: &[&str],
 ) -> anyhow::Result<Vec<serde_json::Value>> {
     crate::core::template::check_keys(filter, headers)?;
-    Ok(rows
+    let kept: Vec<serde_json::Value> = rows
         .into_iter()
         .filter(|row| crate::core::template::matches(row, filter, headers))
-        .collect())
+        .collect();
+    if kept.is_empty() && !filter.is_empty() {
+        anyhow::bail!("no row matches {}", filter.join(", "));
+    }
+    Ok(kept)
 }
 
 /// `-q`: the first header's value on each row and nothing else, so the listing composes into
@@ -410,27 +420,41 @@ mod tests {
         assert_eq!(ids(&[], &rows), "", "no column to take is no output");
     }
 
-    /// A key that exists may match nothing and still succeed — that is what makes
-    /// `rm $(ls -q --filter …)` safe to run on a schedule. A key that does not exist is
-    /// refused, so the two cases stay distinguishable.
+    /// A filter that keeps no row is an error, and a key that is not a column is a DIFFERENT
+    /// error that names the key. Both are typos an operator must hear about: a mistyped value
+    /// read as "nobody matches" is a clean-looking answer to a question nobody asked.
     #[test]
-    fn an_honest_empty_result_succeeds_and_a_typo_does_not() {
+    fn a_filter_that_keeps_nothing_is_an_error_and_a_typo_names_its_key() {
         let rows = vec![serde_json::json!({"ID": "org_a", "Role": "owner"})];
         let headers = &["ID", "Role"];
         let keep = |filter: &str| kept_rows(rows.clone(), &[filter.to_string()], headers);
 
-        assert!(keep("Role=member").expect("known key").is_empty());
+        let empty = keep("Role=memebr")
+            .expect_err("a value that matches nothing")
+            .to_string();
+        assert!(empty.contains("no row matches Role=memebr"), "{empty}");
         assert_eq!(
             keep("role=owner").expect("known key").len(),
             1,
             "case-insensitive"
         );
-        let error = keep("rol=member").expect_err("typo").to_string();
-        assert!(error.contains("rol"), "names the key: {error}");
+        let typo = keep("rol=member").expect_err("typo").to_string();
+        assert!(
+            typo.contains("unknown filter key 'rol'"),
+            "names the key: {typo}"
+        );
         assert_eq!(
-            kept_rows(rows, &[], headers).expect("unfiltered").len(),
+            kept_rows(rows.clone(), &[], headers)
+                .expect("unfiltered")
+                .len(),
             1,
             "no filter keeps everything"
+        );
+        assert!(
+            kept_rows(Vec::new(), &[], headers)
+                .expect("unfiltered")
+                .is_empty(),
+            "an empty listing with no filter is an honest empty, not an error"
         );
     }
 

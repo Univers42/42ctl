@@ -16,7 +16,21 @@ QA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$QA_DIR/lib/harness.sh"
 source "$QA_DIR/lib/server.sh"
 
+# One battery per Docker daemon. Every run starts by tearing down qa42-srv, qa42-auth and
+# qa42-s3, and every spec shares those names, so a second run started beside a first one kills
+# its server mid-spec. That happened: the victim reported "Temporary failure in name
+# resolution" as six regressions, and a SPEC-NOW-MET for a revocation that only "worked"
+# because the server was gone. The lock is taken before the teardown, so a second run refuses
+# instead of striking.
+QA_LOCK="${QA_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/qa42-battery.lock}"
+exec 9>"$QA_LOCK"
+if ! flock -n 9; then
+	printf 'qa: another battery is running against this Docker daemon (lock %s) — run one at a time\n' "$QA_LOCK" >&2
+	exit 3
+fi
+
 : >"$QA_JSON"
+: >"$QA_RESULTS/commands.trace"
 qa_reclaim_workspace
 
 # Never adopt a stack a previous run left behind. A killed battery leaves its server,
@@ -39,10 +53,16 @@ SHUFFLE="${QA_SHUFFLE:-0}"
 REPEAT="${QA_REPEAT:-1}"
 SEED="${QA_SEED:-$RANDOM}"
 
+# A name that selects nothing is an error, never an empty run. The scoreboard counts only what
+# ran, so a mistyped name — or several names arriving as one argument from a shell that does not
+# split words — used to run the preflight alone and print "No regressions" over a battery that
+# never started.
 if [ $# -gt 0 ]; then
 	SPECS=()
 	for want in "$@"; do
-		for f in "$QA_DIR/specs/${want}"*.sh; do [ -f "$f" ] && SPECS+=("$f"); done
+		found=0
+		for f in "$QA_DIR/specs/${want}"*.sh; do [ -f "$f" ] && { SPECS+=("$f"); found=1; }; done
+		[ "$found" = 1 ] || { printf 'qa: no spec matches "%s"\n' "$want" >&2; exit 2; }
 	done
 else
 	SPECS=("$QA_DIR"/specs/s*.sh)
@@ -91,6 +111,20 @@ printf '  %-28s %s\n' "spec now met (promote)" "$MET"
 printf '  %-28s %s\n' "skipped" "$SKIP"
 printf '  machine-readable: %s\n' "$QA_JSON"
 
+# ── which commands actually ran ──────────────────────────────────────────────
+# Every CLI container appends the command path it parsed to commands.trace (FT_TRACE_COMMANDS),
+# so this counts verbs EXECUTED, not verbs mentioned. It is only meaningful for a full run, and
+# QA_REQUIRE_COVERAGE=1 turns a command no spec ran into a failure.
+COVERAGE_FAILED=0
+if [ $# -eq 0 ] && [ -x "$C42_ROOT/target/debug/42ctl" ]; then
+	docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl help commands \
+		>"$QA_RESULTS/commands.all" 2>/dev/null
+	if python3 "$QA_DIR/coverage.py" "$QA_RESULTS/commands.all" "$QA_RESULTS/commands.trace" \
+		${QA_REQUIRE_COVERAGE:+--require-all} >"$QA_RESULTS/coverage.txt"; then :; else COVERAGE_FAILED=1; fi
+	printf '  %-28s %s\n' "commands exercised" "$(grep -oE '^[0-9]+ of [0-9]+' "$QA_RESULTS/coverage.txt")"
+	grep '^never ran:' "$QA_RESULTS/coverage.txt" | sed 's/^/  /'
+fi
+
 if [ "$MET" -gt 0 ]; then
 	printf '\n  Specs that just went green — change assert_spec to assert_green:\n'
 	grep '"status":"now_met"' "$QA_JSON" | sed 's/.*"desc":"\([^"]*\)".*/    • \1/'
@@ -99,6 +133,10 @@ if [ "$REG" -gt 0 ]; then
 	printf '\n  FAILING — assertions that must be green:\n'
 	grep '"status":"regression"' "$QA_JSON" | sed 's/.*"desc":"\([^"]*\)".*/    • \1/'
 	printf '\n  failing specs: %s\n' "${FAILED_SPECS[*]}"
+	exit 1
+fi
+if [ "$COVERAGE_FAILED" = 1 ]; then
+	printf '\n  Every command must run in a full battery (QA_REQUIRE_COVERAGE=1): see %s\n' "$QA_RESULTS/coverage.txt"
 	exit 1
 fi
 printf '\n  No regressions.\n'

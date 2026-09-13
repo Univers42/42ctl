@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! Multi-target verbs: `rm`, `revoke-grant`, and anything else spelled `TARGET...`.
+//! Multi-target verbs: `rm`, `project grant rm`, and anything else spelled `TARGET...`.
 //!
 //! The rule these helpers exist to enforce is that one bad target must not abort the rest.
 //! A bulk removal is usually fed by `$(… -q)`, which is exactly where a target goes stale

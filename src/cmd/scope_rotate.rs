@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `vault rotate-scope` — forward-secure scope rotation. Recover the CURRENT scope secret,
+//! `env keys rotate` — forward-secure scope rotation. Recover the CURRENT scope secret,
 //! generate a fresh keyset at `epoch+1`, re-seal every env secret to the new scope public key
 //! (opened with the old secret, sealed to the new), re-wrap the new scope key to every member
 //! the env's grants still authorize — a removed member gets no new-epoch wrap, so it loses

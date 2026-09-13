@@ -27,7 +27,11 @@ pub enum Cloud {
     ///
     /// Derived from the server and authority URLs, so there is nothing to configure: a
     /// profile naming `https://vault42-server.fly.dev` is bound to the app `vault42-server`.
-    Apps,
+    Apps {
+        /// Output shaping: --format / --filter / -q
+        #[command(flatten)]
+        out: super::Output,
+    },
     /// Deployment status for both apps
     Status {
         /// One app only (default: both of this profile's)
@@ -134,13 +138,13 @@ pub enum CloudMachine {
         #[arg(long)]
         no_tail: bool,
     },
-    /// Start one or more stopped machines
+    /// [admin] Start one or more stopped machines
     Start(Lifecycle),
-    /// Stop one or more machines
+    /// [admin] Stop one or more machines
     Stop(Lifecycle),
-    /// Restart one or more machines
+    /// [admin] Restart one or more machines
     Restart(Lifecycle),
-    /// Suspend one or more machines, keeping their memory
+    /// [admin] Suspend one or more machines, keeping their memory
     ///
     /// The pause of `docker pause`: the machine keeps its state and resumes faster than a
     /// cold start. `cloud machine start` is what brings it back.
@@ -160,6 +164,10 @@ pub enum CloudMachine {
 }
 
 /// The arguments every machine lifecycle verb takes.
+///
+/// Administrators only, and Fly is what enforces it: a read-only token is refused a lease on
+/// the machine, so a member cannot stop one through 42ctl or around it. Nothing here deletes a
+/// machine — `adapters/flyctl.rs` refuses every destructive flyctl command outright.
 #[derive(clap::Args)]
 pub struct Lifecycle {
     /// Machine ids
@@ -209,7 +217,7 @@ pub enum CloudVolume {
         #[command(flatten)]
         out: super::Output,
     },
-    /// Take a snapshot of a volume now
+    /// [admin] Take a snapshot of a volume now
     Snapshot {
         /// Volume id
         #[arg(value_name = "ID")]

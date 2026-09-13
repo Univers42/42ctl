@@ -49,6 +49,7 @@ pub fn open(start: &Path, explicit_id: Option<&str>) -> anyhow::Result<(Project,
     }
     if marker.exists() {
         let m: Marker = serde_json::from_slice(&std::fs::read(&marker)?)?;
+        refuse_path_patterns(&m.patterns)?;
         return Ok((mk(root, &m.project_id, m.patterns), false));
     }
     let canon = std::fs::canonicalize(&root)?;
@@ -60,6 +61,24 @@ pub fn open(start: &Path, explicit_id: Option<&str>) -> anyhow::Result<(Project,
     std::fs::create_dir_all(root.join(MARKER_DIR))?;
     std::fs::write(&marker, serde_json::to_vec_pretty(&m)?)?;
     Ok((mk(root, &project_id, default_patterns()), true))
+}
+
+/// Refuse a scan pattern that names a path.
+///
+/// The scan compares patterns with file NAMES (`*.env*`, `*.secrets`), so `srcs/.env` can never
+/// match anything: it selected nothing, push reported success, and the file simply never
+/// travelled — found when a spec restored a tree on a second machine without it. A pattern that
+/// cannot match has never worked, so refusing it breaks no working project. (`env pull --only`
+/// is different on purpose: it selects stored RELATIVE PATHS, and `srcs/.env` is right there.)
+fn refuse_path_patterns(patterns: &[String]) -> anyhow::Result<()> {
+    if let Some(bad) = patterns.iter().find(|pattern| pattern.contains('/')) {
+        anyhow::bail!(
+            "scan pattern {bad:?} in .42ctl/project.json names a path, but patterns match file \
+             names — use a name pattern such as \"*.env*\", or keep the file under a secrets/ \
+             directory, which is always taken"
+        );
+    }
+    Ok(())
 }
 
 /// Whether the project root is itself a secret directory, so `scan` starts with `all` set.
@@ -316,7 +335,7 @@ fn matches(name: &str, patterns: &[String]) -> bool {
 /// A minimal glob: a single optional leading and/or trailing `*` (covers `*.env*`,
 /// `*.secrets`, `prefix*`, exact).
 ///
-/// Shared with `pull-env --only`, which matches the same way against a RELATIVE PATH rather
+/// Shared with `env pull --only`, which matches the same way against a RELATIVE PATH rather
 /// than a bare name — `secrets/*` becomes a `starts_with`, `*.crt` an `ends_with`, and
 /// `srcs/.env` an exact match. One matcher rather than two, so a pattern that selects a file
 /// on the way out selects the same file on the way back.
@@ -336,6 +355,33 @@ mod tests {
     /// A skipped directory holding a file this project would have stored is REPORTED, so the
     /// next silent omission is a question the operator asks rather than something they find
     /// at a restore. Every omission this project has shipped was silence, not error.
+    /// A scan pattern naming a PATH can never match, because the scan compares file names; it
+    /// must be refused when the marker is read rather than select nothing while push reports
+    /// success.
+    #[test]
+    fn a_marker_pattern_naming_a_path_is_refused_with_the_fix() {
+        let root = temp_project("path-pattern");
+        std::fs::create_dir_all(root.join(".42ctl")).expect("mkdir");
+        std::fs::write(
+            root.join(".42ctl/project.json"),
+            br#"{"project_id":"p","patterns":["*.env*","srcs/.env"]}"#,
+        )
+        .expect("write marker");
+        let error = open(&root, None)
+            .err()
+            .expect("a path pattern must be refused")
+            .to_string();
+        assert!(error.contains("srcs/.env"), "names the pattern: {error}");
+        assert!(error.contains("file names"), "says why: {error}");
+
+        std::fs::write(
+            root.join(".42ctl/project.json"),
+            br#"{"project_id":"p","patterns":["*.env*","*.secrets"]}"#,
+        )
+        .expect("rewrite marker");
+        assert!(open(&root, None).is_ok(), "name patterns are accepted");
+    }
+
     #[test]
     fn a_skipped_directory_holding_a_candidate_is_reported() {
         let root = temp_project("declined-candidate");
