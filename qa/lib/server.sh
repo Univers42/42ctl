@@ -10,6 +10,21 @@
 set -uo pipefail
 
 : "${QA_IMG:=public.ecr.aws/docker/library/rust:1.96-slim-bookworm}"
+
+# Who the CLI containers run as.
+#
+# Rootful Docker runs a container as root by default, which would write the pulled tree back
+# root-owned — hence `--user` below on the actor containers. ROOTLESS Docker already maps the
+# container's root to the invoking user, so files come back owned correctly without it, and
+# it has no mapping for any other uid: `--user $(id -u)` there is refused outright with
+# "cannot setuid to unmapped uid". Passing it unconditionally made the battery impossible to
+# run on a rootless workstation, and worse, every refusal read as a failing assertion.
+if docker info --format '{{json .SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+	: "${QA_DOCKER_USER:=}"
+else
+	: "${QA_DOCKER_USER:=--user $(id -u):$(id -g)}"
+fi
+export QA_DOCKER_USER
 : "${VAULT42_DIR:=$C42_ROOT/../vault42}"
 # Build from a PINNED commit, not from the sibling working tree. The vault42 session
 # edits that tree continuously, so building from it makes every result depend on what
@@ -235,7 +250,8 @@ qa_actor() {
 	# Run as the invoking user, not root. Docker's default root would write the pulled
 	# tree back root-owned, and a restored 0600 file would then be unreadable to the
 	# host — surfacing as a phantom "bytes differ" that is really permission denied.
-	docker run --rm --network "$QA_NET" --user "$(id -u):$(id -g)" \
+	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
+	docker run --rm --network "$QA_NET" $QA_DOCKER_USER \
 		-v "$C42_ROOT":/work -v "$workdir":/project -v "$state":/state -w /project \
 		-e HOME=/state \
 		-e FT_PASSPHRASE="${QA_PASS_OVERRIDE:-qa-pass-$who}" \
@@ -543,7 +559,8 @@ qa_actor_otp() {
 	state="$(qa_actor_dir "$who")"
 	mkdir -p "$state"
 	before=$(qa_code_count "$email")
-	docker run --rm -i --network "$QA_NET" --user "$(id -u):$(id -g)" \
+	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
+	docker run --rm -i --network "$QA_NET" $QA_DOCKER_USER \
 		-v "$C42_ROOT":/work -v "$workdir":/project -v "$state":/state -w /project \
 		-e HOME=/state -e FT_PASSPHRASE="${QA_PASS_OVERRIDE:-qa-pass-$who}" \
 		-e FT_CONFIG=/state/config.json -e FT_KEYSTORE=/state/keystore.v42 \
@@ -651,7 +668,7 @@ qa_s3_count() {
 # runs as the invoking user, who does not own /root.
 qa_mc() {
 	# shellcheck disable=SC2086 # QA_MC_DOCKER_ARGS is a deliberate argument list
-	docker run --rm --network "$QA_NET" --user "$(id -u):$(id -g)" -e HOME=/tmp \
+	docker run --rm --network "$QA_NET" $QA_DOCKER_USER -e HOME=/tmp \
 		${QA_MC_DOCKER_ARGS:-} --entrypoint sh "$QA_MC_IMAGE" -c \
 		"mc alias set qa http://$QA_S3_SRV:9000 $QA_S3_KEY $QA_S3_SECRET >/dev/null 2>&1 && $*" \
 		2>/dev/null
