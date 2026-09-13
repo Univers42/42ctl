@@ -42,13 +42,33 @@ printf '%s\n' '{"current":"prod","profiles":{"prod":{"server":"https://vault42-s
 	>"$W/state/config.json"
 : >"$W/state/flyctl.log"
 S40_TOKEN="s40-stub-token-$$-never-on-argv"
-export W S40_TOKEN
+
+# `cloud machine top` is the one verb that calls Fly's Machines API instead of flyctl, so it gets
+# its own stand-in: busybox httpd serving the `/ps` route as a static file, on a network the CLI
+# container joins, reached through FT_FLY_MACHINES_API. Pinned by digest on the same registry the
+# toolchain image comes from. Only the authority's machine has a process table, so the server's
+# machine answers 404 and exercises the failure path.
+S40_NET="qa42-s40-$$"
+S40_API="qa42-s40-machines-$$"
+export S40_BUSYBOX="public.ecr.aws/docker/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+mkdir -p "$W/machines-api/v1/apps/vault42-authority/machines/91c5d2e6a7f0b3"
+cat >"$W/machines-api/v1/apps/vault42-authority/machines/91c5d2e6a7f0b3/ps" <<'JSON'
+[{"pid":1,"stime":0,"rtime":310,"command":"/fly/init","directory":"/","cpu":0,"rss":5181440,"listen_sockets":[]},
+ {"pid":2,"stime":0,"rtime":310,"command":"","directory":"/","cpu":0,"rss":0,"listen_sockets":[]},
+ {"pid":643,"stime":1,"rtime":300,"command":"/vault42-authority","directory":"/","cpu":12,"rss":8808038,"listen_sockets":[]}]
+JSON
+trap 'docker rm -f "$S40_API" >/dev/null 2>&1; docker network rm "$S40_NET" >/dev/null 2>&1' EXIT
+docker network create "$S40_NET" >/dev/null 2>&1
+docker run -d --name "$S40_API" --network "$S40_NET" -v "$W/machines-api":/www:ro "$S40_BUSYBOX" \
+	httpd -f -p 8080 -h /www >/dev/null 2>&1
+export W S40_TOKEN S40_NET S40_API
 
 # Run 42ctl against the stub. stdout and stderr are kept apart, because the lifecycle verbs
 # echo the command they run on stderr and the listings must stay clean on stdout.
 cloud() {
 	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
-	docker run --rm -i $QA_DOCKER_USER \
+	docker run --rm -i $QA_DOCKER_USER --network "$S40_NET" \
+		-e FT_FLY_MACHINES_API="http://$S40_API:8080" \
 		-v "$C42_ROOT":/work:ro -v "$W/fly":/fly:ro -v "$W/state":/state -w /state \
 		-e HOME=/state -e NO_COLOR=1 -e FT_CONFIG=/state/config.json \
 		-v "$QA_RESULTS":/qa-results -e FT_TRACE_COMMANDS=/qa-results/commands.trace \
@@ -214,6 +234,36 @@ expect "certificates per app" \
 
 assert_green "logs pass flyctl's stream through" \
 	-- bash -c 'cloud cloud machine logs --app vault42-server --no-tail 2>/dev/null | grep -q "healthz ok"'
+
+# ── what runs inside a machine: the one verb that calls Fly's API directly ───
+assert_green "the machines API stand-in answers" \
+	-- bash -c 'docker run --rm --network "$S40_NET" "$S40_BUSYBOX" \
+		wget -qO- "http://$S40_API:8080/v1/apps/vault42-authority/machines/91c5d2e6a7f0b3/ps" 2>/dev/null | grep -q vault42-authority'
+assert_green "top shows the process table as a table, sizes in binary units" \
+	-- bash -c 'out="$(cloud cloud machine top 91c5d2e6a7f0b3 2>/dev/null)" || exit 1
+		head -1 <<<"$out" | grep -qE "^PID +Command +RSS +CPU +SysTime +Uptime +Dir *$" &&
+		grep -qE "^643 +/vault42-authority +8\.4MiB +12 +1 +300 +/ *$" <<<"$out"'
+expect "top in a template, a nameless kernel thread shown as a dash" \
+	"1:/fly/init:4.9MiB
+2:-:0B
+643:/vault42-authority:8.4MiB" \
+	cloud machine top 91c5d2e6a7f0b3 --format '{{.PID}}:{{.Command}}:{{.RSS}}'
+expect "top -q prints the pids" \
+	"1
+2
+643" \
+	cloud machine top 91c5d2e6a7f0b3 -q
+expect "top --filter finds the vault42 binary" \
+	"643" \
+	cloud machine top 91c5d2e6a7f0b3 -q --filter Command=/vault42-authority
+assert_green "top of a machine in neither app is refused, naming both" \
+	-- bash -c 'out="$(cloud cloud machine top 00000000000000 2>&1)" && exit 1
+		grep -q "no machine 00000000000000 in vault42-server or vault42-authority" <<<"$out"'
+assert_green "a failing Machines API answer names the status, the app and the machine" \
+	-- bash -c 'out="$(cloud cloud machine top 3d8e4a1f0b2c77 2>&1)" && exit 1
+		grep -q "fly answered 404 for vault42-server/3d8e4a1f0b2c77" <<<"$out" && ! grep -qF "$S40_TOKEN" <<<"$out"'
+assert_green "a member's read-only token may still read the process table" \
+	-- bash -c 'STUB_READONLY=1 cloud cloud machine top 91c5d2e6a7f0b3 -q 2>/dev/null | grep -qx 643'
 
 # ── health: verdicts, not just data ──────────────────────────────────────────
 assert_green "health fails the deployment when a snapshot is ten days old, and says which" \
