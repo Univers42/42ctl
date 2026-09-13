@@ -10,43 +10,77 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `env keys ls` — a glanceable table of each member's scope-key state. Members the
-//! server still reports as `missing` a wrap are classified by whether they have a registered
-//! pubkey: `pending-provision` (has one, awaiting `env keys sync`) vs `pending-enrollment` (none
-//! yet). Members already wrapped (vault42 `list_scope_members`) show as `active`. Read-only:
-//! it never wraps, deposits, or records — just reports what `env keys sync` would do.
+//! `env keys ls` — a glanceable table of each member's scope-key state.
+//!
+//! Every row is a member the environment's grants authorize, keyed by ACCOUNT ID so the column
+//! composes with every other `--user` flag. The authority reports two sets per grant: `members`,
+//! everyone authorized, and `missing`, those still without a recorded wrap. `missing` members
+//! are `pending-provision` when they have a registered pubkey (awaiting `env keys sync`) and
+//! `pending-enrollment` when they do not; everyone else is `active`.
+//!
+//! The active rows used to come from vault42's `list_scope_members`, which is owner-scoped on
+//! purpose — it returns the CALLER's own wrap and never the cross-member set. So the table showed
+//! pending members and the admin alone, and every member already provisioned vanished from it:
+//! exactly the people an admin runs this to see. The caller still gets a row of their own when
+//! the server holds their wrap and no grant lists them, as the creator of the key does.
+//! Read-only: it never wraps, deposits, or records.
 
-use crate::adapters::address;
 use crate::adapters::api::Session;
-use crate::adapters::rbac::pubkey;
+use crate::adapters::rbac::{account, pubkey};
 use crate::adapters::scope as crypto;
-use crate::cmd::scope::{self as orch, Ctx};
+use crate::cmd::scope::{self as orch, Ctx, EnvMembers};
 use crate::ui;
 
-/// Print the env's scope-key status table: a row per pending member (classified by pubkey
-/// presence) and a row per already-provisioned (active) member.
+/// Print the env's scope-key status table.
 pub async fn scope_status(
     session: &mut Session,
     ctx: &Ctx,
     out: &crate::cli::Output,
 ) -> anyhow::Result<()> {
-    let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
-    let epoch = ctx.epoch();
+    let members = orch::env_members(ctx).await?;
     let mut rows: Vec<serde_json::Value> = Vec::new();
-    for member in orch::env_members(ctx).await?.pending {
+    for member in &members.pending {
         rows.push(pending_row(ctx, &member.user).await?);
     }
-    for member in session
-        .list_scope_members(&hex::encode(scope_id), epoch)
-        .await?
-    {
-        rows.push(status_row(&address::short(&member), true, true, "active"));
+    for user in active(&members) {
+        rows.push(status_row(user, true, true, "active"));
+    }
+    if let Some(own) = own_row_if_unlisted(session, ctx, &members).await? {
+        rows.push(own);
     }
     ui::render(
         &["Member", "Pubkey", "Provisioned", "State"],
         rows,
         out.shape(),
     )
+}
+
+/// The authorized members that are not missing a wrap.
+fn active(members: &EnvMembers) -> impl Iterator<Item = &str> {
+    members
+        .authorized
+        .iter()
+        .map(|member| member.user.as_str())
+        .filter(|user| !members.pending.iter().any(|pending| pending.user == *user))
+}
+
+/// The caller's own row, when the server holds their wrap and no grant already lists them.
+async fn own_row_if_unlisted(
+    session: &mut Session,
+    ctx: &Ctx,
+    members: &EnvMembers,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let scope_id = hex::encode(crypto::scope_id(&ctx.project, &ctx.env_name)?);
+    if session
+        .list_scope_members(&scope_id, ctx.epoch())
+        .await?
+        .is_empty()
+    {
+        return Ok(None);
+    }
+    let me = account::me(&ctx.grobase, &ctx.token).await?.account_id;
+    let listed = members.authorized.iter().any(|member| member.user == me);
+    Ok((!listed).then(|| status_row(&me, true, true, "active")))
 }
 
 /// One status row. Booleans stay booleans so `--filter Provisioned=false` reads naturally.
@@ -67,5 +101,5 @@ async fn pending_row(ctx: &Ctx, user: &str) -> anyhow::Result<serde_json::Value>
     } else {
         "pending-enrollment"
     };
-    Ok(status_row(&address::short(user), registered, false, state))
+    Ok(status_row(user, registered, false, state))
 }
