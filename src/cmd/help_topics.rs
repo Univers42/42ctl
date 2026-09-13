@@ -56,6 +56,11 @@ pub const TOPICS: &[(&str, &str, &str)] = &[
         NOTES,
     ),
     (
+        "format",
+        "shaping a listing: --format, --filter, -q, and bulk removal",
+        FORMAT,
+    ),
+    (
         "config",
         "profiles, endpoints and the FT_* env knobs",
         CONFIG,
@@ -399,6 +404,48 @@ Inside a directory that has a `.42ctl/` marker, `--project` is optional.
 $ 42ctl db ls                                             # records you may read
 $ 42ctl db get <path>                                     # decrypt one locally
 `db` reads only; there is no db set or db rm.";
+
+const FORMAT: &str = "\
+Every listing verb — `vault ls`, `org members`, `team ls`, `project grants`, `env ls`,
+`note ls`, `vault ls-env`, `vault scope-status` — takes the same three flags. They are
+there so a listing can answer a question and then be fed to the next command.
+
+## Pick the columns
+A table is the default. `--format json` gives the whole list as JSON, and any other value is
+a template rendered once per row.
+$ 42ctl vault ls --format json
+$ 42ctl vault ls --format '{{.Path}} is at v{{.Version}}'
+$ 42ctl vault ls-env --org acme --project api --env prod --format '{{json .}}'
+A `table ` prefix keeps the aligned columns and names them from the template itself. Tabs
+separate the columns; write them as \\t, which is what a shell hands over inside quotes.
+$ 42ctl vault ls --format 'table {{.Path}}\\t{{.Version}}'
+$ 42ctl vault ls-env --org acme --project api --env prod --format 'table {{.Path}}\\t{{.Labels.app}}'
+An unknown field renders as nothing rather than failing, so one template can be aimed at
+several verbs. `{{json .}}` is the whole row, whatever its fields are.
+
+## Narrow the rows
+`--filter KEY=VALUE` keeps the rows where a column equals a value. Repeat it and every one
+must hold. The key is a column name, matched whatever the case.
+$ 42ctl org members --org acme --filter Role=member
+$ 42ctl vault ls-env --org acme --project api --env prod --filter label=app=wordpress
+A key that names no column is refused, so a typo cannot read as \"there is nothing here\".
+A key that does name one and matches no row prints nothing and succeeds — that is what lets
+a filtered removal run on a schedule without failing on the day there is nothing to remove.
+
+## Take one column, and compose
+`-q` prints the first column and nothing else: no header, no second field. The first column
+is the identifier the matching `rm` takes back, which is the whole point.
+$ 42ctl vault ls -q
+$ 42ctl org members --org acme -q --filter Role=member
+Removal verbs take as many targets as you give them, so the two compose:
+$ 42ctl vault rm $(42ctl vault ls dev/ -q)
+$ 42ctl org remove-member --org acme --user $(42ctl org members --org acme -q --filter Role=member)
+$ 42ctl project revoke-grant --org acme --project api --grant $(42ctl project grants --org acme --project api -q)
+Every target is attempted even when an earlier one fails. Each failure is named as it
+happens and the command fails once at the end listing what to retry — so a stale id in the
+middle of a long list costs you that one removal, not the rest of them.
+! Removing a member takes away AUTHORIZATION, not access to keys they already hold.
+  Rotate the environments they could read: 42ctl vault rotate-scope --org acme --project api --env prod";
 
 const CONFIG: &str = "\
 A profile is one org / environment: its endpoints plus its own login contract and

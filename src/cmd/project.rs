@@ -135,8 +135,26 @@ fn grant_row(g: &crate::adapters::rbac::ProjectGrant) -> serde_json::Value {
     })
 }
 
-/// Revoke a grant so it authorizes nobody from now on.
+/// Revoke each grant so it authorizes nobody from now on, continuing past one that fails.
 async fn revoke(
+    grobase: &str,
+    token: &str,
+    ids: (&str, &str),
+    grant_ids: &[String],
+) -> anyhow::Result<()> {
+    let attempt = crate::cmd::bulk::targets(grant_ids);
+    let mut failed = Vec::new();
+    for grant_id in &attempt {
+        if let Err(error) = revoke_one(grobase, token, ids, grant_id).await {
+            crate::cmd::bulk::failure(grant_id, &error);
+            failed.push(grant_id.clone());
+        }
+    }
+    crate::cmd::bulk::report(&failed, attempt.len())
+}
+
+/// Revoke one grant.
+async fn revoke_one(
     grobase: &str,
     token: &str,
     ids: (&str, &str),

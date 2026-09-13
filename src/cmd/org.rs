@@ -17,6 +17,7 @@
 use crate::adapters::rbac::org;
 use crate::adapters::{github_org, session};
 use crate::cli::{Org, OrgGithub};
+use crate::cmd::bulk;
 use crate::profile::Config;
 use crate::ui;
 use anyhow::Context;
@@ -114,7 +115,25 @@ async fn github_dispatch(cmd: &OrgGithub, grobase: &str, token: &str) -> anyhow:
 /// that sentence rather than swallowing it. An operator who reads "removed" as "locked out"
 /// has been misled at the worst possible moment: removal stops the person being RE-wrapped, it
 /// cannot reach into their machine and take back a scope key they already hold.
-async fn remove_member(grobase: &str, token: &str, org: &str, user: &str) -> anyhow::Result<()> {
+async fn remove_member(
+    grobase: &str,
+    token: &str,
+    org: &str,
+    users: &[String],
+) -> anyhow::Result<()> {
+    let attempt = bulk::targets(users);
+    let mut failed = Vec::new();
+    for user in &attempt {
+        if let Err(error) = remove_one(grobase, token, org, user).await {
+            bulk::failure(user, &error);
+            failed.push(user.clone());
+        }
+    }
+    bulk::report(&failed, attempt.len())
+}
+
+/// Remove one member from `org` and report what their removal left reachable.
+async fn remove_one(grobase: &str, token: &str, org: &str, user: &str) -> anyhow::Result<()> {
     let removed = org::remove_member(grobase, token, org, user).await?;
     ui::success(&format!("removed {user} from org '{org}'"));
     warn_rotation(&removed);

@@ -15,6 +15,7 @@
 
 mod account;
 mod auth;
+pub mod bulk;
 mod config;
 mod db;
 mod env;

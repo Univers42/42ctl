@@ -48,7 +48,7 @@ const AFTER_HELP: &str = "\
 Start here:          42ctl help kickoff     (the whole product, end to end)
 Every command:       42ctl help commands    (each one with its arguments)
 Topics:              kickoff  sync  large  keys  account  teams  scopes
-                     notes  config  security  update  commands
+                     notes  format  config  security  update  commands
 Per-command help:    42ctl <command> --help";
 
 /// 42ctl — one CLI for the 42 stack. `--profile` selects an org/environment.
@@ -160,8 +160,8 @@ pub enum Command {
     },
     /// The guided walkthrough — `42ctl help <topic>` for one subject
     Help {
-        /// A topic — kickoff · sync · large · keys · account · teams · scopes · notes · config ·
-        /// security · update · commands — or a command name, for its --help
+        /// A topic — kickoff · sync · large · keys · account · teams · scopes · notes · format ·
+        /// config · security · update · commands — or a command name, for its --help
         #[arg(value_name = "TOPIC")]
         topic: Option<String>,
     },

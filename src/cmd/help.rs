@@ -188,6 +188,51 @@ mod tests {
         last.starts_with("42ctl ").then_some(last)
     }
 
+    /// Split `$( … )` command substitutions out of a line: the line with each replaced by one
+    /// plain word, plus the inner invocations, so both halves of a composed example are
+    /// checked.
+    ///
+    /// `42ctl vault rm $(42ctl vault ls dev/ -q)` is two commands, and the outer one sees a
+    /// single argument where the substitution stands. Parsing the line as written hands `rm`
+    /// the inner command's flags, which is not what any shell does.
+    fn substitutions(line: &str) -> (String, Vec<String>) {
+        let mut outer = String::with_capacity(line.len());
+        let mut inner = Vec::new();
+        let mut rest = line;
+        while let Some(start) = rest.find("$(") {
+            outer.push_str(&rest[..start]);
+            let after = &rest[start + 2..];
+            let Some(end) = after.find(')') else {
+                outer.push_str(&rest[start..]);
+                return (outer, inner);
+            };
+            outer.push_str("substituted");
+            inner.push(after[..end].trim().to_string());
+            rest = &after[end + 1..];
+        }
+        outer.push_str(rest);
+        (outer, inner)
+    }
+
+    /// A composed example is two commands, and both are checked: the substitution collapses
+    /// to one word for the outer parse, and the inner command is parsed on its own.
+    #[test]
+    fn a_command_substitution_is_parsed_as_two_commands() {
+        let (outer, inner) = substitutions("42ctl vault rm $(42ctl vault ls dev/ -q)");
+        assert_eq!(outer, "42ctl vault rm substituted");
+        assert_eq!(inner, vec!["42ctl vault ls dev/ -q"]);
+
+        let (plain, none) = substitutions("42ctl vault ls");
+        assert_eq!(plain, "42ctl vault ls");
+        assert!(none.is_empty(), "a line with no substitution is unchanged");
+
+        let (broken, _) = substitutions("42ctl vault rm $(unterminated");
+        assert!(
+            broken.ends_with("$(unterminated"),
+            "an unclosed one is left alone"
+        );
+    }
+
     /// Every example the help prints is a command the parser accepts. A renamed flag, a
     /// dropped verb, a missing required argument or a `…` standing in for one fails here
     /// instead of on a reader's first paste. It proves the SHAPE only: a sequence that parses
@@ -198,14 +243,20 @@ mod tests {
         let mut parsed = 0;
         for (page, body) in bodies() {
             for line in body.lines().filter_map(invocation) {
-                match Cli::try_parse_from(words(line)) {
-                    Ok(_) => {}
-                    Err(error) if error.kind() == ErrorKind::DisplayHelp => {}
-                    Err(error) => panic!(
-                        "`42ctl help {page}` shows a command that does not parse:\n  {line}\n{error}"
-                    ),
+                let (outer, inner) = substitutions(line);
+                for command in std::iter::once(outer).chain(inner) {
+                    if !command.starts_with("42ctl ") {
+                        continue;
+                    }
+                    match Cli::try_parse_from(words(&command)) {
+                        Ok(_) => {}
+                        Err(error) if error.kind() == ErrorKind::DisplayHelp => {}
+                        Err(error) => panic!(
+                            "`42ctl help {page}` shows a command that does not parse:\n  {line}\n  → {command}\n{error}"
+                        ),
+                    }
+                    parsed += 1;
                 }
-                parsed += 1;
             }
         }
         assert!(

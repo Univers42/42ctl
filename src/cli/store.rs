@@ -46,10 +46,13 @@ pub enum Note {
         #[command(flatten)]
         out: super::Output,
     },
-    /// Remove the note at PATH
+    /// Remove one or more notes
+    ///
+    /// Every path is attempted even if an earlier one fails.
     Rm {
-        /// Note path
-        path: String,
+        /// Note paths
+        #[arg(required = true, num_args = 1.., value_name = "PATH")]
+        paths: Vec<String>,
         /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
