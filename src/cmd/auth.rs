@@ -205,13 +205,48 @@ fn whoami(profile: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Report whether `profile` has a saved contract.
+/// Report which of the two credentials `profile` holds.
+///
+/// There are two, for two planes: a SESSION for the organisation verbs and a CONTRACT for the
+/// vault verbs. This used to look at the contract alone, so a password login — which saves a
+/// session and no contract — reported "logged out" while every org, team and project verb
+/// worked. The leading words stay `profile 'X': logged in` / `logged out`, so a script that
+/// matched them still does; the rest says which half is missing and how to get it.
 fn status(profile: &str) -> anyhow::Result<()> {
-    match creds::load(profile) {
-        Some(_) => ui::success(&format!("profile '{profile}': logged in")),
-        None => println!("{}", ui::warn(&format!("profile '{profile}': logged out"))),
+    let (logged_in, line) = status_line(
+        profile,
+        session::load(profile).is_some(),
+        creds::load(profile).is_some(),
+    );
+    if logged_in {
+        ui::success(&line);
+    } else {
+        println!("{}", ui::warn(&line));
     }
     Ok(())
+}
+
+/// Whether `profile` counts as logged in, and the line that says with what.
+fn status_line(profile: &str, session: bool, contract: bool) -> (bool, String) {
+    let head = format!("profile '{profile}'");
+    match (session, contract) {
+        (true, true) => (true, format!("{head}: logged in — session and contract")),
+        (true, false) => (
+            true,
+            format!(
+                "{head}: logged in — session only; a gated vault server also needs \
+                 `auth login --tenant <name>`"
+            ),
+        ),
+        (false, true) => (
+            true,
+            format!(
+                "{head}: logged in — contract only; the organisation verbs need \
+                 `auth login --password --email <mail>`"
+            ),
+        ),
+        (false, false) => (false, format!("{head}: logged out")),
+    }
 }
 
 /// Clear the saved contract AND grobase session token for `profile`.
@@ -220,4 +255,35 @@ fn logout(profile: &str) -> anyhow::Result<()> {
     session::clear(profile)?;
     ui::success(&format!("logged out of profile '{profile}'"));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::status_line;
+
+    /// A password login saves a session and no contract, and is still logged in.
+    #[test]
+    fn a_session_alone_is_logged_in_and_names_the_missing_contract() {
+        let (logged_in, line) = status_line("default", true, false);
+        assert!(logged_in);
+        assert!(line.starts_with("profile 'default': logged in"), "{line}");
+        assert!(line.contains("--tenant"), "{line}");
+    }
+
+    /// Every combination keeps the leading words a script matches on.
+    #[test]
+    fn each_combination_reports_what_it_holds() {
+        assert_eq!(
+            status_line("p", true, true),
+            (
+                true,
+                "profile 'p': logged in — session and contract".to_string()
+            )
+        );
+        assert!(status_line("p", false, true).1.contains("contract only"));
+        assert_eq!(
+            status_line("p", false, false),
+            (false, "profile 'p': logged out".to_string())
+        );
+    }
 }
