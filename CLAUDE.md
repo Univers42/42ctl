@@ -63,11 +63,30 @@ a green `release.yml` via `workflow_run` — which is why the tag must arrive as
 
 ### The QA battery, and the older verify gates
 
-`./qa/run.sh` is the real end-to-end coverage: 27 specs standing up vault42-server, the authority
+`./qa/run.sh` is the real end-to-end coverage: 30 specs standing up vault42-server, the authority
 and a MinIO chunk store in Docker. Its exit status counts REGRESSIONS ONLY, so it works as a merge
 gate while `assert_spec` assertions stay red on purpose. `QA_SHUFFLE=1` randomises the order —
-use it, because two specs have already passed only because of what ran before them. `qa/README.md`
+use it, because specs have passed or failed because of what ran before them. `qa/README.md`
 has the rules; the one that matters most is that an absence assertion must prove its haystack.
+
+What to know before running it:
+
+- **It runs on rootless Docker** (this workstation): `QA_DOCKER_USER` drops `--user` there, since
+  rootless maps the container's root to you and refuses any other uid.
+- **One battery per Docker daemon.** Every run starts by tearing down the shared qa42-* containers,
+  so `run.sh` holds a flock and a second run exits 3. Running a spec file with `bash` directly
+  bypasses the lock — don't, while a battery is going.
+- **It measures which commands RAN.** 42ctl writes each parsed command path (never an argument) to
+  `FT_TRACE_COMMANDS`; after a full run the summary prints "commands exercised X of Y" against
+  `42ctl help commands`, and `QA_REQUIRE_COVERAGE=1` fails the run if any command never ran. A new
+  verb therefore needs a spec that runs it. `org github link`/`sync` count by being refused.
+- **Name specs as separate arguments.** A name that selects nothing is an error (exit 2); it used to
+  run the preflight alone and print "No regressions".
+- **The server rev matters**: s41 asserts authorization fixes that go red on older vault42 revs, and
+  `QA_VAULT42_REV` defaults to one that has them.
+- s40 (cloud) needs no server: `qa/fixtures/fly/flyctl` stands in for flyctl and records every
+  command, which is how "no destructive command ever ran" is asserted. s41 is who-may-do-what
+  through the CLI alone; s42 is one user's first day from an empty machine.
 
 `scripts/verify/v10-secret-sync.sh` … `v13-github-cli.sh` predate it and still work, but **both
 their defaults are wrong on this machine**: they need `RUST_TOOLCHAIN_IMG` (the default image is
