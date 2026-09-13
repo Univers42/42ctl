@@ -123,8 +123,14 @@ fn line_of(line: &str) -> String {
     }
 }
 
-/// Fall through to clap's help for a subcommand named `name`, or list the topics.
+/// Show help for a subcommand named `name`, or list the topics.
+///
+/// A command with subcommands gets the same grouped page `42ctl <name> --help` prints, so the
+/// two doors onto one command's help do not show two different things.
 fn command_help(name: &str) -> anyhow::Result<()> {
+    if let Some(page) = super::help_grouped::requested(&["42ctl".to_string(), name.to_string()]) {
+        return ui::emit(&page);
+    }
     let mut root = Cli::command();
     match root.find_subcommand_mut(name) {
         Some(sub) => Ok(sub.print_long_help()?),

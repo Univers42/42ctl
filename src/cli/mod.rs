@@ -17,6 +17,7 @@
 //! walkthrough), and operator-only `unseal`. Types only — handlers live under `cmd/`.
 
 mod rbac;
+pub mod sections;
 mod store;
 mod vault;
 
