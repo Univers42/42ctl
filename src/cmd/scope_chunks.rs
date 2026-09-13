@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! The chunked half of `push-env` / `pull-env`: a file above the transport ceiling is split
+//! The chunked half of `env push` / `env pull`: a file above the transport ceiling is split
 //! into chunks in the object store, each sealed to the ENVIRONMENT so every member can open
 //! it, with only the chunk list in the vault. Names come from the environment's secret, so
 //! two members holding the same bytes compute the same name and the second stores nothing.

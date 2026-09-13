@@ -142,8 +142,8 @@ fn state_verdict(app: &str, machine: &fly::Machine) -> Verdict {
     }
 }
 
-/// The server needs `VAULT42_SCOPE_KEYS_ENABLED`; without it every `env-init`, `set-env`,
-/// `sync-keys` and `rotate-scope` answers UNIMPLEMENTED, which reads as a client bug.
+/// The server needs `VAULT42_SCOPE_KEYS_ENABLED`; without it every `env init`, `env secret set`,
+/// `env keys sync` and `env keys rotate` answers UNIMPLEMENTED, which reads as a client bug.
 fn scope_flag_verdict(app: &str, machine: &fly::Machine) -> Option<Verdict> {
     if !app.ends_with("-server") {
         return None;

@@ -10,11 +10,11 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `vault scope-status` — a glanceable table of each member's scope-key state. Members the
+//! `env keys ls` — a glanceable table of each member's scope-key state. Members the
 //! server still reports as `missing` a wrap are classified by whether they have a registered
-//! pubkey: `pending-provision` (has one, awaiting `sync-keys`) vs `pending-enrollment` (none
+//! pubkey: `pending-provision` (has one, awaiting `env keys sync`) vs `pending-enrollment` (none
 //! yet). Members already wrapped (vault42 `list_scope_members`) show as `active`. Read-only:
-//! it never wraps, deposits, or records — just reports what `sync-keys` would do.
+//! it never wraps, deposits, or records — just reports what `env keys sync` would do.
 
 use crate::adapters::address;
 use crate::adapters::api::Session;

@@ -25,7 +25,7 @@ pub async fn run(cmd: &Team, profile: &str) -> anyhow::Result<()> {
     let (grobase, token) = session::connect(profile)?;
     match cmd {
         Team::Create { org, slug, name } => create(&grobase, &token, (org, slug, name)).await,
-        Team::List { org, out } => list(&grobase, &token, org, out).await,
+        Team::Ls { org, out } => list(&grobase, &token, org, out).await,
         _ => team_members::run(cmd, &grobase, &token).await,
     }
 }

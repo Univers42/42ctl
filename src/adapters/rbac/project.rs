@@ -12,7 +12,7 @@
 
 //! Project-scoped RBAC calls: create and list an org's projects. A project is the parent
 //! every environment, group and grant hangs off, so without one `env create`,
-//! `team grant-project` and the whole scope-key suite answer 404. Both calls authenticate
+//! `team grant` and the whole scope-key suite answer 404. Both calls authenticate
 //! with the grobase session JWT and require the caller to be an org admin.
 
 use crate::adapters::rbac::{self, Project};

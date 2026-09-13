@@ -17,13 +17,17 @@
 //! walkthrough), and operator-only `unseal`. Types only — handlers live under `cmd/`.
 
 pub mod cloud;
+mod env;
+pub mod legacy;
 mod rbac;
 pub mod sections;
 mod store;
 mod vault;
 
 pub use cloud::{Cloud, CloudMachine, CloudNet, CloudSecret, CloudVolume, Lifecycle};
-pub use rbac::{Env, Group, Invite, Org, OrgGithub, Project, Team};
+pub use env::{Env, EnvKeys, EnvSecret, Scope};
+pub use rbac::{Group, GroupMember, Invite, Org, OrgGithub, OrgMember, Project, ProjectGrant};
+pub use rbac::{Team, TeamMember};
 pub use store::{Db, Note};
 pub use vault::Vault;
 
@@ -88,7 +92,7 @@ pub enum Command {
     /// Your local zero-knowledge identity: create, export, enroll, escrow, recover
     #[command(subcommand)]
     Keys(Keys),
-    /// Secrets sealed on your machine — get, set, ls, share, rotate, import, export …
+    /// Your own secrets, sealed on your machine — get, set, ls, rm, share, import, export …
     #[command(subcommand, visible_alias = "secrets")]
     Vault(Vault),
     /// Upload the project's env tree to the vault, sealed to you (path-aware, byte-exact)
@@ -129,19 +133,19 @@ pub enum Command {
     /// RBAC-checked encrypted records, decrypted client-side
     #[command(subcommand)]
     Db(Db),
-    /// Organisations: create, members, invites, GitHub App connect / link / sync
+    /// Organisations: create, member ls / rm, invite, GitHub App connect / link / sync
     #[command(subcommand)]
     Org(Org),
-    /// Teams inside an org: create, list, members, invites, project grants
+    /// Teams inside an org: create, ls, member add / rm, invite, grant
     #[command(subcommand)]
     Team(Team),
-    /// Project groups: create, members, invites
+    /// Project groups: create, member add / rm, invite
     #[command(subcommand)]
     Group(Group),
-    /// Environments inside a project (dev / staging / prod …)
+    /// Environments and what a team shares through one: keys, secrets, the file tree
     #[command(subcommand)]
     Env(Env),
-    /// Projects inside an org: create, list, and grant a user a role on one
+    /// Projects inside an org: create, ls, grant ls / add / rm
     #[command(subcommand)]
     Project(Project),
     /// Accept or inspect an invite by token / id

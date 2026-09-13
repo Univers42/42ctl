@@ -10,10 +10,10 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `vault env-init` — the admin bootstrap for an environment scope. Generate the scope
+//! `env init` — the admin bootstrap for an environment scope. Generate the scope
 //! keyset, publish its PUBLIC key to grobase (so members seal secrets to it),
 //! register the admin's own pubkey, and self-wrap the scope SECRET to the admin (so a later
-//! `sync-keys` can recover it). The scope secret never leaves a `Zeroizing` buffer and is
+//! `env keys sync` can recover it). The scope secret never leaves a `Zeroizing` buffer and is
 //! never persisted in cleartext — only the AEAD-wrapped grant is deposited at vault42.
 
 use crate::adapters::api::Session;
@@ -31,7 +31,7 @@ use zeroize::Zeroizing;
 /// Bootstrap the env scope: derive the scope id, generate the keyset, publish its public
 /// key, register self, self-wrap the secret, and print the scope id + epoch. Normally epoch
 /// 1; `resume_epoch` decides, and refuses to clobber an env whose wraps a fresh keyset would
-/// orphan. Rotating a LIVE scope is `rotate-scope`, a distinct verb.
+/// orphan. Rotating a LIVE scope is `env keys rotate`, a distinct verb.
 pub async fn env_init(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     let scope_id = scope::scope_id(&ctx.project, &ctx.env_name)?;
     let epoch = resume_epoch(session, ctx, scope_id).await?;
@@ -55,8 +55,8 @@ pub async fn env_init(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
 /// "half-bootstrapped": `env_init` publishes the public key over REST and deposits the
 /// self-wrap over gRPC, and anything failing between the two — an expired contract is enough —
 /// left the environment advertising a key nobody ever held. Every route out was then closed:
-/// `env-init` refused because a key existed, while `sync-keys` and `rotate-scope` both refused
-/// because none did.
+/// `env init` refused because a key existed, while `env keys sync` and `env keys rotate` both
+/// refused because none did.
 ///
 /// So when vault42 holds no wrap for the scope there is nothing to orphan and the interrupted
 /// bootstrap is completed rather than refused. It resumes at the NEXT epoch because the
@@ -72,7 +72,7 @@ async fn resume_epoch(session: &mut Session, ctx: &Ctx, scope_id: [u8; 16]) -> a
     if !members.is_empty() {
         anyhow::bail!(
             "env '{}' already has a scope key (epoch {}) with {} provisioned member(s) — \
-             re-init would orphan their wraps; use `vault rotate-scope` instead",
+             re-init would orphan their wraps; use `env keys rotate` instead",
             ctx.env_name,
             ctx.epoch(),
             members.len()
@@ -103,7 +103,7 @@ async fn publish_keyset(ctx: &Ctx, keyset: &ScopeKeyset, epoch: u32) -> anyhow::
 }
 
 /// Wrap the scope secret to the admin's OWN X25519 key and deposit it under the admin's
-/// principal, so `sync-keys` can later recover the scope secret to reconcile members.
+/// principal, so `env keys sync` can later recover the scope secret to reconcile members.
 async fn self_wrap(
     session: &mut Session,
     scope_secret: &Zeroizing<[u8; 32]>,

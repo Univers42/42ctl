@@ -10,14 +10,14 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `vault push-env` / `pull-env` — a whole project tree shared with an environment.
+//! `env push` / `pull` — a whole project tree shared with an environment.
 //!
-//! `set-env` carries one value under one name. This carries a FILE TREE: every scanned file
+//! `env secret set` carries one value under one name. This carries a FILE TREE: every scanned file
 //! sealed to the environment's public scope key, plus a manifest holding the real relative
 //! paths and modes. A member the authority has authorised holds a wrap of that key and can
 //! restore the tree exactly as it stood; anybody else holds ciphertext.
 //!
-//! The access control is the same as `get-env`'s and is cryptographic rather than advisory:
+//! The access control is the same as `env secret get`'s and is cryptographic rather than advisory:
 //! being refused means being unable to decrypt, not being told no. That is what makes a
 //! grant through a team meaningful — the authority decides who gets a wrap, and everything
 //! else follows from holding one.
@@ -190,7 +190,7 @@ async fn restore_all(
     let (owner, secret) = key;
     let (root, selected, opts) = what;
     if !opts.apply {
-        ui::field("pull-env", "dry-run — re-run with --apply to write");
+        ui::field("env pull", "dry-run — re-run with --apply to write");
     }
     for pick in selected {
         let key = if pick.private {
@@ -403,7 +403,7 @@ pub(super) fn scope_public(ctx: &Ctx) -> anyhow::Result<RecipientPublicKey> {
         .filter(|k| !k.is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "env '{}' has no scope key — run `vault env-init` first",
+                "env '{}' has no scope key — run `env init` first",
                 ctx.env_name
             )
         })?;

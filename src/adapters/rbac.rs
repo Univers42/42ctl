@@ -51,7 +51,7 @@ pub struct Member {
     pub user_id: String,
     pub role: String,
     /// Unix seconds. The authority emits every timestamp as an integer; declaring this a
-    /// String made the whole listing fail to decode, so `org members` reported nothing while
+    /// String made the whole listing fail to decode, so `org member ls` reported nothing while
     /// membership was perfectly intact — a client-side decode error wearing the costume of an
     /// empty organisation.
     #[serde(default)]
@@ -154,7 +154,7 @@ pub struct Removed {
 /// A grant's fulfilment for ONE environment at ONE epoch (`GET .../fulfilled`).
 ///
 /// The two lists answer different questions and are not interchangeable. `missing` is the
-/// provisioning worklist and empties as members are wrapped, so it is what `sync-keys` reads.
+/// provisioning worklist and empties as members are wrapped, so it is what `env keys sync` reads.
 /// `members` is everyone the grant authorizes and does not empty, so it is what rotation must
 /// read: re-wrapping from `missing` re-wraps to nobody once provisioning has converged, which
 /// is exactly the state an environment is in when someone rotates it.

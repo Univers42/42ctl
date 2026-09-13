@@ -118,9 +118,9 @@ $ 42ctl keys export-pub                                   # your v42:… address
 $ 42ctl auth signup --email you@example.com               # password prompted; --token if gated
 $ 42ctl auth login --password --email you@example.com --tenant yourname
 $ 42ctl auth whoami                                       # principal, address, 'contract: bound'
-  session    your ACCOUNT  →  org  team  group  env  project  invite  account
+  session    your ACCOUNT  →  org  team  group  project  invite  account  env create|ls
   contract   your KEY      →  vault  push  pull  note  db
-  both       the scope verbs: vault env-init  sync-keys  push-env  pull-env …
+  both       every other env verb: init  keys  secret  push  pull  files
 
 ## 3. A personal secret — sealed to you alone
 $ printf 'sk_live_123' | 42ctl vault set app/STRIPE_KEY
@@ -139,18 +139,18 @@ $ 42ctl org create --slug acme --name 'ACME Inc'
 $ 42ctl project create --org acme --slug api --name API   # environments hang off a project
 $ 42ctl env create --project api --name prod
 $ 42ctl keys enroll --org acme                            # publish your PUBLIC keys to the org
-$ 42ctl project grant --org acme --project api --user you@example.com --role admin
+$ 42ctl project grant add --org acme --project api --user you@example.com --role admin
 
 ## 6. Share the tree with everyone granted prod
-$ 42ctl vault env-init --org acme --project api --env prod    # the environment's shared key
-$ 42ctl vault sync-keys --org acme --project api --env prod   # wrap it to every member
-$ 42ctl vault push-env --org acme --project api --env prod    # *.local stays yours alone
-$ 42ctl vault ls-env --org acme --project api --env prod      # what it holds; fetches nothing
+$ 42ctl env init --org acme --project api --env prod          # the environment's shared key
+$ 42ctl env keys sync --org acme --project api --env prod     # wrap it to every member
+$ 42ctl env push --org acme --project api --env prod          # *.local stays yours alone
+$ 42ctl env files --org acme --project api --env prod         # what it holds; fetches nothing
 
 ## 7. Onboard a teammate
 $ 42ctl org invite --org acme --email dev@example.com --role member    # prints a one-time token
 $ 42ctl team create --org acme --slug backend --name Backend
-$ 42ctl team grant-project --org acme --team backend --project api --role write --env prod
+$ 42ctl team grant --org acme --team backend --project api --role write --env prod
 They run, on their machine:
 $ 42ctl keys init
 $ 42ctl auth signup --email dev@example.com
@@ -158,26 +158,26 @@ $ 42ctl auth login --password --email dev@example.com --tenant devname
 $ 42ctl invite accept --token <token>
 $ 42ctl keys enroll --org acme
 You run:
-$ 42ctl team add-member --org acme --team backend --user dev@example.com
-$ 42ctl vault sync-keys --org acme --project api --env prod      # provisioned 1
-$ 42ctl vault scope-status --org acme --project api --env prod   # them: active
+$ 42ctl team member add --org acme --team backend --user dev@example.com
+$ 42ctl env keys sync --org acme --project api --env prod        # provisioned 1
+$ 42ctl env keys ls --org acme --project api --env prod          # them: active
 They run:
-$ 42ctl vault pull-env --org acme --project api --env prod           # preview, writes nothing
-$ 42ctl vault pull-env --org acme --project api --env prod --apply   # the whole tree
+$ 42ctl env pull --org acme --project api --env prod                 # preview, writes nothing
+$ 42ctl env pull --org acme --project api --env prod --apply         # the whole tree
 
 ## 8. Your second machine
 $ 42ctl keys escrow --email you@example.com               # here: upload the SEALED keystore
 $ 42ctl keys recover --email you@example.com              # there: code, fetch, same passphrase
 
 ## 9. Someone leaves
-$ 42ctl org remove-member --org acme --user dev@example.com      # every derived membership too
-$ 42ctl vault rotate-scope --org acme --project api --env prod   # ends access already held
+$ 42ctl org member rm --org acme --user dev@example.com          # every derived membership too
+$ 42ctl env keys rotate --org acme --project api --env prod      # ends access already held
 ! Removal stops future wraps; only a rotation ends access to a key they already hold.
 
 ## Next
 $ 42ctl help commands                                     # every command and its arguments
 $ 42ctl help scopes                                       # private files, labels, partial pulls
-$ 42ctl vault push-env --help                             # the long form of any one command";
+$ 42ctl env push --help                                   # the long form of any one command";
 
 const SYNC: &str = "\
 `push` and `pull` move your project's env tree through the vault, sealed to YOU alone:
@@ -278,9 +278,9 @@ $ 42ctl auth me                                           # the account behind t
 $ 42ctl account show                                      # the same, from the account side
 
 ## Two credentials — every 'permission denied' is one of them
-  session    your ACCOUNT  →  org  team  group  env  project  invite  account
+  session    your ACCOUNT  →  org  team  group  project  invite  account  env create|ls
   contract   your KEY      →  vault  push  pull  note  db
-  both       the scope verbs: vault env-init  sync-keys  set-env  get-env  push-env  pull-env …
+  both       every other env verb: init  keys  secret  push  pull  files
 `auth login --tenant` on its own needs a session already: a contract is issued to an account.
 
 ## Password and second factor
@@ -301,40 +301,40 @@ $ 42ctl auth login --password --email you@example.com     # or --github for the 
 
 ## Orgs
 $ 42ctl org create --slug acme --name 'ACME Inc'
-$ 42ctl org members --org acme
+$ 42ctl org member ls --org acme
 $ 42ctl org invite --org acme --email dev@example.com --role member    # prints a one-time token
 $ 42ctl invite accept --token <token>                     # the invitee redeems it
 $ 42ctl invite show --id <id>
 
 ## Projects and environments
 $ 42ctl project create --org acme --slug api --name API   # must exist before envs, groups, grants
-$ 42ctl project list --org acme
+$ 42ctl project ls --org acme
 $ 42ctl env create --project api --name prod
-$ 42ctl env list --project api
+$ 42ctl env ls --project api
 
 ## Teams inside an org
 $ 42ctl team create --org acme --slug backend --name Backend
-$ 42ctl team list --org acme
-$ 42ctl team add-member --org acme --team backend --user dev@example.com
+$ 42ctl team ls --org acme
+$ 42ctl team member add --org acme --team backend --user dev@example.com
 $ 42ctl team invite --org acme --team backend --email dev@example.com
 
 ## Grants — who may do what on a project
-$ 42ctl team grant-project --org acme --team backend --project api --role write --env prod
-$ 42ctl project grant --org acme --project api --user dev@example.com --role read
-$ 42ctl project grants --org acme --project api           # the live grants, with their ids
-$ 42ctl project revoke-grant --org acme --project api --grant <id>
+$ 42ctl team grant --org acme --team backend --project api --role write --env prod
+$ 42ctl project grant add --org acme --project api --user dev@example.com --role read
+$ 42ctl project grant ls --org acme --project api         # the live grants, with their ids
+$ 42ctl project grant rm --org acme --project api --grant <id>
   roles      org: owner admin member  ·  team: admin member  ·  project: admin write read
   names      --org --team --project take a slug or id, --env a name or id, --user an id or email
 
 ## Groups
 $ 42ctl group create --project api
-$ 42ctl group add-member --group <id> --user dev@example.com
+$ 42ctl group member add --group <id> --user dev@example.com
 $ 42ctl group invite --group <id> --email dev@example.com
 
 ## Removing people
-$ 42ctl team remove-member --org acme --team backend --user dev@example.com   # org membership stays
-$ 42ctl group remove-member --group <id> --user dev@example.com
-$ 42ctl org remove-member --org acme --user dev@example.com   # teams, groups, grants, pubkey too
+$ 42ctl team member rm --org acme --team backend --user dev@example.com       # org membership stays
+$ 42ctl group member rm --group <id> --user dev@example.com
+$ 42ctl org member rm --org acme --user dev@example.com       # teams, groups, grants, pubkey too
 ! Removal ends AUTHORIZATION, not a key already held: rotate the environment (42ctl help scopes).
 
 ## GitHub App (mirror your GitHub org into RBAC; needs auth login --github)
@@ -349,44 +349,44 @@ members enroll their public keys, the admin wraps the scope key to each of them.
 These verbs need both a session and a contract.
 
 ## Admin: bootstrap and keep members in sync
-$ 42ctl vault env-init --org acme --project api --env prod        # generate + publish + self-wrap
-$ 42ctl vault scope-status --org acme --project api --env prod    # who is active / pending
-$ 42ctl vault sync-keys --org acme --project api --env prod       # wrap the key to new members
+$ 42ctl env init --org acme --project api --env prod              # generate + publish + self-wrap
+$ 42ctl env keys ls --org acme --project api --env prod           # who is active / pending
+$ 42ctl env keys sync --org acme --project api --env prod         # wrap the key to new members
 
 ## Member: enroll once, then read and write
 $ 42ctl keys enroll --org acme                                     # publish your public keys
-$ printf 'postgres://…' | 42ctl vault set-env --org acme --project api --env prod DATABASE_URL
-$ 42ctl vault get-env --org acme --project api --env prod DATABASE_URL
+$ printf 'postgres://…' | 42ctl env secret set --org acme --project api --env prod DATABASE_URL
+$ 42ctl env secret get --org acme --project api --env prod DATABASE_URL
 
 ## Share a whole TREE with the team, and get it back
-$ 42ctl vault push-env --org acme --project api --env prod         # seal every scanned file
-$ 42ctl vault ls-env --org acme --project api --env prod           # what it holds; fetches nothing
-$ 42ctl vault pull-env --org acme --project api --env prod         # PREVIEW: writes nothing
-$ 42ctl vault pull-env --org acme --project api --env prod --apply
+$ 42ctl env push --org acme --project api --env prod               # seal every scanned file
+$ 42ctl env files --org acme --project api --env prod              # what it holds; fetches nothing
+$ 42ctl env pull --org acme --project api --env prod               # PREVIEW: writes nothing
+$ 42ctl env pull --org acme --project api --env prod --apply
 Files come back byte-exact, at their original paths, with any missing directory recreated
 owner-only. A restore into an empty tree rebuilds the whole shape.
 
 ## Private files and labels inside the shared tree
-$ 42ctl vault push-env --org acme --project api --env prod --private 'secrets/me.*' --label app=api
-$ 42ctl vault ls-env --org acme --project api --env prod --filter Private=true --format '{{.Path}}'
+$ 42ctl env push --org acme --project api --env prod --private 'secrets/me.*' --label app=api
+$ 42ctl env files --org acme --project api --env prod --filter Private=true --format '{{.Path}}'
 *.local is ALWAYS private. A private file is sealed to you alone: a teammate sees neither its
-bytes nor its name, and your own pull-env restores it.
+bytes nor its name, and your own env pull restores it.
 
 ## Fetch only part of it
-$ 42ctl vault pull-env --org acme --project api --env prod --only 'secrets/*'
-$ 42ctl vault pull-env --org acme --project api --env prod --only 'secrets/ca.*'
-$ 42ctl vault pull-env --org acme --project api --env prod --only '*.crt' --only 'srcs/.env'
+$ 42ctl env pull --org acme --project api --env prod --only 'secrets/*'
+$ 42ctl env pull --org acme --project api --env prod --only 'secrets/ca.*'
+$ 42ctl env pull --org acme --project api --env prod --only '*.crt' --only 'srcs/.env'
 Anything not selected is left exactly as it is on disk, edits included. Drop --apply to
 preview the same selection first. A pattern matching nothing is an ERROR, never a quiet
 no-op, because the reason to select a subset is that the rest is too important to touch.
 
 ## Someone left the team
-$ 42ctl vault rotate-scope --org acme --project api --env prod    # fresh key, re-sealed, re-wrapped
+$ 42ctl env keys rotate --org acme --project api --env prod       # fresh key, re-sealed, re-wrapped
 The removed member's old wrap opens nothing that is sealed after the rotation.
 
-## Member states in scope-status
+## Member states in env keys ls
   active               has the current scope key
-  pending-provision    enrolled, waiting for an admin's sync-keys
+  pending-provision    enrolled, waiting for an admin's env keys sync
   pending-enrollment   no public key yet → they must run  42ctl keys enroll";
 
 const NOTES: &str = "\
@@ -407,8 +407,8 @@ $ 42ctl db get <path>                                     # decrypt one locally
 `db` reads only; there is no db set or db rm.";
 
 const FORMAT: &str = "\
-Every listing verb — `vault ls`, `org members`, `team ls`, `project grants`, `env ls`,
-`note ls`, `vault ls-env`, `vault scope-status` — takes the same three flags. They are
+Every listing verb — `vault ls`, `org member ls`, `team ls`, `project grant ls`, `env ls`,
+`note ls`, `env files`, `env keys ls` — takes the same three flags. They are
 there so a listing can answer a question and then be fed to the next command.
 
 ## Pick the columns
@@ -416,19 +416,19 @@ A table is the default. `--format json` gives the whole list as JSON, and any ot
 a template rendered once per row.
 $ 42ctl vault ls --format json
 $ 42ctl vault ls --format '{{.Path}} is at v{{.Version}}'
-$ 42ctl vault ls-env --org acme --project api --env prod --format '{{json .}}'
+$ 42ctl env files --org acme --project api --env prod --format '{{json .}}'
 A `table ` prefix keeps the aligned columns and names them from the template itself. Tabs
 separate the columns; write them as \\t, which is what a shell hands over inside quotes.
 $ 42ctl vault ls --format 'table {{.Path}}\\t{{.Version}}'
-$ 42ctl vault ls-env --org acme --project api --env prod --format 'table {{.Path}}\\t{{.Labels.app}}'
+$ 42ctl env files --org acme --project api --env prod --format 'table {{.Path}}\\t{{.Labels.app}}'
 An unknown field renders as nothing rather than failing, so one template can be aimed at
 several verbs. `{{json .}}` is the whole row, whatever its fields are.
 
 ## Narrow the rows
 `--filter KEY=VALUE` keeps the rows where a column equals a value. Repeat it and every one
 must hold. The key is a column name, matched whatever the case.
-$ 42ctl org members --org acme --filter Role=member
-$ 42ctl vault ls-env --org acme --project api --env prod --filter label=app=wordpress
+$ 42ctl org member ls --org acme --filter Role=member
+$ 42ctl env files --org acme --project api --env prod --filter label=app=wordpress
 A key that names no column is refused, so a typo cannot read as \"there is nothing here\".
 A key that does name one and matches no row prints nothing and succeeds — that is what lets
 a filtered removal run on a schedule without failing on the day there is nothing to remove.
@@ -437,11 +437,11 @@ a filtered removal run on a schedule without failing on the day there is nothing
 `-q` prints the first column and nothing else: no header, no second field. The first column
 is the identifier the matching `rm` takes back, which is the whole point.
 $ 42ctl vault ls -q
-$ 42ctl org members --org acme -q --filter Role=member
+$ 42ctl org member ls --org acme -q --filter Role=member
 Removal verbs take as many targets as you give them, so the two compose:
 $ 42ctl vault rm $(42ctl vault ls dev/ -q)
-$ 42ctl org remove-member --org acme --user $(42ctl org members --org acme -q --filter Role=member)
-$ 42ctl project revoke-grant --org acme --project api --grant $(42ctl project grants --org acme --project api -q)
+$ 42ctl org member rm --org acme --user $(42ctl org member ls --org acme -q --filter Role=member)
+$ 42ctl project grant rm --org acme --project api --grant $(42ctl project grant ls --org acme --project api -q)
 Every target is attempted even when an earlier one fails. Each failure is named as it
 happens and the command fails once at the end listing what to retry — so a stale id in the
 middle of a long list costs you that one removal, not the rest of them.
@@ -549,7 +549,7 @@ const SECURITY: &str = "\
 ## Good habits
 $ 42ctl auth logout                                       # on a shared machine, when done
 $ 42ctl vault audit                                       # review your own tamper-evident chain
-$ 42ctl vault rotate-scope --org acme --project api --env prod    # after anyone leaves a team
+$ 42ctl env keys rotate --org acme --project api --env prod       # after anyone leaves a team
 $ 42ctl update --check                                    # stay on a current, signed build";
 
 const UPDATE: &str = "\

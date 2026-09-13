@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! Private files inside a shared environment — `push-env --private` and the `*.local` default.
+//! Private files inside a shared environment — `env push --private` and the `*.local` default.
 //!
 //! A private file lives in the SAME environment as the shared tree, under the same scope
 //! owner, but is sealed to the pusher's own identity rather than to the environment's key,

@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `vault sync-keys` — the admin reconcile. Recover the scope secret from the admin's own
+//! `env keys sync` — the admin reconcile. Recover the scope secret from the admin's own
 //! wrap (the two-hop unwrap), enumerate every authorized member still missing a wrap, and
 //! provision each that has a verifiable pubkey (wrap → deposit → record). Members with no
 //! pubkey are skipped (pending-enrollment). Re-running converges: an already-wrapped member

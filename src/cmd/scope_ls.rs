@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `vault ls-env` — an environment's file inventory from its manifests, fetching no file.
+//! `env files` — an environment's file inventory from its manifests, fetching no file.
 //!
 //! The shared manifest names every file the environment holds for its members; the
 //! caller's private manifest adds theirs. Size, mode and labels were recorded at push, so the

@@ -10,10 +10,10 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `vault set-env` / `get-env` — shared per-environment secrets. `set-env` seals stdin to the
-//! env's PUBLIC scope key (so any wrapped member can later read it, but the caller need not be
-//! one) and pushes the opaque envelope with optimistic concurrency. `get-env` recovers the env
-//! scope SECRET from the caller's own wrap and decrypts the fetched envelope locally with it.
+//! `env secret set` / `get` — shared per-environment secrets. `set` seals stdin to the env's
+//! PUBLIC scope key (so any wrapped member can later read it, but the caller need not be one)
+//! and pushes the opaque envelope with optimistic concurrency. `get` recovers the env scope
+//! SECRET from the caller's own wrap and decrypts the fetched envelope locally with it.
 //! Zero-knowledge throughout: the server stores only the scope-sealed blob and never a DEK.
 
 use crate::adapters::api::Session;
@@ -56,7 +56,7 @@ pub async fn set_env(session: &mut Session, ctx: &Ctx, path: &str) -> anyhow::Re
             expected_prev_rev: current,
         })
         .await?;
-    ui::success(&format!("set-env {path} (v{version})"));
+    ui::success(&format!("set {path} (v{version})"));
     Ok(())
 }
 
@@ -84,7 +84,7 @@ pub async fn get_env(session: &mut Session, ctx: &Ctx, path: &str) -> anyhow::Re
 }
 
 /// Decode the env's published base64 scope public key into a wrap target, erroring when the
-/// env has no scope key yet (run `vault env-init` first).
+/// env has no scope key yet (run `env init` first).
 fn scope_public(ctx: &Ctx) -> anyhow::Result<vault42_core::RecipientPublicKey> {
     let b64 = ctx
         .scope_pubkey
@@ -92,7 +92,7 @@ fn scope_public(ctx: &Ctx) -> anyhow::Result<vault42_core::RecipientPublicKey> {
         .filter(|k| !k.is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "env '{}' has no scope key — run `vault env-init` first",
+                "env '{}' has no scope key — run `env init` first",
                 ctx.env_name
             )
         })?;

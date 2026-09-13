@@ -40,7 +40,7 @@ pub fn scope_role(project_role: &str) -> ScopeRole {
 /// Derive the deterministic 16-byte scope id for `(project_uuid, env_name)` as
 /// `blake3(project_uuid_bytes ‖ env_name_bytes)[..16]`, where `project_uuid_bytes` is the
 /// project UUID's 16 raw bytes and `env_name_bytes` is the env name's UTF-8 bytes. Both the
-/// admin (`env-init`/`sync-keys`) and every member compute the same id; vault42 round-trips
+/// admin (`env init`/`env keys sync`) and every member compute the same id; vault42 round-trips
 /// its hex (`hex::encode`) opaquely, so this convention is the single source of truth.
 pub fn scope_id(project_uuid: &str, env_name: &str) -> anyhow::Result<[u8; 16]> {
     let uuid = uuid::Uuid::parse_str(project_uuid)

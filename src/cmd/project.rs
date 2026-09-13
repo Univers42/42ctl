@@ -16,7 +16,7 @@
 
 use crate::adapters::rbac::{grant as grants_api, org, project, GrantScope};
 use crate::adapters::session;
-use crate::cli::Project;
+use crate::cli::{Project, ProjectGrant};
 use crate::ui;
 
 /// Dispatch a `project` subcommand for `profile`.
@@ -24,22 +24,22 @@ pub async fn run(cmd: &Project, profile: &str) -> anyhow::Result<()> {
     let (grobase, token) = session::connect(profile)?;
     match cmd {
         Project::Create { org, slug, name } => create(&grobase, &token, org, slug, name).await,
-        Project::List { org, out } => list(&grobase, &token, org, out).await,
-        Project::Grants { org, project, out } => {
+        Project::Ls { org, out } => list(&grobase, &token, org, out).await,
+        Project::Grant(ProjectGrant::Ls { org, project, out }) => {
             grants(&grobase, &token, (org, project), out).await
         }
-        Project::RevokeGrant {
+        Project::Grant(ProjectGrant::Rm {
             org,
             project,
             grant,
-        } => revoke(&grobase, &token, (org, project), grant).await,
-        Project::Grant {
+        }) => revoke(&grobase, &token, (org, project), grant).await,
+        Project::Grant(ProjectGrant::Add {
             org: org_id,
             project,
             user,
             role,
             env,
-        } => {
+        }) => {
             grant(
                 &grobase,
                 &token,
@@ -100,7 +100,7 @@ async fn grant(
 
 /// List a project's live grants as a `grant_id role env_id` table.
 ///
-/// The ids are the point: `revoke-grant` needs one, and until this existed there was no way to
+/// The ids are the point: `project grant rm` needs one, and until this existed there was no way to
 /// see a grant's id at all, so the revoke route was unreachable in practice even for somebody
 /// who knew it was there.
 async fn grants(

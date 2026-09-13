@@ -40,11 +40,33 @@ fn main() -> ExitCode {
 /// Parse the CLI and dispatch to the command layer, answering a help request for a command
 /// that has subcommands ourselves so its verbs print in sections rather than one flat list.
 fn run() -> anyhow::Result<()> {
-    let argv: Vec<String> = std::env::args().collect();
+    let argv = current_spelling(std::env::args().collect());
     match cli::Cli::try_parse_from(&argv) {
         Ok(cli) => cmd::dispatch(&cli),
         Err(error) => help_or_exit(&error, &argv),
     }
+}
+
+/// `argv` with a retired command path rewritten to the one that replaced it.
+///
+/// The notice goes to a terminal only. A script, a Makefile or the QA battery reading this
+/// process's stderr must see exactly what it saw before the rename, or the rename breaks the
+/// very callers the old spelling is being kept for.
+fn current_spelling(argv: Vec<String>) -> Vec<String> {
+    use std::io::IsTerminal;
+    let Some(done) = cli::legacy::rewrite(&argv) else {
+        return argv;
+    };
+    if std::io::stderr().is_terminal() {
+        eprintln!(
+            "{}",
+            ui::dim(&format!(
+                "note: `42ctl {}` is now `42ctl {}` — the old spelling still works, for now",
+                done.old, done.new
+            ))
+        );
+    }
+    done.argv
 }
 
 /// Render the grouped page when the failed parse was a help request for a command group;

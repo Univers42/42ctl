@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `42ctl vault env-init|sync-keys|scope-status` — the scope-key orchestration that bridges
+//! `42ctl env init|keys|secret|push|pull|files` — the scope-key orchestration that bridges
 //! grobase (membership + member pubkeys) and vault42 (the scope-key wraps). This file owns
 //! the dispatch and the shared resolution: the grobase REST session, the env lookup, and the
 //! per-grant pending-provision set (the union of every env grant's `missing` list). The
@@ -19,7 +19,7 @@
 use crate::adapters::api::Session;
 use crate::adapters::rbac::{grant, org, project as rbac_project, pubkey, GrantScope};
 use crate::adapters::session;
-use crate::cli::Vault;
+use crate::cli::{Env, EnvKeys, EnvSecret, Scope};
 use crate::cmd::{scope_init, scope_ls, scope_private, scope_rotate, scope_secret};
 use crate::cmd::{scope_status, scope_sync, scope_tree};
 
@@ -63,86 +63,61 @@ impl Ctx {
     }
 }
 
-/// Route the scope-key verbs to the half that owns them.
+/// Route the environment verbs that need an unlocked identity to the half that owns them.
 ///
 /// Split by what they act on rather than by size: the KEYSET verbs manage who can open an
 /// environment, the TREE verbs move data in and out of one. They share only `Ctx`.
-pub async fn run(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
+pub async fn run(session: &mut Session, cmd: &Env, profile: &str) -> anyhow::Result<()> {
     match cmd {
-        Vault::EnvInit { .. }
-        | Vault::SyncKeys { .. }
-        | Vault::ScopeStatus { .. }
-        | Vault::RotateScope { .. } => keyset(session, cmd, profile).await,
-        _ => tree(session, cmd, profile).await,
+        Env::Init(scope) => scope_init::env_init(session, &resolve(profile, scope).await?).await,
+        Env::Keys(keys) => keyset(session, keys, profile).await,
+        Env::Secret(secret) => one_secret(session, secret, profile).await,
+        Env::Files { scope, out } => {
+            scope_ls::ls_env(session, &resolve(profile, scope).await?, out).await
+        }
+        Env::Push { .. } | Env::Pull { .. } => transfer(session, cmd, profile).await,
+        Env::Create { .. } | Env::Ls { .. } => {
+            unreachable!("create and ls need no identity, so cmd::env answers them")
+        }
     }
 }
 
 /// The verbs that manage an environment's keyset and who holds a wrap of it.
-async fn keyset(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
+async fn keyset(session: &mut Session, cmd: &EnvKeys, profile: &str) -> anyhow::Result<()> {
     match cmd {
-        Vault::EnvInit { org, project, env } => {
-            scope_init::env_init(session, &resolve(profile, org, project, env).await?).await
+        EnvKeys::Sync(scope) => {
+            scope_sync::sync_keys(session, &resolve(profile, scope).await?).await
         }
-        Vault::SyncKeys { org, project, env } => {
-            scope_sync::sync_keys(session, &resolve(profile, org, project, env).await?).await
+        EnvKeys::Rotate(scope) => {
+            scope_rotate::rotate_scope(session, &resolve(profile, scope).await?).await
         }
-        Vault::RotateScope { org, project, env } => {
-            scope_rotate::rotate_scope(session, &resolve(profile, org, project, env).await?).await
-        }
-        Vault::ScopeStatus {
-            org,
-            project,
-            env,
-            out,
-        } => {
-            let ctx = resolve(profile, org, project, env).await?;
+        EnvKeys::Ls { scope, out } => {
+            let ctx = resolve(profile, scope).await?;
             scope_status::scope_status(session, &ctx, out).await
         }
-        _ => unreachable!("keyset only handles the keyset verbs"),
     }
 }
 
-/// The verbs that move data through an environment: one secret, or the whole tree.
-async fn tree(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
+/// One secret sealed to the environment's key.
+async fn one_secret(session: &mut Session, cmd: &EnvSecret, profile: &str) -> anyhow::Result<()> {
     match cmd {
-        Vault::SetEnv {
-            org,
-            project,
-            env,
-            path,
-        } => {
-            let ctx = resolve(profile, org, project, env).await?;
-            scope_secret::set_env(session, &ctx, path).await
+        EnvSecret::Set { scope, path } => {
+            scope_secret::set_env(session, &resolve(profile, scope).await?, path).await
         }
-        Vault::GetEnv {
-            org,
-            project,
-            env,
-            path,
-        } => {
-            let ctx = resolve(profile, org, project, env).await?;
-            scope_secret::get_env(session, &ctx, path).await
+        EnvSecret::Get { scope, path } => {
+            scope_secret::get_env(session, &resolve(profile, scope).await?, path).await
         }
-        Vault::LsEnv {
-            org,
-            project,
-            env,
-            out,
-        } => {
-            let ctx = resolve(profile, org, project, env).await?;
-            scope_ls::ls_env(session, &ctx, out).await
-        }
-        _ => transfer(session, cmd, profile).await,
     }
 }
 
 /// Push or pull a whole tree, with the operator's private patterns, labels and selection.
-async fn transfer(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::Result<()> {
+///
+/// The labels are parsed before the environment is resolved, so a malformed `--label` is
+/// refused without a round trip.
+async fn transfer(session: &mut Session, cmd: &Env, profile: &str) -> anyhow::Result<()> {
     match cmd {
-        Vault::PushEnv {
-            org,
-            project,
-            env,
+        Env::Push {
+            scope,
             private,
             label,
         } => {
@@ -150,38 +125,35 @@ async fn transfer(session: &mut Session, cmd: &Vault, profile: &str) -> anyhow::
                 private: private.clone(),
                 labels: scope_private::parse_labels(label)?,
             };
-            let ctx = resolve(profile, org, project, env).await?;
-            scope_tree::push_env(session, &ctx, &rules).await
+            scope_tree::push_env(session, &resolve(profile, scope).await?, &rules).await
         }
-        Vault::PullEnv {
-            org,
-            project,
-            env,
+        Env::Pull {
+            scope,
             only,
             apply,
             backup,
         } => {
-            let ctx = resolve(profile, org, project, env).await?;
             let opts = crate::core::materialize::Opts {
                 apply: *apply,
                 force: false,
                 backup: *backup,
             };
-            scope_tree::pull_env(session, &ctx, &opts, only).await
+            scope_tree::pull_env(session, &resolve(profile, scope).await?, &opts, only).await
         }
-        _ => unreachable!("scope::run only handles the scope-key verbs"),
+        _ => unreachable!("transfer only handles push and pull"),
     }
 }
 
 /// Resolve the grobase session and the env (by name) into a `Ctx`. Errors if the env does
 /// not exist under the project.
-async fn resolve(profile: &str, org: &str, project: &str, env: &str) -> anyhow::Result<Ctx> {
+async fn resolve(profile: &str, scope: &Scope) -> anyhow::Result<Ctx> {
+    let Scope { org, project, env } = scope;
     let (grobase, token) = session::connect(profile)?;
     let project_id = rbac_project::resolve_id(&grobase, &token, org, project).await?;
     let environments = pubkey::list_environments(&grobase, &token, &project_id).await?;
     let found = environments
         .into_iter()
-        .find(|e| e.name == env)
+        .find(|e| e.name == *env)
         .ok_or_else(|| anyhow::anyhow!("no environment '{env}' in project '{project}'"))?;
     let org_id = org::show(&grobase, &token, org).await?.id;
     Ok(Ctx {

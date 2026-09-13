@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! The two heavy halves of `rotate-scope`: re-seal every env secret from the OLD scope key to
+//! The two heavy halves of `env keys rotate`: re-seal every env secret from the OLD scope key to
 //! the NEW one (`reseal_all`), and re-wrap the new scope key to the env's authorized members
 //! (`rewrap_remaining`). The old/new scope secrets stay in `Zeroizing` buffers; only opaque
 //! envelopes + AEAD-wrapped grants ever leave. A member the control plane no longer reports as
@@ -180,7 +180,7 @@ fn push_self_rewrap(
     Ok(())
 }
 
-/// Record each re-wrapped member's wrap at the NEW epoch, so `scope-status` and the next
+/// Record each re-wrapped member's wrap at the NEW epoch, so `env keys ls` and the next
 /// reconcile describe the rotated epoch instead of the one it replaced. The administrator's
 /// self-wrap is recorded only when a grant covers her, since a wrap needs a grant to hang on.
 async fn record_new_epoch(
