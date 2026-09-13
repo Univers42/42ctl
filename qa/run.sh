@@ -39,10 +39,16 @@ SHUFFLE="${QA_SHUFFLE:-0}"
 REPEAT="${QA_REPEAT:-1}"
 SEED="${QA_SEED:-$RANDOM}"
 
+# A name that selects nothing is an error, never an empty run. The scoreboard counts only what
+# ran, so a mistyped name — or several names arriving as one argument from a shell that does not
+# split words — used to run the preflight alone and print "No regressions" over a battery that
+# never started.
 if [ $# -gt 0 ]; then
 	SPECS=()
 	for want in "$@"; do
-		for f in "$QA_DIR/specs/${want}"*.sh; do [ -f "$f" ] && SPECS+=("$f"); done
+		found=0
+		for f in "$QA_DIR/specs/${want}"*.sh; do [ -f "$f" ] && { SPECS+=("$f"); found=1; }; done
+		[ "$found" = 1 ] || { printf 'qa: no spec matches "%s"\n' "$want" >&2; exit 2; }
 	done
 else
 	SPECS=("$QA_DIR"/specs/s*.sh)
