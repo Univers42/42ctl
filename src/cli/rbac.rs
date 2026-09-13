@@ -55,7 +55,10 @@ pub enum Org {
         #[arg(long, value_name = "TOKEN")]
         token: String,
     },
-    /// GitHub App connect / link / sync for an org (needs `auth login --github`)
+    /// GitHub App connect / link / sync — needs a control plane with those routes; vault42's has none
+    ///
+    /// These call `/v1/orgs/{org}/github/*`, which grobase served and the vault42 authority does
+    /// not, so against vault42 each one says so and exits 1.
     #[command(subcommand)]
     Github(OrgGithub),
 }

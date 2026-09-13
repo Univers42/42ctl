@@ -12,7 +12,7 @@
 # It is also where the verbs no other spec runs get run: config profile/show, keys init's
 # refusal to overwrite, vault import/export/audit/rotate/rm, db, notes, help, version,
 # update --check, auth mfa, and the two verbs that must say plainly they cannot act here —
-# `unseal` (vault42 has no seal state) and `org github` (no GitHub App on this authority).
+# `unseal` (vault42 has no seal state) and `org github` (the authority has no such routes).
 #
 # Spellings are the current ones throughout; `vault get-env --help` is checked once to prove
 # the old spelling still lands on the same page.
@@ -228,11 +228,13 @@ assert_green "and she turns it off again the same way" \
 # ── the verbs that must say plainly what they cannot do here ─────────────────
 assert_green "unseal refuses and says it is not implemented, rather than printing success" \
 	-- bash -c 'out="$(lea unseal 2>&1)" && exit 1; grep -q "not implemented" <<<"$out"'
-assert_green "connecting GitHub without a GitHub App on the authority is refused, not faked" \
-	-- bash -c 'out="$(lea org github connect "$ORG" 2>&1)" && { echo "succeeded: $out"; exit 1; }; [ -n "$out" ]'
-for verb in "link $ORG some-github-org" "sync $ORG"; do
-	assert_green "org github ${verb%% *} without a GitHub App is refused, not faked" \
-		-- bash -c 'out="$(lea "org github $1" 2>&1)" && { echo "succeeded: $out"; exit 1; }; [ -n "$out" ]' _ "$verb"
+# The vault42 authority serves no `/v1/orgs/{org}/github/*` route at all — only grobase did — so
+# these three can never succeed here, whatever GitHub app the authority has (this battery's has
+# one, see s44). What they must do is say so, rather than print a bare 404.
+for verb in "connect $ORG" "link $ORG some-github-org" "sync $ORG"; do
+	assert_green "org github ${verb%% *} says this authority has no GitHub organisation routes" \
+		-- bash -c 'out="$(lea "org github $1" 2>&1)" && { echo "succeeded: $out"; exit 1; }
+			grep -q "this authority does not serve GitHub organisation routes" <<<"$out" || { printf "%s\n" "$out"; exit 1; }' _ "$verb"
 done
 assert_green "update --check reports what is installed" \
 	-- bash -c 'lea update --check 2>/dev/null | grep -qE "^installed +[0-9]+\.[0-9]+\.[0-9]+"'

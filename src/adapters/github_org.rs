@@ -11,9 +11,13 @@
 /* ************************************************************************** */
 
 //! Org-scoped GitHub verbs against grobase `/v1/orgs/{orgId}/github/*`. Each call carries
-//! the grobase session JWT (from `auth login --github`) as a Bearer; grobase RBAC-checks
-//! it. `connect_start` returns the App install URL + a single-use nonce, `link` binds a
-//! GitHub org login, and `sync` upserts GitHub teams/members/repos into the org's RBAC.
+//! the session token as a Bearer. `connect_start` returns the App install URL + a single-use
+//! nonce, `link` binds a GitHub org login, and `sync` upserts GitHub teams/members/repos into
+//! the org's RBAC.
+//!
+//! **vault42's authority serves none of these routes** — only grobase did, and grobase is not
+//! this product's control plane. Against vault42 every call answers 404, and `failed` says that
+//! in words rather than as a status that reads like a typo in the org name.
 
 use serde::Deserialize;
 use serde_json::json;
@@ -50,7 +54,7 @@ pub async fn connect_start(
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("connect start failed: HTTP {}", resp.status().as_u16());
+        return Err(failed("connect start", resp.status().as_u16()));
     }
     Ok(resp.json::<ConnectStart>().await?)
 }
@@ -73,7 +77,7 @@ pub async fn link(
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("link failed: HTTP {}", resp.status().as_u16());
+        return Err(failed("link", resp.status().as_u16()));
     }
     Ok(())
 }
@@ -90,7 +94,20 @@ pub async fn sync(grobase: &str, token: &str, org_id: &str) -> anyhow::Result<Sy
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("sync failed: HTTP {}", resp.status().as_u16());
+        return Err(failed("sync", resp.status().as_u16()));
     }
     Ok(resp.json::<SyncSummary>().await?)
+}
+
+/// A failed `org github` call. A 404 means the control plane has no such route at all — the
+/// vault42 authority has none — which is a different fact from "your org was not found".
+fn failed(verb: &str, status: u16) -> anyhow::Error {
+    if status == 404 {
+        return anyhow::anyhow!(
+            "org github {verb}: this authority does not serve GitHub organisation routes \
+             (HTTP 404) — the vault42 authority has none; manage members with `org invite` \
+             and `team member add`"
+        );
+    }
+    anyhow::anyhow!("org github {verb} failed: HTTP {status}")
 }
