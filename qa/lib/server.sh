@@ -41,9 +41,14 @@ export QA_DOCKER_USER
 # group route that resolves a member by email, the removal hint in the current spelling, and the
 # grant listing that says whom each grant is for. s41 asserts all of them and goes red against
 # f699f61 — proved, not assumed.
+#
+# 93a2817 is vault42 feature/group-grants (PR #7) on top of it: a project group can be granted
+# a role. s41's member whose only right is a group grant fails three assertions on 65b91bc.
+# Re-pin to the merge commit once #7 lands on develop.
+#
 # `=` and not `:=`: an EMPTY value is the documented way to build the working tree, and `:=`
 # replaced it with the pin — so a run meant to test local server changes silently tested the pin.
-: "${QA_VAULT42_REV=65b91bc}"
+: "${QA_VAULT42_REV=93a2817}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"

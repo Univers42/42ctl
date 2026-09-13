@@ -34,6 +34,16 @@ usable as a merge gate today while the authority is still being written.
 `qa/results/latest.jsonl` carries the same information one JSON object per assertion,
 for consumption by tooling rather than eyes.
 
+**Coverage is measured, commands and flags both.** 42ctl appends one line per parsed
+invocation to `FT_TRACE_COMMANDS` — the command path and the NAMES of the flags given, never a
+value — and a full run ends with "commands exercised X of Y" and "flags given X of Y" from
+`qa/coverage.py` (the per-command gaps are in `qa/results/coverage.txt`).
+`QA_REQUIRE_COVERAGE=1` fails the run when a command never ran; `--require-flags` on the script
+fails on any flag never given. A flag given is still not a flag checked — that is what the
+listing matrix (`qa/lib/listing.sh`, used by `s40` and `s43`) is for: it runs every listing in
+every output shape and compares each against the json rows, and each spec checks its list of
+listings against `help commands`, so a new listing without a row there turns red.
+
 ## Prerequisites
 
 Neither repo has a host `cargo`, so everything runs in Docker.
@@ -58,7 +68,10 @@ QA_VAULT42_REV= ./qa/run.sh         # build from the live sibling checkout inste
 ```
 
 The pin is a detached read-only clone under `qa/.cache/vault42`. The sibling checkout is
-never modified. Because of the pin, a green result is always attributable to one commit.
+never modified. Because of the pin, a green result is always attributable to one commit, and
+every spec prints `# vault42 server built from …` so a log says which. (An empty value used to be
+replaced by the pin — `:=` treats empty as unset — so a run meant to test local server changes
+tested the pin instead.)
 
 ## Two servers, two ports
 
@@ -139,9 +152,6 @@ asserts it is left git-clean.
 | `s29-offboarding` | removal, its cascade, the rotation that closes it, account deletion |
 | `s31-operability` | backup and restore, fail-closed startup, deployment, doc honesty |
 | `s32-second-factor-escrow` | one-time codes, the keystore escrow round trip, the device flow |
-| `s24-scope-bridge-authz` | projects, environments, pubkeys, grants, and who may do what |
-| `s25-scope-lifecycle` | an environment secret shared between two people, and rotation |
-| `s26-scope-key-attacks` | scope namespacing, multi-tenancy isolation, missing defences |
 | `s30-inception-live` | a real compose project, filled, pushed, wiped and restored |
 | `s33-large-objects` | chunked transfer, resume, tamper, collection, restoring a version |
 | `s34-team-project-access` | the whole team story: accounts, org, team, grants, the tree |
@@ -149,6 +159,11 @@ asserts it is left git-clean.
 | `s36-credential-attacks` | credential files, enumeration, brute force, stolen tokens, network |
 | `s37-dense-organisation` | eleven people, two companies, three teams, a hundred files |
 | `s38-private-in-scope` | private files inside a shared environment: one member's `.env.local` reaches nobody else, as bytes or as a path; labels, `ls-env`, the shadow rule, the oversize refusal, a planted private manifest |
+| `s40-cloud-controller` | every cloud verb against a flyctl stand-in: exact output, the listing matrix on all twelve cloud listings, no destructive command ever run, lifecycle refused to a read-only token |
+| `s41-cli-rights` | who may do what, through the CLI alone: owner, admin, team writer and reader, a member whose only right is a group grant, a plain member, an outsider |
+| `s42-fresh-user-journey` | one person's first day from an empty machine to a second laptop |
+| `s43-listing-matrix` | every non-cloud listing in every output shape (`qa/lib/listing.sh`), and `vault rm $(vault ls -q)` leaving 42ctl's own records alone |
+| `s44-github-sign-in` | `auth login --github` to a session, against a GitHub stand-in (`qa/fixtures/github/stub.pl`): pending polls, verified address only, denial and unknown address refused |
 
 ## Writing a spec
 
