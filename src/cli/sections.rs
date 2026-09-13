@@ -31,6 +31,7 @@ pub const SECTIONS: &[(&str, &[&str])] = &[
             "team",
         ],
     ),
+    ("Operator Commands", &["cloud"]),
     ("Commands", &["help", "update", "unseal"]),
 ];
 

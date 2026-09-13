@@ -16,11 +16,13 @@
 //! `config` (profiles), `version`, `update` (verify-before-swap), `help` (the guided
 //! walkthrough), and operator-only `unseal`. Types only — handlers live under `cmd/`.
 
+pub mod cloud;
 mod rbac;
 pub mod sections;
 mod store;
 mod vault;
 
+pub use cloud::{Cloud, CloudMachine, CloudNet, CloudSecret, CloudVolume, Lifecycle};
 pub use rbac::{Env, Group, Invite, Org, OrgGithub, Project, Team};
 pub use store::{Db, Note};
 pub use vault::Vault;
@@ -48,8 +50,8 @@ encrypted on YOUR machine, so the server only ever stores opaque ciphertext.";
 const AFTER_HELP: &str = "\
 Start here:          42ctl help kickoff     (the whole product, end to end)
 Every command:       42ctl help commands    (each one with its arguments)
-Topics:              kickoff  sync  large  keys  account  teams  scopes
-                     notes  format  config  security  update  commands
+Topics:              kickoff  sync  large  keys  account  teams  scopes  notes
+                     format  cloud  config  security  update  commands
 Per-command help:    42ctl <command> --help";
 
 /// 42ctl — one CLI for the 42 stack. `--profile` selects an org/environment.
@@ -162,10 +164,16 @@ pub enum Command {
     /// The guided walkthrough — `42ctl help <topic>` for one subject
     Help {
         /// A topic — kickoff · sync · large · keys · account · teams · scopes · notes · format ·
-        /// config · security · update · commands — or a command name, for its --help
+        /// cloud · config · security · update · commands — or a command name, for its --help
         #[arg(value_name = "TOPIC")]
         topic: Option<String>,
     },
+    /// The vault42 deployment: machines, volumes, network, secrets, health
+    ///
+    /// Delegates to flyctl — `fly` or `flyctl` on PATH, else a pinned container — so 42ctl
+    /// inherits its behaviour rather than re-implementing Fly's API. Needs FLY_API_TOKEN.
+    #[command(subcommand)]
+    Cloud(Cloud),
     /// Operator-only: unseal the vault after a restart (a stub today: it only prints a note)
     Unseal,
 }

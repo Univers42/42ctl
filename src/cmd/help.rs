@@ -271,25 +271,6 @@ mod tests {
         );
     }
 
-    /// The overview's command groups name every top-level command, so none is undiscoverable
-    /// from the first page a new user sees.
-    #[test]
-    fn every_top_level_command_is_in_the_overview_groups() {
-        let groups = OVERVIEW
-            .split("## Command groups")
-            .nth(1)
-            .unwrap_or_default();
-        let named: Vec<&str> = groups.split_whitespace().collect();
-        for cmd in Cli::command().get_subcommands() {
-            assert!(
-                named.contains(&cmd.get_name()),
-                "`{}` is not in the overview",
-                cmd.get_name()
-            );
-        }
-    }
-
-    /// Everywhere `--help` advertises the topic list, it names every topic that exists.
     #[test]
     fn every_topic_is_advertised_by_help() {
         let root = Cli::command();

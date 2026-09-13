@@ -27,6 +27,8 @@ pub mod creds;
 pub mod decrypt;
 pub mod derive;
 pub mod escrow;
+pub mod fly;
+pub mod flyctl;
 pub mod github;
 pub mod github_device;
 pub mod github_org;

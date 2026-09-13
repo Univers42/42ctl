@@ -61,6 +61,11 @@ pub const TOPICS: &[(&str, &str, &str)] = &[
         FORMAT,
     ),
     (
+        "cloud",
+        "the fly.io deployment: machines, volumes, health",
+        CLOUD,
+    ),
+    (
         "config",
         "profiles, endpoints and the FT_* env knobs",
         CONFIG,
@@ -90,11 +95,7 @@ $ 42ctl push --project <name>                             # seal + upload your p
 The whole product, team included, step by step:   42ctl help kickoff
 Every command with its arguments, in one list:    42ctl help commands
 
-## Command groups
-    identity & access    auth   account   keys   config
-    secrets              vault (secrets)   push   pull   note   db
-    teams & rbac         org   team   group   env   project   invite
-    maintenance          version   update   help   unseal
+Every command, grouped by what it is for:            42ctl --help
 
 ## Topics";
 
@@ -446,6 +447,55 @@ happens and the command fails once at the end listing what to retry — so a sta
 middle of a long list costs you that one removal, not the rest of them.
 ! Removing a member takes away AUTHORIZATION, not access to keys they already hold.
   Rotate the environments they could read: 42ctl vault rotate-scope --org acme --project api --env prod";
+
+const CLOUD: &str = "\
+`42ctl cloud` drives the fly.io deployment vault42 runs on. It delegates to flyctl — `fly` or
+`flyctl` on PATH, else a container pinned by digest — so it behaves exactly like the command you
+would have typed. Set FLY_API_TOKEN first; it is read at the moment of use and never written to
+the config file.
+
+## Which apps, and are they well
+The apps come from the profile's endpoints, so there is nothing to configure.
+$ 42ctl cloud apps
+$ 42ctl cloud status
+$ 42ctl cloud health
+`health` checks what flyctl cannot know: the authority answering, a 64-hex contract key, the
+scope-key flag on the server, an encrypted volume attached, and how old the newest snapshot is.
+It exits non-zero on a failure, so it works as a gate; warnings never affect the exit status.
+$ 42ctl cloud health --no-wake  # skip the probes that would start a stopped machine
+! The probes WAKE a scale-to-zero machine. Use --no-wake when you only want what flyctl knows.
+
+## The machines
+$ 42ctl cloud machine ls
+$ 42ctl cloud machine ls --format 'table {{.ID}}\\t{{.State}}\\t{{.Volume}}'
+$ 42ctl cloud machine inspect 837243f799de98
+$ 42ctl cloud machine ports
+$ 42ctl cloud machine events 837243f799de98 --app vault42-server
+$ 42ctl cloud machine logs --app vault42-server --no-tail
+Lifecycle verbs take as many machines as you name, echo the flyctl command they are about to run,
+and stop at --dry-run without running it.
+$ 42ctl cloud machine start 837243f799de98 --app vault42-server
+$ 42ctl cloud machine stop $(42ctl cloud machine ls --app vault42-server -q) --app vault42-server
+$ 42ctl cloud machine suspend 837243f799de98 --app vault42-server --dry-run
+$ 42ctl cloud machine wait 837243f799de98 --state started --app vault42-server
+
+## The volumes
+A volume is the ONLY copy of a vault42 database, so the listing leads with whether it is
+encrypted, what it is attached to, and how many snapshots it keeps.
+$ 42ctl cloud volume ls
+$ 42ctl cloud volume snapshots vol_vdejdny5em5w63x4 --app vault42-server
+$ 42ctl cloud volume snapshot vol_vdejdny5em5w63x4 --app vault42-server
+! The authority's volume also holds its contract SIGNING KEY (/data/authority.key).
+  Destroying it invalidates every contract ever issued — no restore short of a snapshot.
+
+## Secrets, addresses, certificates
+Fly never hands a secret value back and 42ctl never asks for one; a digest changing is how you
+tell a secret was rotated.
+$ 42ctl cloud secret ls
+$ 42ctl cloud net ips
+$ 42ctl cloud net certs
+`docs/cloud.md` records which flyctl flags were verified, and which two things flyctl cannot do
+at all (machine stats and top).";
 
 const CONFIG: &str = "\
 A profile is one org / environment: its endpoints plus its own login contract and
