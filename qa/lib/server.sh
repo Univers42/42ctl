@@ -35,7 +35,12 @@ export QA_DOCKER_USER
 # specs in s20 sign in before they assert, and `account delete` releases the tenant name
 # rather than keeping it. Moving the pin BACK below this commit turns those specs red, which
 # is correct — they describe an authority that answers differently.
-: "${QA_VAULT42_REV:=f699f61}"
+#
+# 5bd230d carries the three authorization fixes (an admin cannot mint an owner, a group invite
+# records its membership, rotating a scope needs Writer), the group route that resolves a member
+# by email, and the removal hint in the current spelling. s41 asserts all of them and goes red
+# against f699f61, which was proved rather than assumed: eight regressions, each one a hole.
+: "${QA_VAULT42_REV:=5bd230d}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"
