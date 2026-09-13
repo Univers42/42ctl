@@ -303,8 +303,8 @@ pub struct Output {
     /// Keep only rows where KEY equals VALUE; `label=K=V` matches a label. Repeatable, all must hold
     ///
     /// KEY is a column name, matched whatever the case: `--filter role=member`. A key that
-    /// names no column is refused, so a typo cannot quietly read as "there is nothing here";
-    /// a key that does exist and matches no row prints nothing and succeeds.
+    /// names no column is refused, and so is a filter that keeps no row (`no row matches …`),
+    /// so a typo in either half cannot quietly read as "there is nothing here".
     #[arg(long, value_name = "KEY=VALUE")]
     pub filter: Vec<String>,
     /// Print only the first column, one id per line, for `$( … )` composition
