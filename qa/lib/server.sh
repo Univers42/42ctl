@@ -601,6 +601,18 @@ export -f qa_try_authority_fresh
 : "${QA_S3_SECRET:=qa42minioadmin-secret}"
 : "${QA_S3_BUCKET:=qa42chunks}"
 
+# The store and its client, from MinIO's own registry and pinned by digest.
+#
+# These were `minio/minio:latest` and `minio/mc:latest` on Docker Hub until both repositories
+# were deleted. The same battery commit passed on 2026-09-11 and failed every scheduled run
+# after, with every chunked-object spec reporting "an object store is available" as a
+# regression and everything downstream of it cascading — a supply-chain outage that read as
+# eight code regressions. quay.io is where MinIO publishes, and its community build has been
+# frozen since 2025-09-07, so a digest pin costs nothing and a moved tag can never do this
+# again. Override with QA_S3_IMAGE / QA_MC_IMAGE to try a newer build deliberately.
+: "${QA_S3_IMAGE:=quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e}"
+: "${QA_MC_IMAGE:=quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727}"
+
 # Start a real S3-compatible store. Chunks are meant to live outside the vault, so the
 # battery needs somewhere outside the vault to put them — and it has to be a real S3
 # implementation, because the thing most likely to be wrong is the request signing.
@@ -611,7 +623,7 @@ qa_s3_up() {
 	docker run -d --name "$QA_S3_SRV" --network "$QA_NET" \
 		-p "$QA_S3_HOST_PORT:9000" \
 		-e MINIO_ROOT_USER="$QA_S3_KEY" -e MINIO_ROOT_PASSWORD="$QA_S3_SECRET" \
-		minio/minio:latest server /data >/dev/null 2>&1 || return 1
+		"$QA_S3_IMAGE" server /data >/dev/null 2>&1 || return 1
 	local i
 	for i in $(seq 1 60); do
 		curl -sS -m 2 -o /dev/null "http://127.0.0.1:$QA_S3_HOST_PORT/minio/health/live" 2>/dev/null && return 0
@@ -640,7 +652,7 @@ qa_s3_count() {
 qa_mc() {
 	# shellcheck disable=SC2086 # QA_MC_DOCKER_ARGS is a deliberate argument list
 	docker run --rm --network "$QA_NET" --user "$(id -u):$(id -g)" -e HOME=/tmp \
-		${QA_MC_DOCKER_ARGS:-} --entrypoint sh minio/mc:latest -c \
+		${QA_MC_DOCKER_ARGS:-} --entrypoint sh "$QA_MC_IMAGE" -c \
 		"mc alias set qa http://$QA_S3_SRV:9000 $QA_S3_KEY $QA_S3_SECRET >/dev/null 2>&1 && $*" \
 		2>/dev/null
 }
