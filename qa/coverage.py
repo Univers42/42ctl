@@ -21,10 +21,10 @@ import collections
 import re
 import sys
 
-# The operator-facing verbs a hermetic battery cannot drive to completion, and so cannot be
-# required: they need a GitHub App registered on the authority. They are still expected to RUN
-# (and be refused); listing them here only keeps a missing GitHub App from failing the gate.
-UNREACHABLE = {"org github link", "org github sync"}
+# Verbs a hermetic battery may never reach. Empty on purpose: the GitHub verbs cannot COMPLETE
+# without a GitHub App on the authority, but they can run and be refused, and s42 runs them —
+# a refusal is behaviour worth asserting. Add a name here only with the reason beside it.
+UNREACHABLE: set = set()
 
 
 def commands(path):

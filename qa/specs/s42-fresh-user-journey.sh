@@ -227,6 +227,10 @@ assert_green "unseal refuses and says it is not implemented, rather than printin
 	-- bash -c 'out="$(lea unseal 2>&1)" && exit 1; grep -q "not implemented" <<<"$out"'
 assert_green "connecting GitHub without a GitHub App on the authority is refused, not faked" \
 	-- bash -c 'out="$(lea org github connect "$ORG" 2>&1)" && { echo "succeeded: $out"; exit 1; }; [ -n "$out" ]'
+for verb in "link $ORG some-github-org" "sync $ORG"; do
+	assert_green "org github ${verb%% *} without a GitHub App is refused, not faked" \
+		-- bash -c 'out="$(lea "org github $1" 2>&1)" && { echo "succeeded: $out"; exit 1; }; [ -n "$out" ]' _ "$verb"
+done
 assert_green "update --check reports what is installed" \
 	-- bash -c 'lea update --check 2>/dev/null | grep -qE "^installed +[0-9]+\.[0-9]+\.[0-9]+"'
 

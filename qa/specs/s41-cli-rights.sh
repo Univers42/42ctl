@@ -181,6 +181,16 @@ refused_as "somebody outside the organisation cannot be put in a team" ada "" \
 refused_as "a plain member cannot put themselves in a team" eve "" \
 	"team member add --org $ORG --team writers --user $(mail eve)"
 
+TINV="$(act ada "team invite --org $ORG --team readers --email $(mail ben)" 2>/dev/null | field token)"
+export TINV
+assert_green "a team invite is issued to an organisation member" -- test -n "$TINV"
+expect_as "and accepted by its addressee" ben "accepted invite" "invite accept --token $TINV"
+assert_green "a member is taken out of a team, keeping their place in the organisation" \
+	-- bash -c 'act ada "team member rm --org $ORG --team readers --user $(mail ben)" >/dev/null 2>&1 || exit 1
+		act ben "org member ls --org $ORG -q" 2>/dev/null | grep -qx "$1"' _ "${ID[ben]}"
+refused_as "a plain member cannot take somebody out of a team" eve "" \
+	"team member rm --org $ORG --team readers --user $(mail dot)"
+
 assert_green "writers are granted WRITE on prod" \
 	-- bash -c 'act ada "team grant --org $ORG --team writers --project $PROJECT --role write --env prod" 2>/dev/null | grep -q "^grant_id "'
 assert_green "readers are granted READ on prod" \
