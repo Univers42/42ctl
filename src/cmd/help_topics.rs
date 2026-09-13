@@ -429,9 +429,8 @@ several verbs. `{{json .}}` is the whole row, whatever its fields are.
 must hold. The key is a column name, matched whatever the case.
 $ 42ctl org member ls --org acme --filter Role=member
 $ 42ctl env files --org acme --project api --env prod --filter label=app=wordpress
-A key that names no column is refused, so a typo cannot read as \"there is nothing here\".
-A key that does name one and matches no row prints nothing and succeeds — that is what lets
-a filtered removal run on a schedule without failing on the day there is nothing to remove.
+A key that names no column is refused by name, and a filter that keeps no row is refused too,
+so neither a mistyped key nor a mistyped value can read as \"there is nothing here\".
 
 ## Take one column, and compose
 `-q` prints the first column and nothing else: no header, no second field. The first column
@@ -446,7 +445,7 @@ Every target is attempted even when an earlier one fails. Each failure is named 
 happens and the command fails once at the end listing what to retry — so a stale id in the
 middle of a long list costs you that one removal, not the rest of them.
 ! Removing a member takes away AUTHORIZATION, not access to keys they already hold.
-  Rotate the environments they could read: 42ctl vault rotate-scope --org acme --project api --env prod";
+  Rotate the environments they could read: 42ctl env keys rotate --org acme --project api --env prod";
 
 const CLOUD: &str = "\
 `42ctl cloud` drives the fly.io deployment vault42 runs on. It delegates to flyctl — `fly` or

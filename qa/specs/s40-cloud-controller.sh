@@ -101,9 +101,12 @@ expect "a filter key is matched regardless of case" \
 	"3d8e4a1f0b2c77" \
 	cloud machine ls -q --filter app=vault42-server
 
-expect "two filters must both hold" \
-	"" \
-	cloud machine ls -q --filter State=stopped --filter App=vault42-server
+assert_green "two filters must both hold, and a filter that keeps nothing is refused, naming it" \
+	-- bash -c 'out="$(cloud cloud machine ls -q --filter State=stopped --filter App=vault42-server 2>&1)"; [ $? -ne 0 ] || exit 1
+		grep -q "no row matches State=stopped, App=vault42-server" <<<"$out"'
+assert_green "a mistyped filter VALUE is refused too, not read as an empty answer" \
+	-- bash -c 'out="$(cloud cloud machine ls -q --filter State=stoped 2>&1)"; [ $? -ne 0 ] || exit 1
+		grep -q "no row matches State=stoped" <<<"$out"'
 
 expect "a template naming a field that does not exist renders it as nothing" \
 	"3d8e4a1f0b2c77 []
