@@ -322,6 +322,25 @@ pub fn reltime(epoch_secs: i64) -> String {
     }
 }
 
+/// Format a byte count the way `docker stats` does: binary units, one decimal above KiB.
+///
+/// Binary rather than decimal because these are memory figures, where a machine sized
+/// "256MB" holds 256 MiB and rounding them as powers of ten would make a full machine read
+/// as over-capacity.
+pub fn bytes(count: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut size = count as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit + 1 < UNITS.len() {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        return format!("{count}B");
+    }
+    format!("{size:.1}{}", UNITS[unit])
+}
+
 /// Print `error` and its cause chain in red on stderr, plus a one-line next step for the
 /// common transport/gRPC failures so the user knows what to do.
 pub fn report_error(error: &anyhow::Error) {
@@ -351,6 +370,20 @@ fn hint_for(error: &anyhow::Error) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bytes_climbs_units_and_keeps_small_counts_exact() {
+        assert_eq!(bytes(0), "0B");
+        assert_eq!(bytes(1023), "1023B");
+        assert_eq!(bytes(1024), "1.0KiB");
+        assert_eq!(bytes(5_181_440), "4.9MiB");
+        assert_eq!(bytes(268_435_456), "256.0MiB");
+        assert_eq!(
+            bytes(u64::MAX),
+            "16777216.0TiB",
+            "the largest count stops at the last unit rather than wrapping"
+        );
+    }
 
     #[test]
     fn reltime_buckets_scale_by_unit() {
