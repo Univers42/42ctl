@@ -39,6 +39,29 @@ is not the app. A profile pointing at a local stack names no app, and the refusa
 `--app`. A verb that can only act on one app (`logs`, `wait`, a lifecycle verb) refuses when the
 profile names two, rather than picking one.
 
+## Who may do what
+
+**Nothing in 42ctl deletes a cloud resource.** No verb destroys a machine, a volume, an app, a
+secret, an address or a certificate, and `adapters/flyctl.rs` refuses any flyctl command whose
+command words include `destroy`, `delete`, `remove`, `rm`, `release`, `unset`, `scale`, `detach`
+or `revoke` — at `command()`, the one place every invocation is built, so a verb added later cannot
+either. Taking something apart is done with flyctl directly, by somebody who means to.
+
+**Changing a machine is for administrators, and Fly is what enforces it.** The capability is the
+`FLY_API_TOKEN`, not anything 42ctl could check locally — whoever holds a write-capable token could
+run flyctl around 42ctl anyway. So the split is made with the token itself:
+
+| who | token | may |
+|---|---|---|
+| administrator | a deploy or org token | everything below, plus `machine start/stop/restart/suspend` and `volume snapshot` |
+| member | `fly tokens create readonly --from-existing --expiry …` | `apps`, `status`, `health`, `machine ls/inspect/ports/events/logs/wait`, `volume ls/inspect/snapshots`, `secret ls`, `net ips/certs` |
+
+Measured against production rather than read off the docs: a read-only token lists machines and
+volumes, and `machine start` with it is refused by Fly with `failed to obtain lease … unauthorized`
+while the machine stays as it was. 42ctl reports that as "fly refused this FLY_API_TOKEN for
+`fly machine start …` — changing a machine or a volume needs an administrator's token". The
+hermetic battery reproduces Fly's exact refusal with `STUB_READONLY=1` in `s40`.
+
 ## Verified flyctl surface
 
 Checked against `flyio/flyctl:v0.4.101`. Re-run `--help` before assuming a flag on a newer one.
