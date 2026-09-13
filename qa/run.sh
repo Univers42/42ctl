@@ -16,6 +16,19 @@ QA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$QA_DIR/lib/harness.sh"
 source "$QA_DIR/lib/server.sh"
 
+# One battery per Docker daemon. Every run starts by tearing down qa42-srv, qa42-auth and
+# qa42-s3, and every spec shares those names, so a second run started beside a first one kills
+# its server mid-spec. That happened: the victim reported "Temporary failure in name
+# resolution" as six regressions, and a SPEC-NOW-MET for a revocation that only "worked"
+# because the server was gone. The lock is taken before the teardown, so a second run refuses
+# instead of striking.
+QA_LOCK="${QA_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/qa42-battery.lock}"
+exec 9>"$QA_LOCK"
+if ! flock -n 9; then
+	printf 'qa: another battery is running against this Docker daemon (lock %s) — run one at a time\n' "$QA_LOCK" >&2
+	exit 3
+fi
+
 : >"$QA_JSON"
 qa_reclaim_workspace
 
