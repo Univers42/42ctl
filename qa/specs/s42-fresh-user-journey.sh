@@ -186,6 +186,9 @@ assert_green "the second machine restores the project tree byte for byte" \
 			cmp -s "$W/laptop/$f" "$W/second/$f" || { echo "differs or missing: $f"; exit 1; }
 		done'
 assert_green "its notes come with it" -- bash -c '[ "$(lea2 note get onboarding.md 2>/dev/null)" = "# onboarding for $N" ]'
+assert_green "a note removed on the second machine is gone for both" \
+	-- bash -c 'lea2 note rm onboarding.md 2>/dev/null | grep -qx "note onboarding.md removed" || exit 1
+		! lea note get onboarding.md >/dev/null 2>&1'
 assert_green "and so do her personal secrets" -- bash -c '[ "$(lea2 vault get app/STRIPE_KEY 2>/dev/null)" = "$STRIPE" ]'
 
 # ── her own organisation, one environment, shared with herself ───────────────

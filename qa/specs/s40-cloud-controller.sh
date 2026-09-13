@@ -179,6 +179,13 @@ expect "volumes lead with encryption, attachment and retention" \
 vol_authority000001 vault42-authority true 91c5d2e6a7f0b3 5" \
 	cloud volume ls --format '{{.ID}} {{.App}} {{.Encrypted}} {{.Attached}} {{.Snapshots}}'
 
+assert_green "volume inspect hands back fly's raw JSON for the volume asked for" \
+	-- bash -c 'cloud cloud volume inspect vol_authority000001 2>/dev/null | python3 -c "
+import json, sys
+rows = json.load(sys.stdin)
+assert rows[0][\"id\"] == \"vol_authority000001\" and rows[0][\"encrypted\"] is True, rows
+"'
+
 expect "snapshots of one volume" \
 	"vs_stale created" \
 	cloud volume snapshots vol_authority000001 --app vault42-authority --format '{{.ID}} {{.Status}}'
