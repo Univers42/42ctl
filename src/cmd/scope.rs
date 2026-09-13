@@ -333,11 +333,13 @@ mod tests {
             id: "g1".into(),
             env_id: Some("env-prod".into()),
             project_role: "read".into(),
+            ..Default::default()
         };
         let wide = crate::adapters::rbac::ProjectGrant {
             id: "g2".into(),
             env_id: None,
             project_role: "write".into(),
+            ..Default::default()
         };
         assert!(applies(&scoped, "env-prod"));
         assert!(!applies(&scoped, "env-staging"));
