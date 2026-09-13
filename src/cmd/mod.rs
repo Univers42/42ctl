@@ -20,6 +20,7 @@ mod db;
 mod env;
 mod group;
 mod help;
+mod help_commands;
 mod help_topics;
 mod invite;
 mod keys;

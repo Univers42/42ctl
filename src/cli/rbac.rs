@@ -10,9 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! The RBAC verbs over grobase: `org`, `team`, `group`, `env`, `project`, `invite`. All
-//! of them need a grobase session (`42ctl auth login --github`) and act on the
-//! org / project the flags name.
+//! The RBAC verbs over the authority: `org`, `team`, `group`, `env`, `project`, `invite`. All
+//! of them need a session (`42ctl auth login --password --email <mail>`, or `--github`) and
+//! act on the org / project the flags name.
 
 use clap::Subcommand;
 

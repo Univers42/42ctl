@@ -34,28 +34,48 @@ verify one by hand.
 ## First five minutes
 
 ```sh
-42ctl help                 # the guided walkthrough; `42ctl help <topic>` for one subject
-42ctl keys init            # your local identity (X25519 + Ed25519), sealed by a passphrase
-42ctl auth login --tenant <tenant> --email you@example.com     # email OTP → login contract
-42ctl push --project <name>                                    # seal + upload your *.env tree
-42ctl pull --project <name> --apply                            # bring it back, byte-exact
+42ctl keys init                                        # your local identity, sealed by a passphrase
+42ctl auth signup --email you@example.com              # your account (password prompted)
+42ctl auth login --password --email you@example.com --tenant <tenant>   # session + contract
+42ctl push --project <name>                            # seal + upload your project's env tree
+42ctl pull --project <name> --apply                    # bring it back, byte-exact
 ```
 
-Topics: `quickstart` · `sync` · `keys` · `teams` · `scopes` · `notes` · `config` · `security` ·
-`update`. Every verb also answers `--help`.
+The login needs the session before it can take a contract: `--tenant` on its own is refused
+until you have signed in with `--password` (or `--github`).
+
+## Help that ships in the binary
+
+```sh
+42ctl help                 # the overview and the topic index
+42ctl help kickoff         # the whole product end to end: you, a project, a team, an offboarding
+42ctl help commands        # every command with its arguments, generated from the parser
+42ctl help <topic>         # sync · large · keys · account · teams · scopes · notes · config · security · update
+42ctl <command> --help     # the long form of any one command
+```
+
+Every `42ctl …` example in the built-in help is parsed by a test, so a renamed flag cannot
+survive in the text. `docs/vault.md` is the long-form manual, checked against a live deployment.
 
 ## Command surface
 
 ```
-42ctl auth     login | logout | whoami | status                  # platform auth → a contract for your key
-42ctl keys     init | export-pub | enroll | escrow | recover      # local zero-knowledge identity
-42ctl vault    get | set | ls | rm | rotate | share | audit | import | export   (alias: secrets)
-               env-init | sync-keys | scope-status | set-env | get-env | rotate-scope   # shared env keys
-42ctl push | pull                                                # the project's *.env tree, path-aware
-42ctl note     add | get | ls | rm                               # encrypted project notes
-42ctl db       get | ls                                          # RBAC-checked encrypted records
-42ctl org | team | group | env | project | invite                # RBAC over grobase
-42ctl config   profile | endpoint | show                         # multi-profile (orgs / environments)
+42ctl auth     login | signup | passwd | mfa | me | logout | whoami | status
+42ctl account  show | delete
+42ctl keys     init | export-pub | enroll | escrow | recover
+42ctl vault    get | set | ls | rm | gc | rotate | share | audit | import | export     (alias: secrets)
+               env-init | sync-keys | scope-status | set-env | get-env                # shared env keys
+               push-env | ls-env | pull-env | rotate-scope                           # shared env trees
+42ctl push | pull                                     # your project's env tree, sealed to you
+42ctl note     add | get | ls | rm
+42ctl db       get | ls
+42ctl org      create | members | invite | remove-member | accept-invite | github connect|link|sync
+42ctl team     create | list | add-member | invite | remove-member | grant-project
+42ctl group    create | add-member | invite | remove-member
+42ctl env      create | list
+42ctl project  create | list | grants | revoke-grant | grant
+42ctl invite   accept | show
+42ctl config   profile | endpoint | show
 42ctl version | update | help | unseal
 ```
 

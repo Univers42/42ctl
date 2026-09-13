@@ -187,7 +187,7 @@ main() {
 	say ""
 	"${BIN_DIR}/42ctl" version
 	say ""
-	say "  next:  42ctl help quickstart"
+	say "  next:  42ctl help kickoff"
 	say ""
 }
 
