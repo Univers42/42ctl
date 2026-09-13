@@ -233,7 +233,8 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
   Distribution is `install.sh` and `42ctl update`, both reading the raw GitHub Release assets named
   `42ctl-<target>` (D11). A release is cut by `auto-release.yml` or `scripts/release.sh`; nothing is
   published by hand.
-- **`42ctl unseal` is a stub** pending the gRPC unseal surface; its help says so.
+- **`42ctl unseal` refuses, exit 1.** vault42 has no seal state (its `Unseal` RPC always reports
+  unsealed), so the verb says it is not implemented rather than printing a line that reads as success.
 - **CI's push trigger names `develop`, which does not exist here** (branches are `main` plus
   `feat/*`). Pull requests are what actually run CI.
 

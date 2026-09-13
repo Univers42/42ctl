@@ -178,7 +178,7 @@ pub enum Command {
     /// inherits its behaviour rather than re-implementing Fly's API. Needs FLY_API_TOKEN.
     #[command(subcommand)]
     Cloud(Cloud),
-    /// Operator-only: unseal the vault after a restart (a stub today: it only prints a note)
+    /// Operator-only, NOT IMPLEMENTED: vault42 has no seal state yet, so this refuses
     Unseal,
 }
 

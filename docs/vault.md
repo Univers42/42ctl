@@ -668,8 +668,9 @@ both would silently make them the same value in every automated run.
 Stated plainly, because a manual that implies a verb exists costs more than one that admits it
 does not.
 
-- **`42ctl unseal` is a stub.** It prints a line and drives nothing; the server's unseal RPC
-  authenticates and then always reports 100% unsealed, so there is no seal state to manage.
+- **`42ctl unseal` is not implemented, and says so with exit 1.** The server's unseal RPC
+  authenticates and then always reports 100% unsealed, so there is no seal state to manage. It
+  used to print a line and exit 0, which reads as an unseal that happened.
 - **No `org`, `team`, `project`, `env` or `group` deletion.** Nothing removes an organisation,
   a team, a project, an environment or a group once created.
 - **No variables verbs.** The authority serves org/project/environment variables with
