@@ -41,7 +41,9 @@ export QA_DOCKER_USER
 # group route that resolves a member by email, the removal hint in the current spelling, and the
 # grant listing that says whom each grant is for. s41 asserts all of them and goes red against
 # f699f61 — proved, not assumed.
-: "${QA_VAULT42_REV:=65b91bc}"
+# `=` and not `:=`: an EMPTY value is the documented way to build the working tree, and `:=`
+# replaced it with the pin — so a run meant to test local server changes silently tested the pin.
+: "${QA_VAULT42_REV=65b91bc}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"
@@ -127,6 +129,7 @@ qa_pin_vault42() {
 qa_require_docker_stack() {
 	qa_require_cmd docker
 	qa_pin_vault42 || spec_skip "cannot resolve pinned vault42 rev ${QA_VAULT42_REV:-}"
+	printf '# vault42 server built from %s\n' "${QA_VAULT42_REV:-the working tree at $VAULT42_DIR}"
 	docker image inspect "$QA_IMG" >/dev/null 2>&1 ||
 		spec_skip "toolchain image absent: $QA_IMG (docker pull $QA_IMG)"
 	[ -d "$VAULT42_DIR" ] ||
