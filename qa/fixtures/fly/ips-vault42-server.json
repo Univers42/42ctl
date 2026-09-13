@@ -1,1 +1,1 @@
-[ { "Address": "2a09:8280:1::stub:1", "Type": "v6", "Region": "global", "CreatedAt": "2026-09-13T10:00:00Z" } ]
+[{"Address": "2a09:8280:1::stub:1", "Type": "v6", "Region": "global", "CreatedAt": "2026-09-13T10:00:00Z", "Network": null}]

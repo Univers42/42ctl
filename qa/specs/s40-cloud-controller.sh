@@ -36,7 +36,10 @@ mkdir -p "$W/fly" "$W/state"
 cp "$QA_ROOT/fixtures/fly/"*.json "$W/fly/"
 printf '[{"id":"vs_fresh","size":1048576,"status":"created","created_at":"%s","retention_days":5}]\n' \
 	"$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%SZ)" >"$W/fly/snapshots-vol_server00000001.json"
-printf '[{"id":"vs_stale","size":1048576,"status":"created","created_at":"%s","retention_days":5}]\n' \
+# The second snapshot is mid-creation, with the nulls flyctl really prints for it: listing one used
+# to fail with "invalid type: null, expected u32". The fixtures carry the other nulls measured on
+# production (attached_alloc_id, force_instance_key, Network) for the same reason.
+printf '[{"id":"vs_stale","size":1048576,"status":"created","created_at":"%s","retention_days":5},{"id":"vs_creating","size":null,"status":"creating","created_at":null,"retention_days":null}]\n' \
 	"$(date -u -d '-10 days' +%Y-%m-%dT%H:%M:%SZ)" >"$W/fly/snapshots-vol_authority000001.json"
 printf '%s\n' '{"current":"prod","profiles":{"prod":{"server":"https://vault42-server.fly.dev","authority":"https://vault42-authority.fly.dev"}}}' \
 	>"$W/state/config.json"
@@ -206,8 +209,9 @@ rows = json.load(sys.stdin)
 assert rows[0][\"id\"] == \"vol_authority000001\" and rows[0][\"encrypted\"] is True, rows
 "'
 
-expect "snapshots of one volume" \
-	"vs_stale created" \
+expect "snapshots of one volume, including one still being created with null fields" \
+	"vs_stale created
+vs_creating creating" \
 	cloud volume snapshots vol_authority000001 --app vault42-authority --format '{{.ID}} {{.Status}}'
 
 expect "app secrets are listed by name and digest, never by value" \

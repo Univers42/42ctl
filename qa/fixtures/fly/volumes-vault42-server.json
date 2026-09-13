@@ -1,1 +1,1 @@
-[ { "id": "vol_server00000001", "name": "vault42_data", "state": "created", "size_gb": 1, "region": "cdg", "zone": "a1b2", "encrypted": true, "attached_machine_id": "3d8e4a1f0b2c77", "created_at": "2026-09-13T10:00:00Z", "snapshot_retention": 5, "auto_backup_enabled": true } ]
+[{"id": "vol_server00000001", "name": "vault42_data", "state": "created", "size_gb": 1, "region": "cdg", "zone": "a1b2", "encrypted": true, "attached_machine_id": "3d8e4a1f0b2c77", "created_at": "2026-09-13T10:00:00Z", "snapshot_retention": 5, "auto_backup_enabled": true, "attached_alloc_id": null}]

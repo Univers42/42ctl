@@ -93,15 +93,22 @@ impl Flyctl {
         format!("{program} {}", all.join(" "))
     }
 
-    /// Run flyctl and decode its `--json` output.
+    /// Run flyctl and decode its `--json` output into the typed shape a verb renders.
     pub async fn json<T: DeserializeOwned>(&self, args: &[String]) -> anyhow::Result<T> {
         let out = self.capture(args).await?;
-        serde_json::from_str(&out).with_context(|| {
+        decode(&out).with_context(|| {
             format!(
                 "could not read `{}` — is flyctl's output shape still what this expects?",
                 self.rendered(args)
             )
         })
+    }
+
+    /// Run flyctl and return its `--json` output untouched, nulls included, for `inspect`.
+    pub async fn raw(&self, args: &[String]) -> anyhow::Result<serde_json::Value> {
+        let out = self.capture(args).await?;
+        serde_json::from_str(&out)
+            .with_context(|| format!("`{}` did not print JSON", self.rendered(args)))
     }
 
     /// Run flyctl and return its stdout, failing with its stderr when it does.
@@ -204,6 +211,32 @@ fn token() -> anyhow::Result<String> {
             "{TOKEN} is not set — export it (`export {TOKEN}=$(fly auth token)`) before a cloud verb"
         )
     })
+}
+
+/// Decode flyctl's JSON into `T`, reading every `null` as the field's default.
+///
+/// flyctl is Go, and any field Go left nil prints as `null` — measured on production: a snapshot
+/// listed while it was still being created had a null where its retention belongs, and the
+/// listing failed with "invalid type: null, expected u32". `#[serde(default)]` covers a MISSING
+/// field, not a null one, so object members that are null are dropped first and the default
+/// applies to them too. That covers every field of every shape, including ones flyctl has not
+/// nulled yet, where annotating fields one at a time would miss the next.
+pub(crate) fn decode<T: DeserializeOwned>(text: &str) -> anyhow::Result<T> {
+    let mut value: serde_json::Value = serde_json::from_str(text)?;
+    drop_nulls(&mut value);
+    Ok(serde_json::from_value(value)?)
+}
+
+/// Remove every object member whose value is null, at any depth.
+fn drop_nulls(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.retain(|_, member| !member.is_null());
+            map.values_mut().for_each(drop_nulls);
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(drop_nulls),
+        _ => {}
+    }
 }
 
 /// Refuse any flyctl command that deletes, detaches, releases or scales something away.

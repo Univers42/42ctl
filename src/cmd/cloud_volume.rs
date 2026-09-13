@@ -104,7 +104,8 @@ async fn raw_volume(
     id: &str,
 ) -> anyhow::Result<Option<serde_json::Value>> {
     for name in targets(endpoint, app)? {
-        let all: Vec<serde_json::Value> = fly.json(&fly::args(&["volumes", "list"], &name)).await?;
+        let listed = fly.raw(&fly::args(&["volumes", "list"], &name)).await?;
+        let all = listed.as_array().cloned().unwrap_or_default();
         if let Some(found) = all
             .into_iter()
             .find(|v| v.get("id").and_then(serde_json::Value::as_str) == Some(id))
