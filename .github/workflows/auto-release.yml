@@ -1,0 +1,127 @@
+# Cut a patch release whenever CI goes green on main (D11).
+#
+# Why this exists: `install.sh` and `42ctl update` both read `releases/latest`, so what a
+# new machine installs is the last TAG, never what is on main. Releases were cut by hand
+# with `scripts/release.sh`, main drifted far past v0.1.3, and every fresh install got a
+# binary whose help pointed at retired hosts. The fix is to make the tag follow main
+# rather than follow somebody remembering.
+#
+# It runs on `workflow_run` of ci rather than on `push` to main, so a red commit is never
+# released — the tag is cut only for a revision that already passed fmt, clippy, tests,
+# the supply-chain scan and the Docker build.
+#
+# The push carries GH_PAT rather than GITHUB_TOKEN, and that is load-bearing: GitHub
+# suppresses workflow triggers for anything a job's own GITHUB_TOKEN pushes, so a tag
+# pushed with it would create a tag and build nothing. `release.yml` is in turn what
+# `sign-release.yml` and `docker.yml` chain onto, so the whole channel hangs off this
+# being a real `push: tags` event.
+#
+# P7-hardened: actions pinned by commit SHA (re-pin with `pinact run`).
+name: auto-release
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    name: tag the next patch
+    # The version-bump commit is itself a push to main, so it starts another ci run that
+    # lands back here. Skipping the bump's own subject is what stops that recursing, and
+    # `release: vX.Y.Z` is the subject scripts/release.sh already writes.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      !startsWith(github.event.workflow_run.head_commit.message, 'release: v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: GH_PAT must be configured
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          [ -n "$GH_PAT" ] || {
+            echo "secret GH_PAT is unset — a tag pushed with GITHUB_TOKEN triggers no" >&2
+            echo "release build, so this workflow would cut tags and publish nothing." >&2
+            exit 1
+          }
+
+      - name: Release only the revision CI just passed
+        id: guard
+        env:
+          GREEN: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          head=$(git rev-parse HEAD)
+          if [ "$head" = "$GREEN" ]; then
+            echo "cut=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cut=false" >> "$GITHUB_OUTPUT"
+            echo "main moved to ${head} since ${GREEN} was green; its own ci run releases it"
+          fi
+
+      - name: Resolve the version to release
+        id: version
+        if: steps.guard.outputs.cut == 'true'
+        run: |
+          cur=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if git rev-parse -q --verify "refs/tags/v${cur}" >/dev/null; then
+            major=${cur%%.*}; rest=${cur#*.}; minor=${rest%%.*}; patch=${rest#*.}
+            next="${major}.${minor}.$((patch + 1))"
+            echo "bump=true" >> "$GITHUB_OUTPUT"
+          else
+            next="$cur"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "next=${next}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${next}" >> "$GITHUB_OUTPUT"
+          echo "releasing v${next} (Cargo.toml says ${cur})"
+
+      # The same two awk rewrites scripts/release.sh does, so a hand-cut release and an
+      # automatic one produce identical trees.
+      - name: Bump Cargo.toml and Cargo.lock
+        if: steps.guard.outputs.cut == 'true' && steps.version.outputs.bump == 'true'
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          awk -v v="$NEXT" '!done && /^version = "/ { sub(/"[^"]*"/, "\"" v "\""); done = 1 } { print }' \
+            Cargo.toml >Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
+          awk -v v="$NEXT" '
+            /^\[\[package\]\]/ { in_c42 = 0 }
+            /^name = "c42"$/ { in_c42 = 1 }
+            in_c42 && /^version = "/ { sub(/"[^"]*"/, "\"" v "\"") }
+            { print }' Cargo.lock >Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock
+          have=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          [ "$have" = "$NEXT" ] || { echo "Cargo.toml bump failed" >&2; exit 1; }
+
+      - name: Commit, tag, and push
+        if: steps.guard.outputs.cut == 'true'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          TAG: ${{ steps.version.outputs.tag }}
+          BUMP: ${{ steps.version.outputs.bump }}
+        run: |
+          git config user.name "42ctl release"
+          git config user.email "noreply@github.com"
+          if [ "$BUMP" = "true" ]; then
+            git add Cargo.toml Cargo.lock
+            git commit -q -m "release: ${TAG}"
+          fi
+          git tag -a "$TAG" -m "42ctl ${TAG}"
+          # shellcheck disable=SC2016
+          helper='!f() { printf "username=x-access-token\npassword=%s\n" "$GH_PAT"; }; f'
+          git -c credential.helper= -c "credential.helper=${helper}" \
+            push -q "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:main "$TAG"
+          echo "pushed ${TAG}; release.yml builds it, sign-release.yml and docker.yml follow"

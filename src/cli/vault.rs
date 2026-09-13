@@ -45,10 +45,15 @@ pub enum Vault {
         #[command(flatten)]
         out: super::Output,
     },
-    /// Remove a secret
+    /// Remove one or more secrets
+    ///
+    /// Every path is attempted even if an earlier one fails, and the command fails once at
+    /// the end naming what did not go — so `42ctl vault rm $(42ctl vault ls -q)` tells you
+    /// exactly which paths to retry rather than stopping at the first stale one.
     Rm {
-        /// Secret path
-        path: String,
+        /// Secret paths
+        #[arg(required = true, num_args = 1.., value_name = "PATH")]
+        paths: Vec<String>,
     },
     /// Remove stored chunks that no version of any manifest still references
     ///

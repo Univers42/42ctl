@@ -17,9 +17,9 @@ The crate is **`c42`** (crates.io names can't lead with a digit); the binary is 
 
 ## Build, test, lint
 
-**There is no host cargo** — everything runs in Docker. The image the scripts use is
-`public.ecr.aws/docker/library/rust:1.96-slim-bookworm` (present on this machine). Reuse the named
-cache volumes so rebuilds are not from scratch:
+**Do not use a host cargo** (where one exists it is too old: `rust-version = 1.91`) — everything runs
+in Docker. The image the scripts use is `public.ecr.aws/docker/library/rust:1.96-slim-bookworm`; a
+fresh machine pulls it on first use. Reuse the named cache volumes so rebuilds are not from scratch:
 
 ```sh
 IMG=public.ecr.aws/docker/library/rust:1.96-slim-bookworm
@@ -50,11 +50,16 @@ $C42 cargo test adapters::scope       # scope-id + member-id derivation
 `RUNBOOK.md` lists these commands in their bare (host-cargo) form; CI runs them that way plus
 `cargo audit`, `cargo deny check`, and a gitleaks scan. CI must be green to merge.
 
-Releasing is `sh scripts/release.sh patch --dry-run` (preflight: token loads, tree clean, on main,
-tag free) then `sh scripts/release.sh patch` (or `minor`/`major`/`vX.Y.Z`). `GH_PAT` comes from the
-environment or the git-ignored `.env`. The pushed tag runs `release.yml`, which refuses a tag that
-does not match `Cargo.toml`. `sign-release.yml` and `docker.yml` chain on a green `release.yml` and
-run unattended.
+**A patch release cuts itself.** `auto-release.yml` fires on a green `ci` run on `main`, bumps the
+patch version, commits `release: vX.Y.Z`, tags and pushes — so `releases/latest`, which is all
+`install.sh` and `42ctl update` ever read, follows `main`. It pushes with the repository secret
+`GH_PAT` and not `GITHUB_TOKEN`, because GitHub suppresses workflow triggers for anything a job's
+own token pushes and the tag would then build nothing; it skips its own `release: v` commit so it
+does not recurse. A `minor`, a `major` or a pinned version is still hand-cut with
+`sh scripts/release.sh minor --dry-run` then `sh scripts/release.sh minor` (`GH_PAT` from the
+environment, `./.env`, or the workspace `../.env`). Either way the pushed tag runs `release.yml`,
+which refuses a tag that does not match `Cargo.toml`; `sign-release.yml` and `docker.yml` chain on
+a green `release.yml` via `workflow_run` — which is why the tag must arrive as a real push event.
 
 ### The QA battery, and the older verify gates
 
@@ -76,7 +81,7 @@ grew out of `cmd/` as the verbs got real:
 
 | Layer | Role |
 |---|---|
-| `cli.rs` | clap types only — the whole command surface, no logic |
+| `cli/` | clap types only — the whole command surface, no logic (`mod.rs` + `rbac.rs`, `store.rs`, `vault.rs`) |
 | `cmd/` | thin handlers: resolve profile → unlock identity → open a session → dispatch |
 | `core/` | pure use-cases: project scan, encrypted manifest, path model, merge, materialize |
 | `ops/` | `impl Session` verbs — the vault/sync/notes logic over an open session |
@@ -92,10 +97,11 @@ They are unrelated and each verb needs the right one:
 - **vault42 gRPC** (secrets, sync, notes, scope wraps). Every request carries `x-v42-ts` /
   `x-v42-pub` / `x-v42-sig`, an Ed25519 signature over `"{ts}\n{grpc-method}"`, plus
   `x-v42-contract` when the profile has one. The contract comes from the **authority**
-  (`grobase-nano`) at `42ctl auth login` and is saved as `contract-<profile>.tok`.
-- **grobase REST** (org / team / group / env / project / invite / GitHub / pubkey registry). Bearer
-  a GoTrue session JWT minted by `42ctl auth login --github` (device flow), saved as
-  `session-<profile>.tok`.
+  (`vault42-authority`) at `42ctl auth login --tenant` and is saved as `contract-<profile>.tok`.
+- **authority REST** (org / team / group / env / project / invite / GitHub / pubkey registry).
+  Bearer the opaque session token minted by `auth login --password --email` or `--github`, saved
+  as `session-<profile>.tok`. The routes and the `grobase` names in the code predate the authority,
+  which now serves them.
 
 So the RBAC verb groups fail without a SESSION, and the vault verbs fail without a contract.
 A session comes from `auth login --password --email <mail>` or from `auth login --github`.
@@ -106,9 +112,11 @@ there however well it tested locally. `adapters/creds.rs` owns the first, `adapt
 ### The three endpoints in a profile
 
 `profile.rs` resolves one `Endpoint` per profile from `$FT_CONFIG` (default
-`~/.config/42ctl/config.json`): `server` = vault42 (secrets), `authority` = grobase-nano (contract,
-`/v1/register`), `grobase` = grobase-stack (the email-OTP + escrow routes). Pointing `grobase` at
-the authority is a real, already-fixed bug class — the OTP routes 404 there.
+`~/.config/42ctl/config.json`): `server` = vault42-server (secrets), `authority` = vault42-authority
+(accounts, contract, RBAC, codes, escrow), `grobase` = an optional override for the email-code and
+escrow routes. `Endpoint::otp_base()` falls back to the authority when `grobase` is unset or names a
+host in `RETIRED_CONTROL_PLANE` (`grobase-stack.fly.dev`, `grobase-nano.fly.dev`), so an old config
+keeps working instead of 404ing.
 
 ### Zero-knowledge sync (`push` / `pull`)
 
@@ -154,10 +162,11 @@ is deliberately NOT `FT_PASSPHRASE`, which is the keystore secret — one variab
 would silently make them the same in every automated run.
 
 `account delete` is the only irreversible verb. It refuses without `--yes`, and the refusal names
-what is lost, the flag, and — as important — what SURVIVES: a tenant name claimed by `auth login
---tenant` outlives the account and nothing anywhere releases one, so an accurate message would
-otherwise be read as a complete one. The request carries no account id, so there is no way to
-spell somebody else's; removing another person is an org membership decision under `org`.
+what is lost and the flag — including that every tenant name the account claimed is RELEASED for
+anyone to claim (vault42 `DECISIONS.md` D13; names used to outlive the account). A test in
+`cmd/account.rs` pins that wording, so an accurate message is not read as a narrower one. The request carries no account id,
+so there is no way to spell somebody else's; removing another person is an org membership decision
+under `org`.
 
 ### Sharing a whole tree with a team (`vault push-env` / `pull-env`)
 
@@ -198,13 +207,11 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
 
 ## Trip-wires
 
-- **`Cargo.toml` pins `vault42-core`/`vault42-proto` to a REV, not a tag** (currently `91c7c47` on
-  `develop`). The sibling `../vault42` checkout moves independently, so a server built from it can
-  be ahead of or behind what this crate compiles against. Re-pin deliberately, never incidentally.
+- **`Cargo.toml` pins `vault42-core`/`vault42-proto` to a REV, not a tag** (`grep rev Cargo.toml`;
+  it trails `develop`). The sibling `../vault42` checkout moves independently, so a server built from
+  it can be ahead of or behind what this crate compiles against — and `qa/` builds yet another rev
+  (`QA_VAULT42_REV` in `qa/lib/server.sh`). Re-pin deliberately, never incidentally.
   `DECISIONS.md` D1 still says "tag `v0.1.2`" and is stale.
-- **`README.md` and `main.rs` both say "P0 — scaffold".** Both are stale: push/pull,
-  notes, org/team/group/env/invite RBAC, GitHub device login, escrow/recover, and the whole scope-key
-  suite are all implemented.
 - **No built binary is committed** and none should be. `42ctl-release` was, and after the
   endpoints moved it still had `vault42.fly.dev` compiled in — a second source of truth for
   the defaults, contradicting the source beside it, and the copy a person is most likely to
@@ -212,8 +219,9 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
   `42ctl update` off the GitHub Release (D11), never a file in the tree.
 - **There is no crates.io, npm or Homebrew channel** and there will not be while the git deps stand.
   Distribution is `install.sh` and `42ctl update`, both reading the raw GitHub Release assets named
-  `42ctl-<target>` (D11). A release is cut only by `scripts/release.sh`; nothing is published by hand.
-- **`42ctl unseal` is a stub** pending the gRPC unseal surface.
+  `42ctl-<target>` (D11). A release is cut by `auto-release.yml` or `scripts/release.sh`; nothing is
+  published by hand.
+- **`42ctl unseal` is a stub** pending the gRPC unseal surface; its help says so.
 - **CI's push trigger names `develop`, which does not exist here** (branches are `main` plus
   `feat/*`). Pull requests are what actually run CI.
 
@@ -221,8 +229,8 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
 
 Vendored rules live in `.claude/rules/`; there is no `.claude/AGENTS.md` in this repo.
 
-- **Every source file starts with the 42-school header** — 71 of 74 do (`cmd/auth.rs`, `cmd/db.rs`,
-  `cmd/vault.rs` are the exceptions). Generate it with `python3 scripts/ops/gen-42-header.py <file>`.
+- **Every source file starts with the 42-school header** — all but `cmd/auth.rs`, `cmd/db.rs` and
+  `cmd/vault.rs` do. Generate it with `python3 scripts/ops/gen-42-header.py <file>`.
 - **No prose comment inside a function body.** All commentary goes in one `///` doc comment above the
   declaration. The only tolerated in-body comments are the greppable tags `// ponytail:`, `// perf:`,
   `// SAFETY:`. Wanting a mid-body comment is the signal to split the function.
@@ -238,9 +246,19 @@ Vendored rules live in `.claude/rules/`; there is no `.claude/AGENTS.md` in this
 - Tests are inline next to the primitive; the crypto/protocol/path-safety paths get a failing test
   first.
 
+### The built-in help
+
+`42ctl help` is three pieces. `cmd/help_topics.rs` holds the topic text in a tiny line markup
+(`## ` section, `$ ` command with `  # comment`, `! ` warning). `cmd/help_commands.rs` generates
+`help commands` by walking the clap tree, so a new verb or flag appears there with no edit.
+`cmd/help.rs` renders both and carries the drift tests: every `$ 42ctl …` example must parse
+(`every_example_command_parses` — write flags out, never `…`), the overview's command groups must
+name every top-level command, and the `--help` footer and the `help` argument doc must name every
+topic. `quickstart` is kept as an alias of `kickoff`. `docs/vault.md` is the long-form manual.
+
 ### Env knobs
 
-`cli.rs::HOWTO` lists the operator-facing ones. Two more matter here: `FT_GIT_SHA` is stamped by
+`42ctl help config` lists the operator-facing ones (`CONFIG` in `cmd/help_topics.rs`). Two more matter here: `FT_GIT_SHA` is stamped by
 `build.rs` and is what `42ctl version` reports, and `FT_PASSWORD` (account) is deliberately not
 `FT_PASSPHRASE` (keystore) — one variable for both would make them the same secret in CI.
 
@@ -253,10 +271,10 @@ operator go-ahead with the target re-verified at that moment.
 
 ## Doc map
 
-`DECISIONS.md` D0–D10 (architecture + the distribution choices) · `RUNBOOK.md` build, release, credential
+`DECISIONS.md` D0–D12 (architecture + the distribution choices) · `RUNBOOK.md` build, release, credential
 rotation, and how to yank a compromised release · `SECURITY.md` the user-facing verification story ·
-`docs/RELEASE-DOD.md` the per-channel definition of done · `42ctl --help` carries the full operator
-how-to in `cli.rs::HOWTO`.
+`docs/RELEASE-DOD.md` the per-channel definition of done · `docs/vault.md` the user manual for the
+whole CLI surface · `42ctl help kickoff` / `help commands` the in-binary walkthrough and reference.
 
 ## Sibling repo
 

@@ -10,9 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! The RBAC verbs over grobase: `org`, `team`, `group`, `env`, `project`, `invite`. All
-//! of them need a grobase session (`42ctl auth login --github`) and act on the
-//! org / project the flags name.
+//! The RBAC verbs over the authority: `org`, `team`, `group`, `env`, `project`, `invite`. All
+//! of them need a session (`42ctl auth login --password --email <mail>`, or `--github`) and
+//! act on the org / project the flags name.
 
 use clap::Subcommand;
 
@@ -61,9 +61,13 @@ pub enum Org {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
-        /// User id or email
-        #[arg(long, value_name = "USER")]
-        user: String,
+        /// User ids or emails — repeat the flag, or list several after it
+        ///
+        /// `42ctl org remove-member --org acme --user $(42ctl org members --org acme -q
+        /// --filter Role=member)` removes everyone who is only a member. Each removal is
+        /// authorised on its own; one refusal does not stop the rest.
+        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
+        user: Vec<String>,
     },
     /// Accept an org invite with its one-time token
     AcceptInvite {
@@ -141,9 +145,9 @@ pub enum Team {
         /// Team slug
         #[arg(long, value_name = "SLUG")]
         team: String,
-        /// User id or email
-        #[arg(long, value_name = "USER")]
-        user: String,
+        /// User ids or emails — repeat the flag, or list several after it
+        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
+        user: Vec<String>,
     },
     /// Grant a team a role on a project (optionally one environment only)
     GrantProject {
@@ -197,9 +201,9 @@ pub enum Group {
         /// Group id
         #[arg(long, value_name = "ID")]
         group: String,
-        /// User id or email
-        #[arg(long, value_name = "USER")]
-        user: String,
+        /// User ids or emails — repeat the flag, or list several after it
+        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
+        user: Vec<String>,
     },
 }
 
@@ -281,9 +285,9 @@ pub enum Project {
         /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
-        /// Grant id, from `project grants`
-        #[arg(long, value_name = "ID")]
-        grant: String,
+        /// Grant ids, from `project grants` — repeat the flag, or list several after it
+        #[arg(long, required = true, num_args = 1.., value_name = "ID")]
+        grant: Vec<String>,
     },
     /// Grant a user a role on a project (optionally one environment only)
     Grant {

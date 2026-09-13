@@ -15,11 +15,18 @@
 
 mod account;
 mod auth;
+pub mod bulk;
+pub mod cloud;
+mod cloud_health;
+mod cloud_machine;
+mod cloud_volume;
 mod config;
 mod db;
 mod env;
 mod group;
 mod help;
+mod help_commands;
+pub mod help_grouped;
 mod help_topics;
 mod invite;
 mod keys;
@@ -56,12 +63,13 @@ pub fn dispatch(cli: &Cli) -> anyhow::Result<()> {
     let Some(command) = &cli.command else {
         return help::run(None);
     };
+    let profile = crate::profile::active(cli.profile.as_deref());
     match command {
         Command::Version => version::run(),
         Command::Help { topic } => help::run(topic.as_deref()),
-        Command::Unseal => unseal::run(&cli.profile),
-        Command::Config(cmd) => config::run(cmd, &cli.profile),
-        _ => block_on_net(command, &cli.profile),
+        Command::Unseal => unseal::run(&profile),
+        Command::Config(cmd) => config::run(cmd, &profile),
+        _ => block_on_net(command, &profile),
     }
 }
 
@@ -88,6 +96,7 @@ async fn net(command: &Command, profile: &str) -> anyhow::Result<()> {
         Command::Env(cmd) => env::run(cmd, profile).await,
         Command::Project(cmd) => project::run(cmd, profile).await,
         Command::Invite(cmd) => invite::run(cmd, profile).await,
+        Command::Cloud(cmd) => cloud::run(cmd, profile).await,
         Command::Push { project, prune } => sync::push(profile, project.as_deref(), *prune).await,
         Command::Pull {
             project,

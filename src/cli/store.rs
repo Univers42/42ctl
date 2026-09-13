@@ -21,7 +21,7 @@ pub enum Note {
     Add {
         /// Note path, e.g. `onboarding.md`
         path: String,
-        /// Project name (default: the `.42ctl/` marker in the current directory)
+        /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
         /// Read the note from this file instead of stdin
@@ -32,25 +32,28 @@ pub enum Note {
     Get {
         /// Note path
         path: String,
-        /// Project name (default: the `.42ctl/` marker in the current directory)
+        /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
     },
     /// List the project's notes
     #[command(visible_alias = "list")]
     Ls {
-        /// Project name (default: the `.42ctl/` marker in the current directory)
+        /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
         /// Output shaping: --format / --filter
         #[command(flatten)]
         out: super::Output,
     },
-    /// Remove the note at PATH
+    /// Remove one or more notes
+    ///
+    /// Every path is attempted even if an earlier one fails.
     Rm {
-        /// Note path
-        path: String,
-        /// Project name (default: the `.42ctl/` marker in the current directory)
+        /// Note paths
+        #[arg(required = true, num_args = 1.., value_name = "PATH")]
+        paths: Vec<String>,
+        /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
     },

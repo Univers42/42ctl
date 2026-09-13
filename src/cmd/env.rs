@@ -50,5 +50,5 @@ async fn list(
         .iter()
         .map(|e| serde_json::json!({"ID": e.id, "Name": e.name}))
         .collect();
-    ui::render(&["ID", "Name"], rows, out.format.as_deref(), &out.filter)
+    ui::render(&["ID", "Name"], rows, out.shape())
 }

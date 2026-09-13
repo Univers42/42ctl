@@ -96,6 +96,24 @@ async fn remove_member(
     grobase: &str,
     token: &str,
     ids: (&str, &str),
+    users: &[String],
+) -> anyhow::Result<()> {
+    let attempt = crate::cmd::bulk::targets(users);
+    let mut failed = Vec::new();
+    for user in &attempt {
+        if let Err(error) = remove_one(grobase, token, ids, user).await {
+            crate::cmd::bulk::failure(user, &error);
+            failed.push(user.clone());
+        }
+    }
+    crate::cmd::bulk::report(&failed, attempt.len())
+}
+
+/// Remove one member from the team, leaving their org membership intact.
+async fn remove_one(
+    grobase: &str,
+    token: &str,
+    ids: (&str, &str),
     user: &str,
 ) -> anyhow::Result<()> {
     let (org, team) = ids;

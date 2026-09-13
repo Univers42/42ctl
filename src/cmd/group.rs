@@ -62,8 +62,21 @@ async fn remove_member(
     grobase: &str,
     token: &str,
     group_id: &str,
-    user: &str,
+    users: &[String],
 ) -> anyhow::Result<()> {
+    let attempt = crate::cmd::bulk::targets(users);
+    let mut failed = Vec::new();
+    for user in &attempt {
+        if let Err(error) = remove_one(grobase, token, group_id, user).await {
+            crate::cmd::bulk::failure(user, &error);
+            failed.push(user.clone());
+        }
+    }
+    crate::cmd::bulk::report(&failed, attempt.len())
+}
+
+/// Remove one member from the group.
+async fn remove_one(grobase: &str, token: &str, group_id: &str, user: &str) -> anyhow::Result<()> {
     let removed = group::remove_member(grobase, token, group_id, user).await?;
     ui::success(&format!("removed {user} from group {group_id}"));
     crate::cmd::org::warn_rotation(&removed);

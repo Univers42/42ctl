@@ -134,35 +134,113 @@ pub fn field(label: &str, value: &str) {
     println!("{} {value}", accent(&format!("{label:<9}")));
 }
 
+/// How the operator asked for a listing to be shaped. Lives here rather than in `cli/` so the
+/// inner layers can render without depending on the clap types; `cli::Output::shape` builds it.
+#[derive(Clone, Copy, Default)]
+pub struct Shape<'a> {
+    /// `--format`: `json`, a `table …` template, or a bare `{{.Field}}` template.
+    pub format: Option<&'a str>,
+    /// `--filter KEY=VALUE`, ANDed.
+    pub filter: &'a [String],
+    /// `-q`: the first column alone, for `$( … )` composition.
+    pub quiet: bool,
+}
+
+impl Shape<'_> {
+    /// Whether the operator asked for nothing in particular, so a verb may keep its own
+    /// default presentation (a hint on an empty vault, tab-separated lines down a pipe).
+    pub fn is_default(&self) -> bool {
+        self.format.is_none() && self.filter.is_empty() && !self.quiet
+    }
+}
+
 /// Render listing `rows` (JSON objects keyed by the names in `headers`) as the operator asked.
 ///
-/// No `--format` is today's table, so nothing changes by default. `json` is the kept rows as a
-/// JSON array. Anything else is a `{{.Field}}` template rendered once per row. `--filter`
-/// narrows first and is ANDed. A filter that keeps nothing is refused by name rather than
-/// printing an empty table that reads as "there is nothing here" — the same posture as
-/// `pull-env --only`, and for the same reason: the operator asked for a subset because the
-/// rest matters.
+/// No `--format` is today's table, so nothing changes by default. `-q` prints the first column
+/// alone. `json` is the kept rows as a JSON array. `table {{.A}}\t{{.B}}` is a table whose
+/// columns the template chooses; anything else is that template rendered once per row.
+/// `--filter` narrows first and is ANDed; its keys are checked against `headers`, so a typo is
+/// refused by name while a key that exists may honestly match nothing and still succeed.
 pub fn render(
     headers: &[&str],
     rows: Vec<serde_json::Value>,
-    format: Option<&str>,
-    filter: &[String],
+    shape: Shape<'_>,
 ) -> anyhow::Result<()> {
-    let kept: Vec<serde_json::Value> = rows
-        .into_iter()
-        .filter(|row| crate::core::template::matches(row, filter))
-        .collect();
-    if kept.is_empty() && !filter.is_empty() {
-        anyhow::bail!("no row matches {}", filter.join(", "));
+    let kept = kept_rows(rows, shape.filter, headers)?;
+    if shape.quiet {
+        return emit(&ids(headers, &kept));
     }
-    match format {
+    match shape.format {
         None => table(headers, &cells(headers, &kept)),
         Some("json") => println!("{}", serde_json::to_string_pretty(&kept)?),
-        Some(template) => kept
-            .iter()
-            .for_each(|row| println!("{}", crate::core::template::render(template, row))),
+        Some(spec) => templated(spec, &kept)?,
     }
     Ok(())
+}
+
+/// Apply `filter` to `rows` after checking that every key it names is a column that exists.
+fn kept_rows(
+    rows: Vec<serde_json::Value>,
+    filter: &[String],
+    headers: &[&str],
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    crate::core::template::check_keys(filter, headers)?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| crate::core::template::matches(row, filter, headers))
+        .collect())
+}
+
+/// `-q`: the first header's value on each row and nothing else, so the listing composes into
+/// the next command's arguments. The first column is the identifier every verb takes back.
+///
+/// A caller with no columns gets nothing, because an empty path reads as the whole row and
+/// `-q` is spliced straight into the next command's argument list: printing the JSON object
+/// there would hand a verb an argument nobody typed.
+fn ids(headers: &[&str], rows: &[serde_json::Value]) -> String {
+    let Some(key) = headers.first().copied().filter(|name| !name.is_empty()) else {
+        return String::new();
+    };
+    rows.iter()
+        .filter_map(|row| crate::core::template::lookup(row, key))
+        .map(|value| format!("{}\n", crate::core::template::display(value)))
+        .collect()
+}
+
+/// A `--format` template: `table …` prints a header the template names, anything else prints
+/// one rendered line per row with no header at all.
+fn templated(spec: &str, rows: &[serde_json::Value]) -> anyhow::Result<()> {
+    let spec = crate::core::template::unescape(spec);
+    match spec.strip_prefix("table ") {
+        Some(line) => {
+            templated_table(line, rows);
+            Ok(())
+        }
+        None => emit(&lines(&spec, rows)),
+    }
+}
+
+/// `template` rendered once per row, each line terminated, as one block to write.
+fn lines(template: &str, rows: &[serde_json::Value]) -> String {
+    rows.iter()
+        .map(|row| format!("{}\n", crate::core::template::render(template, row)))
+        .collect()
+}
+
+/// Render `line` per row, split on tabs into columns, under the header the template names.
+fn templated_table(line: &str, rows: &[serde_json::Value]) {
+    let names = crate::core::template::columns(line);
+    let headers: Vec<&str> = names.iter().map(String::as_str).collect();
+    let body: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            crate::core::template::render(line, row)
+                .split('\t')
+                .map(ToString::to_string)
+                .collect()
+        })
+        .collect();
+    table(&headers, &body);
 }
 
 /// Project JSON rows onto the header order as display strings, for the table.
@@ -284,6 +362,43 @@ mod tests {
         assert!(reltime(now - 120).ends_with("m ago"));
         assert!(reltime(now - 7200).ends_with("h ago"));
         assert!(reltime(now - 172_800).ends_with("d ago"));
+    }
+
+    /// `-q` exists to be spliced into the next command, so it prints the first column and
+    /// nothing else — no header, no rule, no second field.
+    #[test]
+    fn quiet_prints_the_first_column_alone() {
+        let rows = vec![
+            serde_json::json!({"ID": "org_a", "Name": "Acme"}),
+            serde_json::json!({"ID": "org_b", "Name": "Bell"}),
+        ];
+        assert_eq!(ids(&["ID", "Name"], &rows), "org_a\norg_b\n");
+        assert_eq!(ids(&["Name"], &rows), "Acme\nBell\n");
+        assert_eq!(ids(&[], &rows), "", "no column to take is no output");
+    }
+
+    /// A key that exists may match nothing and still succeed — that is what makes
+    /// `rm $(ls -q --filter …)` safe to run on a schedule. A key that does not exist is
+    /// refused, so the two cases stay distinguishable.
+    #[test]
+    fn an_honest_empty_result_succeeds_and_a_typo_does_not() {
+        let rows = vec![serde_json::json!({"ID": "org_a", "Role": "owner"})];
+        let headers = &["ID", "Role"];
+        let keep = |filter: &str| kept_rows(rows.clone(), &[filter.to_string()], headers);
+
+        assert!(keep("Role=member").expect("known key").is_empty());
+        assert_eq!(
+            keep("role=owner").expect("known key").len(),
+            1,
+            "case-insensitive"
+        );
+        let error = keep("rol=member").expect_err("typo").to_string();
+        assert!(error.contains("rol"), "names the key: {error}");
+        assert_eq!(
+            kept_rows(rows, &[], headers).expect("unfiltered").len(),
+            1,
+            "no filter keeps everything"
+        );
     }
 
     #[test]

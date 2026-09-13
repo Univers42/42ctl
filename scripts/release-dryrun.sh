@@ -62,6 +62,12 @@ check_on_tag() {
 
 # Report whether $1 (a secret name) is NAMED in any of the remaining workflow
 # path arguments; warn (not hard-fail) since publish is wired in P4-P6.
+#
+# This proves the workflow asks for the secret, never that the repository holds
+# one — only the Actions API can say that, and this script is offline. It probed
+# DOCKER_LOGIN and DOCKER_PAT for a long time, neither of which any workflow has
+# ever named, so it warned about two secrets that do not exist while saying
+# nothing about the two that do.
 report_secret() {
 	name="$1"
 	shift
@@ -78,14 +84,14 @@ report_secret() {
 check_publish_secrets() {
 	wf_dir="$REPO_ROOT/.github/workflows"
 	set --
-	for wf in release docker publish sign-release; do
+	for wf in release auto-release docker publish sign-release; do
 		[ -f "$wf_dir/$wf.yml" ] && set -- "$@" "$wf_dir/$wf.yml"
 	done
 	if [ "$#" -eq 0 ]; then
-		warn "no publish workflow found (release/docker/publish/sign-release)"
+		warn "no publish workflow found (release/auto-release/docker/publish/sign-release)"
 		return
 	fi
-	for secret in DOCKER_LOGIN DOCKER_PAT; do
+	for secret in GH_PAT DOCK_PAT; do
 		report_secret "$secret" "$@"
 	done
 }

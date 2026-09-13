@@ -112,8 +112,7 @@ impl Session {
     pub async fn cmd_note_ls(
         &mut self,
         explicit_id: Option<&str>,
-        format: Option<&str>,
-        filter: &[String],
+        shape: ui::Shape<'_>,
     ) -> anyhow::Result<()> {
         let (proj, _) = project::open(&std::env::current_dir()?, explicit_id)?;
         let manifest = self
@@ -126,11 +125,28 @@ impl Session {
             .filter(|e| e.kind == Kind::Note as u8)
             .map(|e| serde_json::json!({"Note": e.relative_path}))
             .collect();
-        ui::render(&["Note"], rows, format, filter)
+        ui::render(&["Note"], rows, shape)
     }
 
-    /// Remove the note's manifest entry, making it unreachable (ZK: no name↔blob link left).
+    /// Remove each note's manifest entry, continuing past one that fails.
     pub async fn cmd_note_rm(
+        &mut self,
+        explicit_id: Option<&str>,
+        paths: &[String],
+    ) -> anyhow::Result<()> {
+        let attempt = crate::cmd::bulk::targets(paths);
+        let mut failed = Vec::new();
+        for path in &attempt {
+            if let Err(error) = self.note_rm_one(explicit_id, path).await {
+                crate::cmd::bulk::failure(path, &error);
+                failed.push(path.clone());
+            }
+        }
+        crate::cmd::bulk::report(&failed, attempt.len())
+    }
+
+    /// Remove one note's manifest entry, making it unreachable (ZK: no name↔blob link left).
+    async fn note_rm_one(
         &mut self,
         explicit_id: Option<&str>,
         rel_raw: &str,

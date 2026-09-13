@@ -16,10 +16,13 @@
 //! `config` (profiles), `version`, `update` (verify-before-swap), `help` (the guided
 //! walkthrough), and operator-only `unseal`. Types only — handlers live under `cmd/`.
 
+pub mod cloud;
 mod rbac;
+pub mod sections;
 mod store;
 mod vault;
 
+pub use cloud::{Cloud, CloudMachine, CloudNet, CloudSecret, CloudVolume, Lifecycle};
 pub use rbac::{Env, Group, Invite, Org, OrgGithub, Project, Team};
 pub use store::{Db, Note};
 pub use vault::Vault;
@@ -45,8 +48,10 @@ logs you in to the platform, and pushes/pulls your project's *.env tree to the v
 encrypted on YOUR machine, so the server only ever stores opaque ciphertext.";
 
 const AFTER_HELP: &str = "\
-Guided walkthrough:  42ctl help            (or `42ctl help <topic>`)
-Topics:              quickstart  sync  keys  teams  scopes  notes  config  security  update
+Start here:          42ctl help kickoff     (the whole product, end to end)
+Every command:       42ctl help commands    (each one with its arguments)
+Topics:              kickoff  sync  large  keys  account  teams  scopes  notes
+                     format  cloud  config  security  update  commands
 Per-command help:    42ctl <command> --help";
 
 /// 42ctl — one CLI for the 42 stack. `--profile` selects an org/environment.
@@ -62,14 +67,10 @@ Per-command help:    42ctl <command> --help";
 )]
 pub struct Cli {
     /// Profile (org / environment) to act on — see `42ctl config profile`.
-    #[arg(
-        long,
-        env = "FT_PROFILE",
-        default_value = "default",
-        global = true,
-        value_name = "NAME"
-    )]
-    pub profile: String,
+    ///
+    /// Unset, the profile `42ctl config profile <name>` last selected is used, then `default`.
+    #[arg(long, env = "FT_PROFILE", global = true, value_name = "NAME")]
+    pub profile: Option<String>,
     /// The verb to run; none at all shows the guided overview (`42ctl help`).
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -90,9 +91,9 @@ pub enum Command {
     /// Secrets sealed on your machine — get, set, ls, share, rotate, import, export …
     #[command(subcommand, visible_alias = "secrets")]
     Vault(Vault),
-    /// Upload the project's *.env tree to the vault (encrypted, path-aware, byte-exact)
+    /// Upload the project's env tree to the vault, sealed to you (path-aware, byte-exact)
     Push {
-        /// Project name (default: the `.42ctl/` marker in the current directory)
+        /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
         /// Drop manifest entries whose file is no longer scanned (mirror the tree)
@@ -101,7 +102,7 @@ pub enum Command {
     },
     /// Download the project's tree back — a dry-run until you pass --apply
     Pull {
-        /// Project name (default: the `.42ctl/` marker in the current directory)
+        /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
         /// Write the files (without this flag, only report what would change)
@@ -162,21 +163,30 @@ pub enum Command {
     },
     /// The guided walkthrough — `42ctl help <topic>` for one subject
     Help {
-        /// quickstart · sync · keys · teams · scopes · notes · config · security · update
+        /// A topic — kickoff · sync · large · keys · account · teams · scopes · notes · format ·
+        /// cloud · config · security · update · commands — or a command name, for its --help
         #[arg(value_name = "TOPIC")]
         topic: Option<String>,
     },
-    /// Operator-only: unseal the vault after a restart
+    /// The vault42 deployment: machines, volumes, network, secrets, health
+    ///
+    /// Delegates to flyctl — `fly` or `flyctl` on PATH, else a pinned container — so 42ctl
+    /// inherits its behaviour rather than re-implementing Fly's API. Needs FLY_API_TOKEN.
+    #[command(subcommand)]
+    Cloud(Cloud),
+    /// Operator-only: unseal the vault after a restart (a stub today: it only prints a note)
     Unseal,
 }
 
 /// `auth` subcommands.
 #[derive(Subcommand)]
 pub enum Auth {
-    /// Register / log in and obtain a contract for this identity
+    /// Sign in to save a session, and with --tenant take a contract for this identity
     ///
-    /// With `--email`, a 6-digit code is emailed and asked for first. With `--github`,
-    /// log in to grobase via the GitHub device flow instead (saves a session token).
+    /// `--password --email` signs in to the authority and saves the session; add `--tenant`
+    /// to take the contract in the same command. `--github` mints the session through the
+    /// GitHub device flow instead. `--tenant` on its own needs a session already, because the
+    /// authority issues a contract to an account, not to a bare key.
     Login {
         /// Tenant to log in to (required unless --github or --password)
         #[arg(
@@ -188,7 +198,7 @@ pub enum Auth {
         /// One-time registration token, if your tenant requires one
         #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN")]
         token: Option<String>,
-        /// Account email — enables the email OTP step
+        /// Account email, for --password
         #[arg(long, env = "FT_LOGIN_EMAIL", value_name = "EMAIL")]
         email: Option<String>,
         /// Log in to grobase with the GitHub device flow (no browser callback)
@@ -277,18 +287,39 @@ pub enum Account {
 /// Output shaping shared by every listing verb, in the shape `docker ps` taught everyone.
 #[derive(Args, Default)]
 pub struct Output {
-    /// Render each row with a template instead of a table, or `json` for the whole list
+    /// Render the list as `json`, as `table <template>`, or with a bare row template
     ///
     /// Fields are the column names as printed, capitalised: `{{.ID}} {{.Name}}`. Labels are
     /// nested: `{{.Labels.app}}`. `{{json .}}` is the whole row. An unknown field renders as
-    /// nothing, so one template can be aimed at several verbs.
+    /// nothing, so one template can be aimed at several verbs. A `table ` prefix keeps the
+    /// aligned columns and takes their headings from the template:
+    /// `--format 'table {{.ID}}\t{{.Name}}'`.
     #[arg(long, value_name = "TEMPLATE")]
     pub format: Option<String>,
     /// Keep only rows where KEY equals VALUE; `label=K=V` matches a label. Repeatable, all must hold
     ///
-    /// A filter that keeps nothing is an error, never an empty table.
+    /// KEY is a column name, matched whatever the case: `--filter role=member`. A key that
+    /// names no column is refused, so a typo cannot quietly read as "there is nothing here";
+    /// a key that does exist and matches no row prints nothing and succeeds.
     #[arg(long, value_name = "KEY=VALUE")]
     pub filter: Vec<String>,
+    /// Print only the first column, one id per line, for `$( … )` composition
+    ///
+    /// `42ctl vault rm $(42ctl vault ls -q --filter Private=true)` is what this exists for.
+    #[arg(short, long, conflicts_with = "format")]
+    pub quiet: bool,
+}
+
+impl Output {
+    /// The shaping the renderer takes. The conversion lives here so `ops/` and `core/` render
+    /// without ever depending on the clap types above them.
+    pub fn shape(&self) -> crate::ui::Shape<'_> {
+        crate::ui::Shape {
+            format: self.format.as_deref(),
+            filter: &self.filter,
+            quiet: self.quiet,
+        }
+    }
 }
 
 /// The endpoints a profile can name.
@@ -341,7 +372,7 @@ pub enum Keys {
         #[arg(long, value_name = "SLUG")]
         org: String,
     },
-    /// Back up the passphrase-sealed keystore to grobase (for a second machine)
+    /// Back up the passphrase-sealed keystore to the authority (for a second machine)
     ///
     /// Gated by an email OTP. The server stores only ciphertext — your passphrase
     /// never leaves this machine.
@@ -350,7 +381,7 @@ pub enum Keys {
         #[arg(long, env = "FT_LOGIN_EMAIL", value_name = "EMAIL")]
         email: String,
     },
-    /// Restore the keystore on a new machine: email OTP → fetch → unlock locally
+    /// Restore the keystore on a new machine: emailed code → fetch → unlock locally
     Recover {
         /// Account email (receives the OTP)
         #[arg(long, env = "FT_LOGIN_EMAIL", value_name = "EMAIL")]

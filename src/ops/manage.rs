@@ -16,6 +16,7 @@
 
 use crate::adapters::api::Session;
 use crate::adapters::compose::{self, SelfSeal};
+use crate::cmd::bulk;
 use crate::ui;
 use tonic::Request;
 use vault42_proto::vault::v1::{LsRequest, PushRequest, RmRequest};
@@ -26,18 +27,13 @@ impl Session {
     /// `--format`/`--filter` take precedence. Without them a pipe still gets the historical
     /// tab-separated `path version updated_at` lines, so scripts written against that keep
     /// working, and an empty vault on a terminal still gets its hint.
-    pub async fn cmd_ls(
-        &mut self,
-        prefix: &str,
-        format: Option<&str>,
-        filter: &[String],
-    ) -> anyhow::Result<()> {
+    pub async fn cmd_ls(&mut self, prefix: &str, shape: ui::Shape<'_>) -> anyhow::Result<()> {
         let mut request = Request::new(LsRequest {
             prefix: prefix.to_string(),
         });
         self.authorize(&mut request, "/vault.v1.Vault/Ls")?;
         let secrets = self.client.ls(request).await?.into_inner().secrets;
-        let unshaped = format.is_none() && filter.is_empty();
+        let unshaped = shape.is_default();
         if unshaped && !ui::styled() {
             for secret in &secrets {
                 println!("{}\t{}\t{}", secret.path, secret.version, secret.updated_at);
@@ -59,11 +55,25 @@ impl Session {
                 })
             })
             .collect();
-        ui::render(&["Path", "Version", "Updated"], rows, format, filter)
+        ui::render(&["Path", "Version", "Updated"], rows, shape)
     }
 
-    /// Remove every version of `path`.
-    pub async fn cmd_rm(&mut self, path: &str) -> anyhow::Result<()> {
+    /// Remove every version of each path, continuing past one that fails.
+    pub async fn cmd_rm(&mut self, paths: &[String]) -> anyhow::Result<()> {
+        let attempt = bulk::targets(paths);
+        let mut failed = Vec::new();
+        for path in &attempt {
+            if let Err(error) = self.rm_one(path).await {
+                bulk::failure(path, &error);
+                failed.push(path.clone());
+            }
+        }
+        bulk::report(&failed, attempt.len())
+    }
+
+    /// Remove every version of one `path`. A path that is not there is reported, not an error:
+    /// the vault holds nothing under it either way, which is what the caller asked for.
+    async fn rm_one(&mut self, path: &str) -> anyhow::Result<()> {
         let mut request = Request::new(RmRequest {
             path: path.to_string(),
             version: 0,
@@ -73,7 +83,7 @@ impl Session {
         if tombstoned {
             ui::success(&format!("removed {path}"));
         } else {
-            println!("{}", ui::warn("not found"));
+            println!("{}", ui::warn(&format!("{path}: not found")));
         }
         Ok(())
     }

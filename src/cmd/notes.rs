@@ -30,11 +30,7 @@ pub async fn run(cmd: &Note, profile: &str) -> anyhow::Result<()> {
             session.cmd_note_add(project.as_deref(), path, &bytes).await
         }
         Note::Get { path, project } => session.cmd_note_get(project.as_deref(), path).await,
-        Note::Ls { project, out } => {
-            session
-                .cmd_note_ls(project.as_deref(), out.format.as_deref(), &out.filter)
-                .await
-        }
-        Note::Rm { path, project } => session.cmd_note_rm(project.as_deref(), path).await,
+        Note::Ls { project, out } => session.cmd_note_ls(project.as_deref(), out.shape()).await,
+        Note::Rm { paths, project } => session.cmd_note_rm(project.as_deref(), paths).await,
     }
 }

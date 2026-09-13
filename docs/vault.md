@@ -775,7 +775,8 @@ stack brought up cold through its compliance suite afterwards.
 
 ## See also
 
-`42ctl help` for the guided walkthrough, `42ctl help <topic>` for one subject
-(`quickstart` `sync` `keys` `teams` `scopes` `notes` `config` `security` `update`), and
+`42ctl help` for the guided walkthrough, `42ctl help kickoff` for the whole product end to end,
+`42ctl help commands` for every command with its arguments, `42ctl help <topic>` for one subject
+(`sync` `large` `keys` `account` `teams` `scopes` `notes` `config` `security` `update`), and
 `42ctl <command> --help` for any command's exact flags. `DECISIONS.md` records why the
 architecture is what it is; `SECURITY.md` covers verifying a release.

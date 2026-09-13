@@ -153,6 +153,31 @@ pub fn config_path() -> anyhow::Result<PathBuf> {
     Ok(base.join("42ctl").join("config.json"))
 }
 
+/// The profile name used when nothing else says otherwise.
+pub const DEFAULT: &str = "default";
+
+/// The profile a command acts on: `--profile`/`FT_PROFILE` when either was given, else the
+/// one `config profile <name>` last selected, else `default`.
+///
+/// A config that cannot be read falls back to `default` rather than failing, because the
+/// verbs that need it report a better error themselves and `42ctl version` needs none.
+pub fn active(flag: Option<&str>) -> String {
+    chosen(flag, Config::load().map(|cfg| cfg.current).ok().as_deref())
+}
+
+/// Pick between an explicit flag and the saved selection.
+///
+/// Split out from `active` because it is the whole decision: `--profile` carried a clap
+/// `default_value`, so every invocation looked like an explicit choice of `default` and the
+/// saved `current` was never consulted. `config profile staging` then reported success and
+/// every later command still talked to `default`.
+fn chosen(flag: Option<&str>, saved: Option<&str>) -> String {
+    flag.or(saved)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(DEFAULT)
+        .to_string()
+}
+
 impl Config {
     /// Load the config, or the built-in default if none exists yet.
     pub fn load() -> anyhow::Result<Self> {
@@ -290,6 +315,21 @@ mod tests {
                 "the profile must have no field named {forbidden}"
             );
         }
+    }
+
+    /// The flag wins, then the saved selection, then `default`. The middle case is the one
+    /// that was broken: `config profile staging` wrote `current` and nothing read it back.
+    #[test]
+    fn the_saved_profile_is_used_when_no_flag_names_one() {
+        assert_eq!(chosen(Some("staging"), Some("prod")), "staging");
+        assert_eq!(chosen(Some("staging"), None), "staging");
+        assert_eq!(chosen(None, Some("prod")), "prod");
+        assert_eq!(chosen(None, None), "default");
+        assert_eq!(
+            chosen(None, Some("")),
+            "default",
+            "an empty name is no name"
+        );
     }
 
     #[test]

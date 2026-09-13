@@ -12,8 +12,7 @@
 
 //! 42ctl — the umbrella platform CLI for the 42 stack (grobase + vault42). One binary,
 //! subcommand groups, multi-profile, zero-knowledge (all plaintext crypto is client-side).
-//! P0 is the scaffold: `version` + `config` are real; the network/crypto verbs are wired
-//! across P1–P3. Errors print with their cause chain; nothing sensitive is ever logged.
+//! Errors print with their cause chain; nothing sensitive is ever logged.
 
 mod adapters;
 mod cli;
@@ -23,6 +22,7 @@ mod ops;
 mod profile;
 mod ui;
 
+use clap::error::ErrorKind;
 use clap::Parser;
 use std::process::ExitCode;
 
@@ -37,7 +37,36 @@ fn main() -> ExitCode {
     }
 }
 
-/// Parse the CLI and dispatch to the command layer.
+/// Parse the CLI and dispatch to the command layer, answering a help request for a command
+/// that has subcommands ourselves so its verbs print in sections rather than one flat list.
 fn run() -> anyhow::Result<()> {
-    cmd::dispatch(&cli::Cli::parse())
+    let argv: Vec<String> = std::env::args().collect();
+    match cli::Cli::try_parse_from(&argv) {
+        Ok(cli) => cmd::dispatch(&cli),
+        Err(error) => help_or_exit(&error, &argv),
+    }
+}
+
+/// Render the grouped page when the failed parse was a help request for a command group;
+/// otherwise let clap print its own message and choose the exit code.
+///
+/// clap keeps every leaf page and every real parse error, which is deliberate: its option
+/// rendering and its "did you mean" are better than a hand-rolled substitute, and grouping
+/// adds nothing to a command that has no subcommands to group.
+fn help_or_exit(error: &clap::Error, argv: &[String]) -> anyhow::Result<()> {
+    let asked_for_help = matches!(
+        error.kind(),
+        ErrorKind::DisplayHelp | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    );
+    let Some(page) = asked_for_help
+        .then(|| cmd::help_grouped::requested(argv))
+        .flatten()
+    else {
+        error.exit()
+    };
+    if error.kind() == ErrorKind::DisplayHelp {
+        return ui::emit(&page);
+    }
+    eprint!("{page}");
+    std::process::exit(2)
 }

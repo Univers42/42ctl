@@ -9,7 +9,7 @@
 #   places it. A failed verification leaves nothing on disk.                 #
 #                                                                            #
 #   curl -fsSL https://raw.githubusercontent.com/Univers42/42ctl/main/install.sh | sh
-#   curl -fsSL …/install.sh | sh -s -- --version v0.2.0 --bin-dir /opt/bin   #
+#   curl -fsSL …/install.sh | sh -s -- --version vX.Y.Z --bin-dir /opt/bin   #
 #                                                                            #
 #   Options    --version vX.Y.Z   pin a release (default: latest)            #
 #              --bin-dir DIR      install directory                          #
@@ -187,7 +187,7 @@ main() {
 	say ""
 	"${BIN_DIR}/42ctl" version
 	say ""
-	say "  next:  42ctl help quickstart"
+	say "  next:  42ctl help kickoff"
 	say ""
 }
 
