@@ -686,4 +686,4 @@ qa_s3_rm() { qa_mc "mc rm qa/$QA_S3_BUCKET/$1" >/dev/null; }
 
 export -f qa_s3_up qa_s3_down qa_s3_internal qa_s3_external qa_s3_count
 export -f qa_mc qa_s3_names qa_s3_dump qa_s3_substitute qa_s3_rm
-export QA_S3_SRV QA_S3_HOST_PORT QA_S3_KEY QA_S3_SECRET QA_S3_BUCKET
+export QA_S3_SRV QA_S3_HOST_PORT QA_S3_KEY QA_S3_SECRET QA_S3_BUCKET QA_S3_IMAGE QA_MC_IMAGE
