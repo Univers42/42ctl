@@ -471,6 +471,10 @@ $ 42ctl cloud machine inspect 837243f799de98
 $ 42ctl cloud machine ports
 $ 42ctl cloud machine events 837243f799de98 --app vault42-server
 $ 42ctl cloud machine logs --app vault42-server --no-tail
+top is the one verb that does not go through flyctl: flyctl reports the machine, never what runs
+inside it, so this one calls the Machines API directly. A stopped machine has no process table.
+$ 42ctl cloud machine top 837243f799de98
+$ 42ctl cloud machine top 837243f799de98 --filter Command=/vault42-server
 Lifecycle verbs take as many machines as you name, echo the flyctl command they are about to run,
 and stop at --dry-run without running it.
 $ 42ctl cloud machine start 837243f799de98 --app vault42-server
