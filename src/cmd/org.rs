@@ -81,11 +81,10 @@ async fn members(
 async fn github(cmd: &OrgGithub, profile: &str) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let grobase = endpoint.otp_base().to_string();
-    let token = session::load(profile)
-        .context(
-            "not logged in — run `42ctl auth login --password --email <address>` \
+    let token = session::load(profile).context(
+        "not logged in — run `42ctl auth login --password --email <address>` \
              (or `--github`, where the authority has a GitHub app)",
-        )?;
+    )?;
     github_dispatch(cmd, &grobase, &token).await
 }
 

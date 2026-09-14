@@ -23,11 +23,10 @@ use std::path::PathBuf;
 /// verb needs. Errors if the profile is unknown or there is no saved grobase session.
 pub fn connect(profile: &str) -> anyhow::Result<(String, String)> {
     let grobase = Config::load()?.endpoint(profile)?.otp_base().to_string();
-    let token = load(profile)
-        .context(
-            "not logged in — run `42ctl auth login --password --email <address>` \
+    let token = load(profile).context(
+        "not logged in — run `42ctl auth login --password --email <address>` \
              (or `--github`, where the authority has a GitHub app)",
-        )?;
+    )?;
     Ok((grobase, token))
 }
 
