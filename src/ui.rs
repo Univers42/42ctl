@@ -180,7 +180,7 @@ pub fn render(
 
 /// Apply `filter` to `rows` after checking that every key it names is a column that exists.
 ///
-/// A filter that keeps nothing is an error, as `docs/vault.md` has always said. A mistyped
+/// A filter that keeps nothing is an error, as the manual has always said. A mistyped
 /// VALUE (`Role=memebr`) otherwise prints the same clean nothing as a true "nobody", and the key
 /// check cannot catch it. The rule is as old as `env files --filter` and was briefly reversed
 /// in favour of docker's empty success; that reversal broke `s38`, contradicted the manual, and

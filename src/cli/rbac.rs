@@ -52,7 +52,7 @@ pub enum Org {
     #[command(hide = true)]
     AcceptInvite {
         /// The token printed by `org invite`
-        #[arg(long, value_name = "TOKEN")]
+        #[arg(long, value_name = "TOKEN", allow_hyphen_values = true)]
         token: String,
     },
 }
@@ -143,7 +143,7 @@ pub enum Team {
         /// Team slug
         #[arg(long, value_name = "SLUG")]
         team: String,
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
         /// Project role: admin, write or read
@@ -194,7 +194,7 @@ pub enum TeamMember {
 pub enum Group {
     /// Create a project's group (the server derives the name)
     Create {
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
     },
@@ -294,7 +294,7 @@ pub enum ProjectGrant {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
         /// User id or email
@@ -336,7 +336,9 @@ pub enum Invite {
     /// Accept an invite with its one-time token
     Accept {
         /// The token you were sent
-        #[arg(long, value_name = "TOKEN")]
+        ///
+        /// A token may begin with `-`: it is random URL-safe base64, whose alphabet includes it.
+        #[arg(long, value_name = "TOKEN", allow_hyphen_values = true)]
         token: String,
     },
     /// Show an invite by its id
@@ -367,5 +369,16 @@ mod tests {
             "two grantees in one grant would leave one of them silently ignored"
         );
         assert!(!parses(base), "a grant to nobody is refused at the parser");
+    }
+
+    /// A token is random URL-safe base64, so about one in 64 begins with `-`. The parser read
+    /// such a token as an unknown option, and that invite could not be accepted as documented —
+    /// which is what happened to the second person invited during the Inception walkthrough.
+    #[test]
+    fn a_token_that_begins_with_a_dash_is_still_a_token() {
+        assert!(parses("42ctl invite accept --token -HkP0s_8x"));
+        assert!(parses("42ctl org accept-invite --token -HkP0s_8x"));
+        assert!(parses("42ctl auth signup --email a@x.io --token -Zq9"));
+        assert!(parses("42ctl auth login --tenant acme --token -Zq9"));
     }
 }

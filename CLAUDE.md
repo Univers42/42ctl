@@ -322,7 +322,14 @@ Vendored rules live in `.claude/rules/`; there is no `.claude/AGENTS.md` in this
 `cmd/help.rs` renders both and carries the drift tests: every `$ 42ctl …` example must parse
 (`every_example_command_parses` — write flags out, never `…`), the overview's command groups must
 name every top-level command, and the `--help` footer and the `help` argument doc must name every
-topic. `quickstart` is kept as an alias of `kickoff`. `docs/vault.md` is the long-form manual.
+topic. `quickstart` is kept as an alias of `kickoff`. **`docs/manual/` is the long-form manual**, and
+`cmd/help_manual.rs` tests it like the topics: every `$ 42ctl …` line must parse, appendix A must
+name every command, and the README must link every chapter — so a new chapter is added to
+`chapters()` there too. Its walkthrough (chapter 13) is `qa/live/inception.sh`, run by hand against a
+live deployment; change one and you change the other. `qa/live/self-host.sh` runs it against a
+deployment built by executing vault42's operator's manual (chapters 2 and 6), and `walkthrough.yml` runs
+that on pull requests touching either; `WALKTHROUGH_VAULT42_REF` points it at an unreleased vault42
+branch. `docs/vault.md` only points at the manual.
 
 ### Env knobs
 
@@ -341,7 +348,7 @@ operator go-ahead with the target re-verified at that moment.
 
 `DECISIONS.md` D0–D12 (architecture + the distribution choices) · `RUNBOOK.md` build, release, credential
 rotation, and how to yank a compromised release · `SECURITY.md` the user-facing verification story ·
-`docs/RELEASE-DOD.md` the per-channel definition of done · `docs/vault.md` the user manual for the
+`docs/RELEASE-DOD.md` the per-channel definition of done · `docs/manual/` the user manual for the
 whole CLI surface · `42ctl help kickoff` / `help commands` the in-binary walkthrough and reference.
 
 ## Sibling repo

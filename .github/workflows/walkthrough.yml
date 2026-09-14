@@ -1,0 +1,61 @@
+# The manuals, run as written: qa/live/self-host.sh builds a vault42 deployment by executing the
+# shell blocks of vault42's operator's manual (chapters 2 and 6) from the release under test, then
+# drives this branch's 42ctl through the Inception walkthrough (docs/manual chapter 13) against it.
+# Nothing reaches a real deployment; the runner is thrown away with everything it created.
+#
+# The vault42 ref is the dispatch input, else the repository variable WALKTHROUGH_VAULT42_REF —
+# set it to a vault42 branch to test a change there before it is released, and delete it after —
+# else vault42's newest release.
+name: walkthrough
+
+on:
+  pull_request:
+    paths:
+      - qa/live/**
+      - docs/manual/13-walkthrough.md
+      - .github/workflows/walkthrough.yml
+  workflow_dispatch:
+    inputs:
+      vault42_ref:
+        description: vault42 tag or branch to deploy (empty for its newest release)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: walkthrough-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  walkthrough:
+    name: self-hosted vault42, then the Inception walkthrough
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: build this branch's 42ctl
+        run: cargo build --release
+      # Inception's Makefile runs on hellish only. Checksum-verified before it is installed.
+      - name: install hellish
+        env:
+          HELLISH_VERSION: "2.10.2"
+        run: |
+          base="https://github.com/Univers42/hellish/releases/download/v${HELLISH_VERSION}"
+          curl -sSfL --retry 5 "$base/hellish-linux-x86_64" -o hellish-linux-x86_64
+          curl -sSfL --retry 5 "$base/hellish-linux-x86_64.sha256" -o hellish-linux-x86_64.sha256
+          sha256sum -c hellish-linux-x86_64.sha256
+          install -D -m 0755 hellish-linux-x86_64 "$HOME/.local/bin/hellish"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: deploy by the manual, then walk through it
+        env:
+          C42_BIN: target/release/42ctl
+          VAULT42_REF: ${{ inputs.vault42_ref || vars.WALKTHROUGH_VAULT42_REF }}
+        run: bash qa/live/self-host.sh "$RUNNER_TEMP/walkthrough"

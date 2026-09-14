@@ -535,7 +535,7 @@ const SECURITY: &str = "\
   every plaintext is encrypted on your machine before it is sent
   the server stores ciphertext + opaque paths — it cannot read your data
   your private key exists only on your machine, sealed by your passphrase
-  every write is signed and bound to your login contract (tamper-evident audit chain)
+  every write is signed and bound to your login contract, and logged server-side
   pull refuses any path that could escape the project directory
 
 ## What is on you
@@ -546,7 +546,7 @@ const SECURITY: &str = "\
 
 ## Good habits
 $ 42ctl auth logout                                       # on a shared machine, when done
-$ 42ctl vault audit                                       # review your own tamper-evident chain
+$ 42ctl vault audit                                       # review what was written, and when
 $ 42ctl env keys rotate --org acme --project api --env prod       # after anyone leaves a team
 $ 42ctl update --check                                    # stay on a current, signed build";
 

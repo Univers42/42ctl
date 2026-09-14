@@ -86,7 +86,7 @@ fn group_section(group: &Command) -> String {
 }
 
 /// Every runnable command at or under `cmd`, depth-first, each with its full path.
-fn leaves<'a>(cmd: &'a Command, parent: &[&'a str]) -> Vec<(Vec<&'a str>, &'a Command)> {
+pub(super) fn leaves<'a>(cmd: &'a Command, parent: &[&'a str]) -> Vec<(Vec<&'a str>, &'a Command)> {
     let mut path = parent.to_vec();
     path.push(cmd.get_name());
     if !cmd.has_subcommands() {

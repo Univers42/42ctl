@@ -34,7 +34,7 @@ async fn dispatch(session: &mut Session, cmd: &Vault) -> anyhow::Result<()> {
         Vault::Rotate { path } => session.cmd_rotate(path).await,
         Vault::Share { path, to } => session.cmd_share(path, to).await,
         Vault::Audit { since } => session.cmd_audit(*since).await,
-        Vault::Import { source } => session.cmd_import(source, "").await,
+        Vault::Import { source, prefix } => session.cmd_import(source, prefix).await,
         Vault::Export { prefix } => session.cmd_export(prefix).await,
     }
 }

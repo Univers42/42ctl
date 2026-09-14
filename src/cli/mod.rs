@@ -198,12 +198,17 @@ pub enum Auth {
         )]
         tenant: Option<String>,
         /// One-time registration token, if your tenant requires one
-        #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN")]
+        #[arg(
+            long,
+            env = "FT_REGISTER_TOKEN",
+            value_name = "TOKEN",
+            allow_hyphen_values = true
+        )]
         token: Option<String>,
         /// Account email, for --password
         #[arg(long, env = "FT_LOGIN_EMAIL", value_name = "EMAIL")]
         email: Option<String>,
-        /// Log in to grobase with the GitHub device flow (no browser callback)
+        /// Sign in to the authority with the GitHub device flow (no browser callback)
         #[arg(long)]
         github: bool,
         /// Sign in with this account's PASSWORD and save the session
@@ -224,7 +229,12 @@ pub enum Auth {
         /// This is where a deployment's admission control lives: the contract itself is
         /// issued to your authenticated account, so nothing is gated behind a shared
         /// string once you are in.
-        #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN")]
+        #[arg(
+            long,
+            env = "FT_REGISTER_TOKEN",
+            value_name = "TOKEN",
+            allow_hyphen_values = true
+        )]
         token: Option<String>,
     },
     /// Change this account's password, which revokes every session it has
@@ -307,7 +317,7 @@ pub struct Output {
     pub filter: Vec<String>,
     /// Print only the first column, one id per line, for `$( … )` composition
     ///
-    /// `42ctl vault rm $(42ctl vault ls -q --filter Private=true)` is what this exists for.
+    /// `42ctl vault rm $(42ctl vault ls dev/ -q)` is what this exists for.
     #[arg(short, long, conflicts_with = "format")]
     pub quiet: bool,
 }
@@ -336,10 +346,10 @@ pub struct EndpointArgs {
     /// vault42 server URL (the gRPC store)
     #[arg(long, value_name = "URL")]
     pub server: Option<String>,
-    /// Contract authority URL (issues login contracts)
+    /// vault42 authority URL: accounts, organisations, permissions and contracts
     #[arg(long, value_name = "URL")]
     pub authority: Option<String>,
-    /// grobase URL (email OTP, escrow, RBAC)
+    /// Override for the email-code and escrow routes only (default: the authority)
     #[arg(long, value_name = "URL")]
     pub grobase: Option<String>,
     /// Object store for large files: the S3-compatible service root, without the bucket
