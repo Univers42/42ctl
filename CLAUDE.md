@@ -60,6 +60,9 @@ does not recurse. A `minor`, a `major` or a pinned version is still hand-cut wit
 environment, `./.env`, or the workspace `../.env`). Either way the pushed tag runs `release.yml`,
 which refuses a tag that does not match `Cargo.toml`; `sign-release.yml` and `docker.yml` chain on
 a green `release.yml` via `workflow_run` — which is why the tag must arrive as a real push event.
+`install-check.yml` chains on it too: it runs `scripts/verify/install-e2e.sh` (fresh install into
+`~/.local/bin`, pinned older install, `update` in place) on Debian+curl x86_64/aarch64 and on
+Alpine with only BusyBox wget, whose `wget` lacked the flag the installer used until this ran.
 
 ### The QA battery, and the older verify gates
 

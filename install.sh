@@ -68,14 +68,18 @@ detect_target() {
 	TARGET="${arch}-unknown-linux-musl"
 }
 
-# Prefer curl, fall back to wget; both as `fetch URL OUT`.
+# Prefer curl, fall back to wget; both as `fetch URL OUT`, and `head_url URL` for where the
+# first redirect points. The wget form uses only `-S` and `-O`, which BusyBox wget has too — the
+# default on Alpine and most minimal images, which rejected `--max-redirect` and so could not
+# install at all. GNU wget prints a second `Location:` line ending in ` [following]`; the first
+# line, up to its first space, is the same URL in both.
 pick_fetcher() {
 	if command -v curl >/dev/null 2>&1; then
 		fetch() { curl -fsSL --proto '=https' --tlsv1.2 -o "$2" "$1"; }
 		head_url() { curl -fsSLI --proto '=https' --tlsv1.2 -o /dev/null -w '%{url_effective}' "$1"; }
 	elif command -v wget >/dev/null 2>&1; then
 		fetch() { wget -q -O "$2" "$1"; }
-		head_url() { wget -q --max-redirect=5 -O /dev/null -S "$1" 2>&1 | sed -n 's/^ *Location: *//p' | tail -1; }
+		head_url() { wget -S -O /dev/null "$1" 2>&1 | sed -n 's/^ *Location: *\([^ ]*\).*/\1/p' | head -n 1; }
 	else
 		die "need curl or wget to download"
 	fi
@@ -151,14 +155,21 @@ ensure_path() {
 	case ":${PATH}:" in *":${BIN_DIR}:"*) return ;; esac
 	[ "$MODIFY_PATH" = "no" ] && { say "  add ${BIN_DIR} to your PATH"; return; }
 	line="export PATH=\"${BIN_DIR}:\$PATH\""
+	wrote=""
 	for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile"; do
 		[ -f "$rc" ] || continue
+		wrote="yes"
 		grep -qF "$line" "$rc" 2>/dev/null && continue
 		printf '\n# added by the 42ctl installer\n%s\n' "$line" >>"$rc"
 	done
 	if [ -d "${HOME}/.config/fish" ]; then
+		wrote="yes"
 		mkdir -p "${HOME}/.config/fish/conf.d"
 		printf 'fish_add_path %s\n' "$BIN_DIR" >"${HOME}/.config/fish/conf.d/42ctl.fish"
+	fi
+	if [ -z "$wrote" ]; then
+		say "  ${BIN_DIR} is not on your PATH and no shell rc file exists to add it to — run:  ${line}"
+		return
 	fi
 	say "  PATH updated in your shell rc — open a new shell, or run:  ${line}"
 }
