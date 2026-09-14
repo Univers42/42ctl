@@ -95,11 +95,18 @@ pub enum Vault {
         #[arg(long, default_value_t = 0, value_name = "EPOCH")]
         since: i64,
     },
-    /// Import a .env file, sealing each KEY=VALUE as <prefix>/KEY
+    /// Import a .env file, sealing each KEY=VALUE as KEY, or as PREFIX/KEY with --prefix
+    ///
+    /// Without a prefix every key lands at the top of your vault, so two files that both define
+    /// `DATABASE_URL` overwrite each other's; `--prefix app` keeps them apart and is what
+    /// `vault export --prefix app` reads back.
     Import {
         /// Path to the .env file
         #[arg(value_name = "FILE")]
         source: String,
+        /// Store each key under this prefix, as PREFIX/KEY
+        #[arg(long, default_value = "", value_name = "PREFIX")]
+        prefix: String,
     },
     /// Export your secrets under a prefix as KEY=value lines
     Export {
@@ -107,4 +114,19 @@ pub enum Vault {
         #[arg(long, default_value = "", value_name = "PREFIX")]
         prefix: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cli::Cli;
+    use clap::Parser;
+
+    /// `vault import` stores under a prefix only when asked, and `--prefix` is what
+    /// `vault export --prefix` reads back.
+    #[test]
+    fn vault_import_takes_a_prefix() {
+        let parses = |line: &str| Cli::try_parse_from(line.split_whitespace()).is_ok();
+        assert!(parses("42ctl vault import srcs/.env"));
+        assert!(parses("42ctl vault import srcs/.env --prefix inception"));
+    }
 }
