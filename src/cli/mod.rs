@@ -198,7 +198,7 @@ pub enum Auth {
         )]
         tenant: Option<String>,
         /// One-time registration token, if your tenant requires one
-        #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN")]
+        #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN", allow_hyphen_values = true)]
         token: Option<String>,
         /// Account email, for --password
         #[arg(long, env = "FT_LOGIN_EMAIL", value_name = "EMAIL")]
@@ -224,7 +224,7 @@ pub enum Auth {
         /// This is where a deployment's admission control lives: the contract itself is
         /// issued to your authenticated account, so nothing is gated behind a shared
         /// string once you are in.
-        #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN")]
+        #[arg(long, env = "FT_REGISTER_TOKEN", value_name = "TOKEN", allow_hyphen_values = true)]
         token: Option<String>,
     },
     /// Change this account's password, which revokes every session it has
