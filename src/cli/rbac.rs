@@ -143,7 +143,7 @@ pub enum Team {
         /// Team slug
         #[arg(long, value_name = "SLUG")]
         team: String,
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
         /// Project role: admin, write or read
@@ -194,7 +194,7 @@ pub enum TeamMember {
 pub enum Group {
     /// Create a project's group (the server derives the name)
     Create {
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
     },
@@ -294,7 +294,7 @@ pub enum ProjectGrant {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
         org: String,
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
         /// User id or email

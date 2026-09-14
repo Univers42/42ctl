@@ -25,7 +25,7 @@ use clap::{Args, Subcommand};
 pub enum Env {
     /// Create an environment under a project
     Create {
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
         /// Environment name (dev, staging, prod …)
@@ -35,7 +35,7 @@ pub enum Env {
     /// List a project's environments
     #[command(visible_alias = "list")]
     Ls {
-        /// Project name
+        /// Project slug or id
         #[arg(long, value_name = "NAME")]
         project: String,
         /// Output shaping: --format / --filter
@@ -75,8 +75,9 @@ pub enum Env {
         scope: Scope,
         /// Restore only paths matching PATTERN — repeatable; default is the whole tree
         ///
-        /// Matches the stored RELATIVE PATH with one optional leading and/or trailing `*`:
+        /// Matches the stored RELATIVE PATH; `*` matches any run of characters, `/` included:
         ///   --only 'secrets/*'      just the secrets directory
+        ///   --only 'secrets/*.txt'  the passwords in it
         ///   --only 'secrets/ca.*'   just the CA material
         ///   --only 'srcs/.env'      one exact file
         ///   --only '*.crt'          every certificate, wherever it lives
