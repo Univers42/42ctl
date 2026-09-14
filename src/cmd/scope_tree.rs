@@ -210,7 +210,7 @@ pub async fn pull_env(
     opts: &Opts,
     only: &[String],
 ) -> anyhow::Result<()> {
-    let root = std::env::current_dir()?;
+    let root = project::root_of(&std::env::current_dir()?);
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let owner = hex::encode(scope_id);
     let secret =

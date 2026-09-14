@@ -42,7 +42,7 @@ pub struct Project {
 /// wins; otherwise read `.42ctl/project.json`, or create one with a fresh id derived
 /// from the canonical root path. Returns the project + whether it was newly created.
 pub fn open(start: &Path, explicit_id: Option<&str>) -> anyhow::Result<(Project, bool)> {
-    let root = start.to_path_buf();
+    let root = root_of(start);
     let marker = root.join(MARKER_DIR).join("project.json");
     if let Some(id) = explicit_id {
         return Ok((mk(root, id, default_patterns()), false));
@@ -61,6 +61,26 @@ pub fn open(start: &Path, explicit_id: Option<&str>) -> anyhow::Result<(Project,
     std::fs::create_dir_all(root.join(MARKER_DIR))?;
     std::fs::write(&marker, serde_json::to_vec_pretty(&m)?)?;
     Ok((mk(root, &project_id, default_patterns()), true))
+}
+
+/// The directory a project is rooted at, seen from `start`: the nearest directory holding a
+/// `.42ctl/project.json`, looking no further up than the git repository `start` is in.
+///
+/// It used to be `start` itself. `42ctl push` run from `srcs/` created a second marker there,
+/// with a second project id, and pushed only that subtree; `env pull --apply` run from `srcs/`
+/// restored `secrets/` as `srcs/secrets/`, every file at the wrong path and no error anywhere.
+/// Git finds its repository the same way. The search stops at the repository's root on purpose:
+/// outside a repository only `start` counts, so a marker somebody once left in their home
+/// directory cannot quietly turn every directory beneath it into one project.
+pub fn root_of(start: &Path) -> PathBuf {
+    let Some(repository) = start.ancestors().find(|dir| dir.join(".git").exists()) else {
+        return start.to_path_buf();
+    };
+    start
+        .ancestors()
+        .take_while(|dir| dir.starts_with(repository))
+        .find(|dir| dir.join(MARKER_DIR).join("project.json").exists())
+        .map_or_else(|| start.to_path_buf(), Path::to_path_buf)
 }
 
 /// Refuse a scan pattern that names a path.
@@ -480,6 +500,48 @@ mod tests {
     }
 
     /// A throwaway project root under the system temp directory.
+    /// A command run anywhere inside a repository acts on the project the repository's marker
+    /// names, so a restore from `srcs/` lands files where the tree keeps them.
+    #[test]
+    fn a_subdirectory_of_a_repository_resolves_to_the_marker_above_it() {
+        let root = temp_project("root-of-sub");
+        std::fs::create_dir_all(root.join(".git")).expect("git");
+        std::fs::create_dir_all(root.join(".42ctl")).expect("marker dir");
+        std::fs::write(root.join(".42ctl/project.json"), br#"{"project_id":"p","patterns":["*.env*"]}"#)
+            .expect("marker");
+        std::fs::create_dir_all(root.join("srcs/deep")).expect("sub");
+        assert_eq!(root_of(&root.join("srcs/deep")), root);
+        assert_eq!(root_of(&root), root);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Without a marker in the repository, the directory the command runs in is the project, as
+    /// it always was — `open` then creates the marker there.
+    #[test]
+    fn a_repository_without_a_marker_roots_the_project_where_the_command_runs() {
+        let root = temp_project("root-no-marker");
+        std::fs::create_dir_all(root.join(".git")).expect("git");
+        std::fs::create_dir_all(root.join("srcs")).expect("sub");
+        assert_eq!(root_of(&root.join("srcs")), root.join("srcs"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A marker ABOVE the repository, or anywhere when there is no repository, is never used:
+    /// a stray `~/.42ctl` must not make a whole home directory one project.
+    #[test]
+    fn a_marker_outside_the_repository_is_never_used() {
+        let outer = temp_project("root-outside");
+        std::fs::create_dir_all(outer.join(".42ctl")).expect("marker dir");
+        std::fs::write(outer.join(".42ctl/project.json"), br#"{"project_id":"home","patterns":[]}"#)
+            .expect("marker");
+        std::fs::create_dir_all(outer.join("repo/.git")).expect("git");
+        std::fs::create_dir_all(outer.join("repo/srcs")).expect("sub");
+        std::fs::create_dir_all(outer.join("loose/dir")).expect("loose");
+        assert_eq!(root_of(&outer.join("repo/srcs")), outer.join("repo/srcs"));
+        assert_eq!(root_of(&outer.join("loose/dir")), outer.join("loose/dir"));
+        let _ = std::fs::remove_dir_all(&outer);
+    }
+
     fn temp_project(tag: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("scan-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
