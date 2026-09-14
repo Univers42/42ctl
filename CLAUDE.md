@@ -63,7 +63,7 @@ a green `release.yml` via `workflow_run` — which is why the tag must arrive as
 
 ### The QA battery, and the older verify gates
 
-`./qa/run.sh` is the real end-to-end coverage: 30 specs standing up vault42-server, the authority
+`./qa/run.sh` is the real end-to-end coverage: 32 specs standing up vault42-server, the authority
 and a MinIO chunk store in Docker. Its exit status counts REGRESSIONS ONLY, so it works as a merge
 gate while `assert_spec` assertions stay red on purpose. `QA_SHUFFLE=1` randomises the order —
 use it, because specs have passed or failed because of what ran before them. `qa/README.md`
@@ -76,17 +76,25 @@ What to know before running it:
 - **One battery per Docker daemon.** Every run starts by tearing down the shared qa42-* containers,
   so `run.sh` holds a flock and a second run exits 3. Running a spec file with `bash` directly
   bypasses the lock — don't, while a battery is going.
-- **It measures which commands RAN.** 42ctl writes each parsed command path (never an argument) to
-  `FT_TRACE_COMMANDS`; after a full run the summary prints "commands exercised X of Y" against
-  `42ctl help commands`, and `QA_REQUIRE_COVERAGE=1` fails the run if any command never ran. A new
-  verb therefore needs a spec that runs it. `org github link`/`sync` count by being refused.
+- **It measures which commands and flags RAN.** 42ctl (`src/trace.rs`) writes each parsed command
+  path and the NAMES of the flags given (never a value) to `FT_TRACE_COMMANDS`; a full run prints
+  "commands exercised" and "flags given" against `42ctl help commands`. `QA_REQUIRE_COVERAGE=1`
+  fails the run if a command never ran, `QA_REQUIRE_FLAGS=1` if a flag was never given. A new
+  verb therefore needs a spec that runs it. Ran is not checked, though: `org github` runs, and
+  can never succeed against vault42 (see Trip-wires).
+- **Every listing is checked in every output shape** by `qa/lib/listing.sh` (s40 for the cloud
+  listings, s43 for the rest), and each of those specs compares its list with `help commands`. A
+  new verb taking `--format` needs a row there and a fixture giving it two differing rows.
 - **Name specs as separate arguments.** A name that selects nothing is an error (exit 2); it used to
   run the preflight alone and print "No regressions".
-- **The server rev matters**: s41 asserts authorization fixes that go red on older vault42 revs, and
-  `QA_VAULT42_REV` defaults to one that has them.
+- **The server rev matters**: s41 asserts authorization fixes and group grants that go red on older
+  vault42 revs, and `QA_VAULT42_REV` defaults to one that has them. `QA_VAULT42_REV=` (empty)
+  builds the sibling working tree; each spec prints which source it built.
 - s40 (cloud) needs no server: `qa/fixtures/fly/flyctl` stands in for flyctl and records every
   command, which is how "no destructive command ever ran" is asserted. s41 is who-may-do-what
-  through the CLI alone; s42 is one user's first day from an empty machine.
+  through the CLI alone; s42 is one user's first day from an empty machine; s44 drives
+  `auth login --github` to a session against `qa/fixtures/github/stub.pl`, which every battery
+  authority is pointed at.
 
 `scripts/verify/v10-secret-sync.sh` … `v13-github-cli.sh` predate it and still work, but **both
 their defaults are wrong on this machine**: they need `RUST_TOOLCHAIN_IMG` (the default image is
@@ -254,6 +262,14 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
   published by hand.
 - **`42ctl unseal` refuses, exit 1.** vault42 has no seal state (its `Unseal` RPC always reports
   unsealed), so the verb says it is not implemented rather than printing a line that reads as success.
+- **`org github connect/link/sync` cannot succeed against vault42.** They call
+  `/v1/orgs/{org}/github/*`, which grobase served and the authority does not — with or without a
+  GitHub app. They say so on the 404. `auth login --github` is different: the authority implements
+  it, and it works wherever `GITHUB_CLIENT_ID` is set (production has none).
+- **The vault holds 42ctl's own records** under `__42ctl/` (notes, push manifests, chunk lists).
+  `vault ls` hides them unless `--all`, `vault rm` refuses them and `vault export` skips them —
+  `vault rm $(vault ls -q)` used to delete a person's notes. `db ls` is the record-level view and
+  shows everything.
 - **CI's push trigger names `develop`, which does not exist here** (branches are `main` plus
   `feat/*`). Pull requests are what actually run CI.
 
