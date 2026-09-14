@@ -146,7 +146,7 @@ fn command_help(name: &str) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use clap::error::ErrorKind;
     use clap::Parser;
@@ -160,7 +160,7 @@ mod tests {
     }
 
     /// Split a shell line into words, honouring single quotes — all the quoting help uses.
-    fn words(line: &str) -> Vec<String> {
+    pub(in crate::cmd) fn words(line: &str) -> Vec<String> {
         let mut words = Vec::new();
         let mut word = String::new();
         let mut quoted = false;
@@ -201,7 +201,7 @@ mod tests {
     /// `42ctl vault rm $(42ctl vault ls dev/ -q)` is two commands, and the outer one sees a
     /// single argument where the substitution stands. Parsing the line as written hands `rm`
     /// the inner command's flags, which is not what any shell does.
-    fn substitutions(line: &str) -> (String, Vec<String>) {
+    pub(in crate::cmd) fn substitutions(line: &str) -> (String, Vec<String>) {
         let mut outer = String::with_capacity(line.len());
         let mut inner = Vec::new();
         let mut rest = line;

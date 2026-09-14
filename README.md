@@ -63,7 +63,7 @@ until you have signed in with `--password` (or `--github`).
 ```
 
 Every `42ctl …` example in the built-in help is parsed by a test, so a renamed flag cannot
-survive in the text. `docs/vault.md` is the long-form manual, checked against a live deployment.
+survive in the text. [The 42ctl Manual](docs/manual/README.md) is the long-form manual: every example in it is parsed by the test suite, and its walkthrough is executed against a live deployment by `qa/live/inception.sh`.
 
 ## Command surface
 

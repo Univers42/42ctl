@@ -89,7 +89,7 @@ pub enum Vault {
         #[arg(long, value_name = "ADDRESS")]
         to: String,
     },
-    /// Stream this identity's tamper-evident audit chain
+    /// Stream this identity's audit log (hash-linked by the server; not verified by this client)
     Audit {
         /// Only entries after this Unix timestamp
         #[arg(long, default_value_t = 0, value_name = "EPOCH")]
