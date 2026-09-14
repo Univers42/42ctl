@@ -27,7 +27,8 @@
 use crate::adapters::api::Session;
 use crate::adapters::derive;
 use crate::cmd::scope::Ctx;
-use crate::cmd::scope_tree::{self, Key};
+use crate::cmd::scope_store::{self, Dest, Heads, Key, Slot};
+use crate::cmd::scope_tree;
 use crate::core::manifest::{Entry, Manifest};
 use crate::core::{chunk, project, projpath};
 use crate::ui;
@@ -100,34 +101,45 @@ pub fn parse_labels(flags: &[String]) -> anyhow::Result<BTreeMap<String, String>
     Ok(labels)
 }
 
+/// Where every private manifest and file is stored, whoever it belongs to.
+pub(super) const PRIVATE_PREFIX: &str = "__42ctl/p/";
+
 /// The private manifest's path for `principal` — one per member, under the shared owner.
 fn manifest_path(principal: &str) -> String {
-    format!("__42ctl/p/{principal}/tree")
+    format!("{PRIVATE_PREFIX}{principal}/tree")
 }
 
 /// Where a private file is stored. The principal is part of the derivation, so a private
 /// `.env.local` can never land on the stored path of a teammate's shared `.env.local`.
 fn blob_path(owner: &str, principal: &str, rel: &str) -> String {
     let id = derive::secret_id(owner, &format!("p/{principal}/{rel}"));
-    format!("__42ctl/p/{principal}/f/{id}")
+    format!("{PRIVATE_PREFIX}{principal}/f/{id}")
 }
 
 /// Seal every private file to the pusher and commit their manifest last. Returns the count.
+///
+/// `at` is the environment's owner, the project id, and the heads the push read before
+/// writing anything, which every write here is conditional on as the shared tree's are.
 pub async fn push(
     session: &mut Session,
     ctx: &Ctx,
-    ids: (&str, &str),
+    at: (&str, &str, &Heads),
     what: (&[Scanned], &BTreeMap<String, String>),
 ) -> anyhow::Result<usize> {
-    let (owner, project_id) = ids;
+    let (owner, project_id, heads) = at;
     let (files, labels) = what;
     let principal = session.principal.clone();
+    let dest = Dest {
+        owner,
+        epoch: ctx.epoch(),
+        to: session.identity.encryption_public(),
+    };
     let mut manifest = Manifest::new(project_id);
     for (file, rel) in files {
         let plaintext = Zeroizing::new(std::fs::read(file)?);
         let vault_path = blob_path(owner, &principal, rel);
-        let to = session.identity.encryption_public();
-        let rev = scope_tree::put_one(session, ctx, (owner, &vault_path, to), &plaintext).await?;
+        let after = heads.of(&vault_path);
+        let rev = scope_store::put_one(session, dest, (&vault_path, after), &plaintext).await?;
         let entry = Entry::file(rel, vault_path, rev, plaintext.len() as u64);
         manifest.upsert(Entry {
             mode: scope_tree::file_mode(file),
@@ -135,26 +147,48 @@ pub async fn push(
             ..entry
         });
     }
-    commit(session, ctx, owner, &manifest).await?;
+    commit(session, dest, &manifest, heads).await?;
     Ok(files.len())
 }
 
 /// Write the private manifest — unless it is empty and there never was one, in which case
 /// there is nothing to replace and nothing worth recording.
+///
+/// "Never" reaches back past a rotation: the one a pull reads may sit in an earlier epoch, and
+/// skipping the empty write then would bring files the owner has since deleted back.
 async fn commit(
     session: &mut Session,
-    ctx: &Ctx,
-    owner: &str,
+    dest: Dest<'_>,
     manifest: &Manifest,
+    heads: &Heads,
 ) -> anyhow::Result<()> {
     let path = manifest_path(&session.principal);
-    let had = scope_tree::head_version(session, owner, ctx.epoch(), &path).await? > 0;
-    if manifest.entries.is_empty() && !had {
+    let after = heads.of(&path);
+    if manifest.entries.is_empty() && after == 0 && !kept_earlier(session, dest, &path).await? {
         return Ok(());
     }
-    let to = session.identity.encryption_public();
-    scope_tree::put_one(session, ctx, (owner, &path, to), &manifest.to_bytes()?).await?;
+    scope_store::put_one(session, dest, (&path, after), &manifest.to_bytes()?).await?;
     Ok(())
+}
+
+/// Whether an epoch before `dest.epoch` holds anything at `path`.
+async fn kept_earlier(session: &mut Session, dest: Dest<'_>, path: &str) -> anyhow::Result<bool> {
+    for epoch in (1..dest.epoch).rev() {
+        if session
+            .get_env_secret(dest.owner, epoch, path, 0)
+            .await?
+            .is_some()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The caller's private manifest, and the epoch it was found in.
+pub struct Mine {
+    pub manifest: Manifest,
+    pub epoch: u32,
 }
 
 /// The shared manifest and, if the caller ever pushed one here, their private manifest.
@@ -162,16 +196,47 @@ pub async fn both_manifests(
     session: &mut Session,
     ctx: &Ctx,
     key: (&str, &Zeroizing<[u8; 32]>),
-) -> anyhow::Result<(Manifest, Option<Manifest>)> {
+) -> anyhow::Result<(Manifest, Option<Mine>)> {
     let (owner, secret) = key;
-    let at = (owner, scope_tree::TREE_MANIFEST);
-    let raw = scope_tree::open_one(session, ctx, at, &Key::Scope(secret)).await?;
-    let path = manifest_path(&session.principal);
-    let mine = match scope_tree::fetch_one(session, ctx, (owner, &path), &Key::Me).await? {
-        Some(raw) => Some(Manifest::parse(&raw)?),
-        None => None,
+    let shared = Slot {
+        owner,
+        epoch: ctx.epoch(),
+        path: scope_tree::TREE_MANIFEST,
+        rev: 0,
     };
+    let raw = scope_store::fetch_one(session, shared, &Key::Scope(secret))
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("environment '{}' holds no tree", ctx.env_name))?;
+    let mine = newest_mine(session, owner, ctx.epoch()).await?;
     Ok((Manifest::parse(&raw)?, mine))
+}
+
+/// The caller's private manifest from the newest epoch holding one, back from `current`.
+///
+/// A rotation cannot carry private files forward. They are sealed to their owner, and the
+/// server takes a write only from the envelope's author, so the administrator can neither open
+/// nor re-author them; they stay in the epoch they were written in until their owner pushes
+/// again. Their bytes are sealed to the owner's identity rather than to any epoch's key, so an
+/// earlier epoch opens exactly as the current one does, and the author check still applies.
+async fn newest_mine(
+    session: &mut Session,
+    owner: &str,
+    current: u32,
+) -> anyhow::Result<Option<Mine>> {
+    let path = manifest_path(&session.principal);
+    for epoch in (1..=current).rev() {
+        let slot = Slot {
+            owner,
+            epoch,
+            path: &path,
+            rev: 0,
+        };
+        if let Some(raw) = scope_store::fetch_one(session, slot, &Key::Me).await? {
+            let manifest = Manifest::parse(&raw)?;
+            return Ok(Some(Mine { manifest, epoch }));
+        }
+    }
+    Ok(None)
 }
 
 /// One file to restore and which key opens it.

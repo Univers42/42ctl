@@ -333,6 +333,19 @@ Two things are deliberately *not* restored verbatim:
   umask default lets any local process list which secrets a project keeps. Directories that
   already exist are left exactly as they are.
 
+What comes back is always **one push's tree, whole**. A restore reads each file at the revision
+the manifest recorded, so a push that died partway — or lost a race — leaves nothing a pull can
+see. When two people push the same environment at once, the one whose push lands first wins and
+the other is refused:
+
+```text
+error: environment 'prod' was pushed by somebody else while this push ran, so nothing of this
+push was published — `42ctl env pull` shows what they published, and pushing again replaces it
+with this tree
+```
+
+Nothing is merged: pushing again publishes your tree over theirs, so look first.
+
 ### Private files inside the shared tree
 
 Some of what sits in a project tree is one person's — a `.env.local`, a personal key. Those
@@ -373,6 +386,12 @@ travel **with** the tree but are sealed to the pusher alone:
 Fresh key at `epoch+1`, everything re-sealed, re-wrapped **only** to the remaining members. The
 removed member's old wrap opens nothing sealed after the rotation. Their access ends by
 absence — nothing needs to reach into their machine.
+
+A pushed tree comes through whole: shared files are re-sealed, chunked files are chunked again
+under the new key, and each member's private files stay exactly where they are — sealed to that
+member, they need no new key, and that member's `env pull` keeps restoring them. A push that lands
+while the rotation runs is carried across (`carried_late` in the summary); one that lands after
+the rotation finished is refused, and says to push again.
 
 > Removal is authorization, not erasure: it cannot take back a key somebody already holds. It
 > stops them being re-wrapped. Rotate if that distinction matters.
@@ -655,6 +674,9 @@ both would silently make them the same value in every automated run.
 | `no member "x@y.z" in this organization` | They have not joined — invite and have them accept first. |
 | `project_role must be admin, write or read` | Not `reader`/`writer`. |
 | `no file in environment 'prod' matches …` | Your `--only` pattern matched nothing. |
+| `… was pushed by somebody else while this push ran` | Another push landed first; yours published nothing. `env pull` to see it, or push again to replace it. |
+| `… had its key rotated while this push ran` | A rotation finished before your push did, so it may not be in the rotated environment. Push again. |
+| `…: the manifest names revision N, which this environment does not hold` | The tree was rotated by a 42ctl older than this fix. Push it again from a good copy. |
 | `already has a scope key … with N provisioned member(s)` | A real bootstrap exists; use `env keys rotate`. |
 | `advertises a scope key … that vault42 never received` | An interrupted `env init`; it is completing at the next epoch. Informational. |
 | `could not open the scope key — are you a wrapped member?` | You are granted but not provisioned. An admin runs `env keys sync`. |

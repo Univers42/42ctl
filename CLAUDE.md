@@ -63,7 +63,7 @@ a green `release.yml` via `workflow_run` — which is why the tag must arrive as
 
 ### The QA battery, and the older verify gates
 
-`./qa/run.sh` is the real end-to-end coverage: 32 specs standing up vault42-server, the authority
+`./qa/run.sh` is the real end-to-end coverage: 33 specs standing up vault42-server, the authority
 and a MinIO chunk store in Docker. Its exit status counts REGRESSIONS ONLY, so it works as a merge
 gate while `assert_spec` assertions stay red on purpose. `QA_SHUFFLE=1` randomises the order —
 use it, because specs have passed or failed because of what ran before them. `qa/README.md`
@@ -214,6 +214,13 @@ second stores nothing — deduplication between people, with no convergent ciphe
 Each stored chunk carries its author key in a small framing, because a deduplicated set's
 chunks can have different authors and the object store hands back bytes alone.
 
+**A restore is always one push's tree.** `env pull` reads each file at the revision its manifest
+entry records (`Entry.rev`), and `env push` reads every head once before its first write and
+conditions every put on it (`cmd/scope_store.rs`), so an overtaken push is refused rather than
+interleaved. Both halves are needed: a push that dies or loses partway leaves newer revisions no
+manifest names, and reading the newest restores those. s45 forces both interleavings (a push held
+at a paused object store, a push whose store is unreachable); s35's four timed rounds could not.
+
 **The manifest is hostile input on this path**, which it is not on the personal one: anyone who
 may write the environment may write the manifest a colleague's machine then acts on. The
 traversal guard already covered where files land; the MODE did not, and a manifest asking for
@@ -229,7 +236,11 @@ then `env keys sync` wraps the scope secret to every authorized member that has 
 pubkey. `env secret set` seals to the scope **public** key; `env secret get` recovers the scope **secret** from
 the caller's own wrap (the two-hop unwrap in `cmd/scope_recover.rs`). `env keys rotate` re-seals every
 env secret at `epoch+1` and re-wraps only the remaining members, so a removed member loses access by
-absence. The scope secret never leaves a `Zeroizing` buffer. The server gates all of it behind
+absence. It moves a tree as a tree (`cmd/scope_reseal.rs`): shared files at the manifest's
+revisions, chunked files re-chunked under the new key, the manifest rewritten last. Members'
+private files cannot be moved — the server accepts a write only from its author — so they stay in
+their epoch and `env pull` takes the caller's private manifest from the newest epoch holding one
+(DECISIONS D13). The scope secret never leaves a `Zeroizing` buffer. The server gates all of it behind
 `VAULT42_SCOPE_KEYS_ENABLED`.
 
 ## Trip-wires

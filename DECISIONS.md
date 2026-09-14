@@ -209,3 +209,45 @@ restoring over local edits is `--at N --apply --force` rather than a silent over
 4 MiB default and never raises it, so every payload between the two passed the client's own guard
 and then died at the transport — a guard that converted a clear refusal into a protocol error.
 
+
+## D13 — An environment's tree is one push, through overlapping pushes and rotation
+
+`Entry.rev` was recorded on the shared path from the start and read by nothing there: `env pull`
+fetched each file's newest revision. That restores a tree nobody pushed whenever newer revisions
+exist that the manifest does not name — and a push that dies or loses partway always leaves some.
+s35 raced two pushes and passed for weeks because its rounds usually serialised; one run mixed
+the tree. **A restore now reads the revision the manifest names**, as `pull --at` always did,
+with `min_rev` set to it so a server cannot answer with an older one under that number. A
+revision the environment does not hold is refused by name rather than answered with the newest,
+because the newest is exactly what a dead push leaves.
+
+**A push conditions every write on heads read before its first one.** Each put used to fetch
+the head just before writing, which guards only that instant: the second of two overlapping
+pushes reads the first's new revision and passes. One listing up front replaces a listing per
+file, and the manifest's put — the commit point — must still find the head it saw. The push
+that is overtaken is **refused, not merged and not silently discarded**: last-writer-wins would
+print a success for a push nobody can restore, which is a lost update with a receipt. The
+refusal says so and names both ways on (`env pull` to see theirs, push again to replace it).
+
+**A rotation moves a tree, not a list of secrets.** It used to re-seal every path's newest
+revision as a single secret, which failed outright on any environment holding a member's
+private file (the administrator is not a recipient) and would have left chunked files
+unreadable (their chunks are named and sealed with the old key). Now shared files move at the
+manifest's revisions, chunked files are opened whole and chunked again under the new key, and
+the manifest is rewritten last to name where each file now is.
+
+**Private files stay in the epoch they were written in.** The server takes a write only from the
+envelope's author, so the rotating administrator cannot copy a member's private file forward,
+and cannot open it to re-seal it. A pull therefore takes the caller's private manifest from the
+newest epoch holding one. That weakens nothing: those bytes are sealed to the member's identity,
+not to an epoch's key, reading still requires scope membership, and the author check applies as
+before. The cost is one extra read per earlier epoch for a member who never pushed privately,
+and one rule on push: an empty private manifest is written whenever an earlier epoch holds one,
+or files the owner deleted would come back from it.
+
+**A push that overlaps a rotation is carried or told, never lost.** Members keep writing at the
+old epoch until the publish reaches them. So the rotation lists the old epoch once more after
+publishing and moves everything again if its shared items changed, and a push re-reads the
+epoch after its last write and is refused if it moved. Every push lands either before that
+second listing, and is carried, or after the publish, and is told to push again. The price is a
+second pass over the whole environment in the rare rotation a push overlaps.

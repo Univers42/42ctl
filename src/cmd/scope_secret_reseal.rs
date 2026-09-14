@@ -10,10 +10,10 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! The two heavy halves of `env keys rotate`: re-seal every env secret from the OLD scope key to
-//! the NEW one (`reseal_all`), and re-wrap the new scope key to the env's authorized members
-//! (`rewrap_remaining`). The old/new scope secrets stay in `Zeroizing` buffers; only opaque
-//! envelopes + AEAD-wrapped grants ever leave. A member the control plane no longer reports as
+//! The rotation's shared state, and the re-wrap half of `env keys rotate`: the new scope key
+//! wrapped to the env's authorized members (`rewrap_remaining`). The re-seal half, which moves
+//! what the environment holds to the new key, is `scope_reseal`. The old/new scope secrets
+//! stay in `Zeroizing` buffers; only opaque envelopes + AEAD-wrapped grants ever leave. A member the control plane no longer reports as
 //! authorized is simply absent from the rewraps, so it cannot reach the new epoch.
 //!
 //! Two rules make that revocation-by-absence safe rather than terminal. The re-wrap set is the
@@ -23,14 +23,11 @@
 //! re-wrapped, so a rotation stays repairable even when every other member is skipped.
 
 use crate::adapters::api::Session;
-use crate::adapters::compose::{self, ScopeSeal};
 use crate::adapters::rbac::{grant, pubkey};
 use crate::adapters::scope;
-use crate::adapters::scope_env_grpc::EnvSecretPut;
-use crate::adapters::{decrypt, derive};
 use crate::cmd::scope::{self as orch, Ctx};
 use crate::cmd::scope_pubkey;
-use vault42_core::{grant_scope_key, GrantTerms, Identity, ReadScope, ScopeKeyset, ScopeRole};
+use vault42_core::{grant_scope_key, GrantTerms, Identity, ScopeKeyset, ScopeRole};
 use vault42_proto::vault::v1::WrapScopeKeyRequest;
 use zeroize::Zeroizing;
 
@@ -44,75 +41,6 @@ pub struct RotateState<'a> {
     pub old_secret: &'a Zeroizing<[u8; 32]>,
     pub new_secret: &'a Zeroizing<[u8; 32]>,
     pub keyset: &'a ScopeKeyset,
-}
-
-/// Re-seal every old-epoch env secret to the new scope public key at the new epoch, returning
-/// how many were re-sealed. Each is opened with the OLD scope secret and sealed to the NEW key.
-pub async fn reseal_all(session: &mut Session, state: &RotateState<'_>) -> anyhow::Result<usize> {
-    let owner = hex::encode(state.scope_id);
-    let paths: Vec<String> = session
-        .list_env_secrets(&owner, state.old_epoch)
-        .await?
-        .into_iter()
-        .map(|entry| entry.path)
-        .collect();
-    let mut resealed = 0usize;
-    for path in &paths {
-        reseal_one(session, state, &owner, path).await?;
-        resealed += 1;
-    }
-    Ok(resealed)
-}
-
-/// Open one old-epoch secret with the OLD scope secret and re-seal it to the NEW scope key at
-/// the new epoch (create, `expected_prev_rev=0`).
-async fn reseal_one(
-    session: &mut Session,
-    state: &RotateState<'_>,
-    owner: &str,
-    path: &str,
-) -> anyhow::Result<()> {
-    let plaintext = open_old(session, state, owner, path).await?;
-    let envelope = compose::scope_envelope(
-        &session.identity,
-        &ScopeSeal {
-            owner,
-            vault_path: path,
-            project_id: owner,
-            scope_pub: state.keyset.public,
-            rev: 1,
-            plaintext: plaintext.as_slice(),
-        },
-    )?;
-    session
-        .put_env_secret(EnvSecretPut {
-            scope_id: owner,
-            epoch: state.new_epoch,
-            path,
-            envelope,
-            expected_prev_rev: 0,
-        })
-        .await?;
-    Ok(())
-}
-
-/// Fetch and decrypt one old-epoch env secret with the OLD scope secret.
-async fn open_old(
-    session: &mut Session,
-    state: &RotateState<'_>,
-    owner: &str,
-    path: &str,
-) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-    let (envelope, author) = session
-        .get_env_secret(owner, state.old_epoch, path)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("env secret '{path}' vanished mid-rotation"))?;
-    let expected = derive::secret_id(owner, path);
-    let read = ReadScope {
-        secret_id: &expected,
-        min_rev: 0,
-    };
-    decrypt::open_env_envelope(state.old_secret, &envelope, &author, read)
 }
 
 /// Re-wrap the new scope key to every member the env's grants authorize, always including the

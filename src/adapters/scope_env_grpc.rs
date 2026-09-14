@@ -54,18 +54,19 @@ impl Session {
     }
 
     /// Fetch one env-secret version (`0` ⇒ latest) → `(envelope, author_pubkey)`, or `None`
-    /// when the path has no version yet (server `NotFound`).
+    /// when the path holds no such version (server `NotFound`).
     pub async fn get_env_secret(
         &mut self,
         scope_id: &str,
         epoch: u32,
         path: &str,
+        version: u64,
     ) -> anyhow::Result<Option<(Vec<u8>, Vec<u8>)>> {
         let mut request = Request::new(GetEnvSecretRequest {
             scope_id: scope_id.to_string(),
             epoch,
             path: path.to_string(),
-            version: 0,
+            version,
         });
         self.authorize(&mut request, "/vault.v1.Vault/GetEnvSecret")?;
         match self.client.get_env_secret(request).await {
