@@ -332,25 +332,81 @@ fn matches(name: &str, patterns: &[String]) -> bool {
     patterns.iter().any(|p| glob_match(name, p))
 }
 
-/// A minimal glob: a single optional leading and/or trailing `*` (covers `*.env*`,
-/// `*.secrets`, `prefix*`, exact).
+/// A glob whose only wildcard is `*`, matching any run of characters — `/` included — anywhere
+/// in the pattern; every other character matches itself.
 ///
-/// Shared with `env pull --only`, which matches the same way against a RELATIVE PATH rather
-/// than a bare name — `secrets/*` becomes a `starts_with`, `*.crt` an `ends_with`, and
-/// `srcs/.env` an exact match. One matcher rather than two, so a pattern that selects a file
-/// on the way out selects the same file on the way back.
+/// Shared with `env pull --only` and `env push --private`, which match against a RELATIVE PATH
+/// rather than a bare name: `secrets/*.txt`, `*.crt`, `srcs/.env`. One matcher rather than two,
+/// so a pattern that selects a file on the way out selects the same file on the way back.
+///
+/// It used to honour a `*` only at either end, so `secrets/*.txt` — the first pattern anybody
+/// types — was compared as literal text, matched nothing, and `--only` refused it. Every
+/// pattern that worked then matches exactly the same files now.
 pub(crate) fn glob_match(name: &str, pattern: &str) -> bool {
-    let core = pattern.trim_matches('*');
-    match (pattern.starts_with('*'), pattern.ends_with('*')) {
-        (true, true) => name.contains(core),
-        (true, false) => name.ends_with(core),
-        (false, true) => name.starts_with(core),
-        (false, false) => name == core,
+    let (name, pattern) = (name.as_bytes(), pattern.as_bytes());
+    let (mut n, mut p) = (0, 0);
+    let mut backtrack: Option<(usize, usize)> = None;
+    while n < name.len() {
+        if pattern.get(p) == Some(&b'*') {
+            backtrack = Some((p, n));
+            p += 1;
+        } else if pattern.get(p) == Some(&name[n]) {
+            p += 1;
+            n += 1;
+        } else if let Some((star, from)) = backtrack {
+            backtrack = Some((star, from + 1));
+            p = star + 1;
+            n = from + 1;
+        } else {
+            return false;
+        }
     }
+    pattern[p..].iter().all(|&byte| byte == b'*')
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// Every pattern the old ends-only matcher accepted selects exactly what it did.
+    #[test]
+    fn a_wildcard_at_either_end_means_what_it_always_meant() {
+        let cases = [
+            (".env", "*.env*", true),
+            ("srcs/.env.local", "*.env*", true),
+            ("app.secrets", "*.secrets", true),
+            ("secrets/ca.key", "secrets/*", true),
+            ("srcs/.env", "secrets/*", false),
+            ("secrets/server.crt", "*.crt", true),
+            ("secrets/server.key", "*.crt", false),
+            ("srcs/.env", "srcs/.env", true),
+            ("srcs/.env.example", "srcs/.env", false),
+            ("anything/at/all", "*", true),
+        ];
+        for (name, pattern, want) in cases {
+            assert_eq!(glob_match(name, pattern), want, "{name} against {pattern}");
+        }
+    }
+
+    /// A `*` in the middle is a wildcard too, not literal text that matches nothing.
+    #[test]
+    fn a_wildcard_in_the_middle_selects_what_it_says() {
+        let cases = [
+            ("secrets/db_password.txt", "secrets/*.txt", true),
+            ("secrets/server.key", "secrets/*.txt", false),
+            ("secrets/db_password.txt", "secrets/*password*", true),
+            ("secrets/ca.crt", "secrets/c*.crt", true),
+            ("secrets/server.crt", "secrets/c*.crt", false),
+            ("a/b/c.txt", "a/*.txt", true),
+            ("aXbXc", "a*b*c", true),
+            ("abc", "a*b*c*d", false),
+            ("mississippi", "*sip*", true),
+            ("", "*", true),
+            ("", "a*", false),
+        ];
+        for (name, pattern, want) in cases {
+            assert_eq!(glob_match(name, pattern), want, "{name} against {pattern}");
+        }
+    }
 
     /// A skipped directory holding a file this project would have stored is REPORTED, so the
     /// next silent omission is a question the operator asks rather than something they find
