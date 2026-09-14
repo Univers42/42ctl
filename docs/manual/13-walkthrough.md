@@ -223,6 +223,17 @@ nothing else), creates four accounts and one organisation on the deployment it p
 non-zero if any check fails. `C42_AUTHORITY` and `C42_SERVER` point it at another deployment, and
 `C42_BIN` at another 42ctl build.
 
+Without a deployment to point at, build one first:
+
+```sh
+C42_BIN=target/release/42ctl bash qa/live/self-host.sh /tmp/self-host
+```
+
+builds vault42 by executing the shell blocks of its operator's manual as written (chapter 2: images,
+volumes, authority, server; chapter 6: backups) with Docker, runs this walkthrough against it, and removes
+what it created. The **walkthrough** workflow runs it on every pull request that changes this chapter or
+its scripts.
+
 Each check prints `ok` or `FAIL`, a failure followed by the last six lines of what its commands said;
 the run ends with the two counts and the list of failures:
 

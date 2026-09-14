@@ -326,7 +326,10 @@ topic. `quickstart` is kept as an alias of `kickoff`. **`docs/manual/` is the lo
 `cmd/help_manual.rs` tests it like the topics: every `$ 42ctl …` line must parse, appendix A must
 name every command, and the README must link every chapter — so a new chapter is added to
 `chapters()` there too. Its walkthrough (chapter 13) is `qa/live/inception.sh`, run by hand against a
-live deployment; change one and you change the other. `docs/vault.md` only points at the manual.
+live deployment; change one and you change the other. `qa/live/self-host.sh` runs it against a
+deployment built by executing vault42's operator's manual (chapters 2 and 6), and `walkthrough.yml` runs
+that on pull requests touching either; `WALKTHROUGH_VAULT42_REF` points it at an unreleased vault42
+branch. `docs/vault.md` only points at the manual.
 
 ### Env knobs
 
