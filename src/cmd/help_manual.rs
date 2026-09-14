@@ -23,28 +23,35 @@ use crate::cmd::help_commands::leaves;
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 
+/// A chapter of the manual: its file name, and its text embedded at compile time.
+macro_rules! chapter {
+    ($name:literal) => {
+        ($name, include_str!(concat!("../../docs/manual/", $name)))
+    };
+}
+
 /// Every chapter of the manual, by file name.
 fn chapters() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("README.md", include_str!("../../docs/manual/README.md")),
-        ("01-overview.md", include_str!("../../docs/manual/01-overview.md")),
-        ("02-installing.md", include_str!("../../docs/manual/02-installing.md")),
-        ("03-first-session.md", include_str!("../../docs/manual/03-first-session.md")),
-        ("04-configuration.md", include_str!("../../docs/manual/04-configuration.md")),
-        ("05-identity-and-accounts.md", include_str!("../../docs/manual/05-identity-and-accounts.md")),
-        ("06-personal-secrets.md", include_str!("../../docs/manual/06-personal-secrets.md")),
-        ("07-project-trees.md", include_str!("../../docs/manual/07-project-trees.md")),
-        ("08-organisations.md", include_str!("../../docs/manual/08-organisations.md")),
-        ("09-environments.md", include_str!("../../docs/manual/09-environments.md")),
-        ("10-credentials.md", include_str!("../../docs/manual/10-credentials.md")),
-        ("11-output-and-scripting.md", include_str!("../../docs/manual/11-output-and-scripting.md")),
-        ("12-cloud.md", include_str!("../../docs/manual/12-cloud.md")),
-        ("13-walkthrough.md", include_str!("../../docs/manual/13-walkthrough.md")),
-        ("14-security-model.md", include_str!("../../docs/manual/14-security-model.md")),
-        ("15-diagnostics.md", include_str!("../../docs/manual/15-diagnostics.md")),
-        ("A-commands.md", include_str!("../../docs/manual/A-commands.md")),
-        ("B-files-and-variables.md", include_str!("../../docs/manual/B-files-and-variables.md")),
-        ("C-glossary.md", include_str!("../../docs/manual/C-glossary.md")),
+        chapter!("README.md"),
+        chapter!("01-overview.md"),
+        chapter!("02-installing.md"),
+        chapter!("03-first-session.md"),
+        chapter!("04-configuration.md"),
+        chapter!("05-identity-and-accounts.md"),
+        chapter!("06-personal-secrets.md"),
+        chapter!("07-project-trees.md"),
+        chapter!("08-organisations.md"),
+        chapter!("09-environments.md"),
+        chapter!("10-credentials.md"),
+        chapter!("11-output-and-scripting.md"),
+        chapter!("12-cloud.md"),
+        chapter!("13-walkthrough.md"),
+        chapter!("14-security-model.md"),
+        chapter!("15-diagnostics.md"),
+        chapter!("A-commands.md"),
+        chapter!("B-files-and-variables.md"),
+        chapter!("C-glossary.md"),
     ]
 }
 
@@ -75,7 +82,10 @@ fn pieces(chunk: &str) -> Vec<String> {
             .flat_map(|part| part.split(operator).map(str::to_string).collect::<Vec<_>>())
             .collect();
     }
-    parts.iter().map(|part| unassigned(unredirected(part))).collect()
+    parts
+        .iter()
+        .map(|part| unassigned(unredirected(part)))
+        .collect()
 }
 
 /// A piece up to its first redirection.
@@ -94,7 +104,10 @@ fn unassigned(piece: &str) -> String {
         .split(' ')
         .skip_while(|word| {
             word.split_once('=').is_some_and(|(name, _)| {
-                !name.is_empty() && name.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+                !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
             })
         })
         .collect::<Vec<_>>()
@@ -120,7 +133,10 @@ fn every_manual_example_command_parses() {
             }
         }
     }
-    assert!(parsed >= 250, "only {parsed} manual examples found — is the markup still `$ `?");
+    assert!(
+        parsed >= 250,
+        "only {parsed} manual examples found — is the markup still `$ `?"
+    );
 }
 
 /// The command index names every runnable command, measured against the parser.
@@ -132,10 +148,18 @@ fn the_command_index_lists_every_command() {
         .map(|(_, body)| body)
         .expect("appendix A");
     let root = Cli::command();
-    let paths: Vec<String> = leaves(&root, &[]).iter().map(|(path, _)| path.join(" ")).collect();
-    assert!(paths.len() > 80, "the parser walk found only {} commands", paths.len());
+    let paths: Vec<String> = leaves(&root, &[])
+        .iter()
+        .map(|(path, _)| path.join(" "))
+        .collect();
+    assert!(
+        paths.len() > 80,
+        "the parser walk found only {} commands",
+        paths.len()
+    );
     for path in paths {
-        let listed = index.contains(&format!("| `{path} ")) || index.contains(&format!("| `{path}`"));
+        let listed =
+            index.contains(&format!("| `{path} ")) || index.contains(&format!("| `{path}`"));
         assert!(listed, "`{path}` is missing from docs/manual/A-commands.md");
     }
 }
@@ -146,7 +170,10 @@ fn the_contents_link_every_chapter() {
     let chapters = chapters();
     let readme = chapters[0].1;
     for (name, _) in chapters.iter().skip(1) {
-        assert!(readme.contains(&format!("]({name})")), "README.md does not link {name}");
+        assert!(
+            readme.contains(&format!("]({name})")),
+            "README.md does not link {name}"
+        );
     }
 }
 
@@ -170,5 +197,8 @@ fn a_manual_line_yields_the_42ctl_commands_it_runs() {
         invocations("$ 42ctl vault rm $(42ctl vault ls dev/ -q)"),
         vec!["42ctl vault rm substituted", "42ctl vault ls dev/ -q"]
     );
-    assert!(invocations("42ctl version").is_empty(), "output lines are not commands");
+    assert!(
+        invocations("42ctl version").is_empty(),
+        "output lines are not commands"
+    );
 }

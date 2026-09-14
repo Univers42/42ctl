@@ -507,8 +507,11 @@ mod tests {
         let root = temp_project("root-of-sub");
         std::fs::create_dir_all(root.join(".git")).expect("git");
         std::fs::create_dir_all(root.join(".42ctl")).expect("marker dir");
-        std::fs::write(root.join(".42ctl/project.json"), br#"{"project_id":"p","patterns":["*.env*"]}"#)
-            .expect("marker");
+        std::fs::write(
+            root.join(".42ctl/project.json"),
+            br#"{"project_id":"p","patterns":["*.env*"]}"#,
+        )
+        .expect("marker");
         std::fs::create_dir_all(root.join("srcs/deep")).expect("sub");
         assert_eq!(root_of(&root.join("srcs/deep")), root);
         assert_eq!(root_of(&root), root);
@@ -532,8 +535,11 @@ mod tests {
     fn a_marker_outside_the_repository_is_never_used() {
         let outer = temp_project("root-outside");
         std::fs::create_dir_all(outer.join(".42ctl")).expect("marker dir");
-        std::fs::write(outer.join(".42ctl/project.json"), br#"{"project_id":"home","patterns":[]}"#)
-            .expect("marker");
+        std::fs::write(
+            outer.join(".42ctl/project.json"),
+            br#"{"project_id":"home","patterns":[]}"#,
+        )
+        .expect("marker");
         std::fs::create_dir_all(outer.join("repo/.git")).expect("git");
         std::fs::create_dir_all(outer.join("repo/srcs")).expect("sub");
         std::fs::create_dir_all(outer.join("loose/dir")).expect("loose");

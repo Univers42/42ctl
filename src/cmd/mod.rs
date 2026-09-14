@@ -26,9 +26,9 @@ mod env;
 mod group;
 mod help;
 mod help_commands;
+pub mod help_grouped;
 #[cfg(test)]
 mod help_manual;
-pub mod help_grouped;
 mod help_topics;
 mod invite;
 mod keys;

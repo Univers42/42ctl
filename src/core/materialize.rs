@@ -42,8 +42,12 @@ pub(crate) fn write_one(
     let target = projpath::to_native(root, rel);
     if backup && target.exists() {
         let kept = backup_path(&target);
-        std::fs::rename(&target, &kept)
-            .with_context(|| format!("could not keep a backup of {} — nothing was written", rel.as_str()))?;
+        std::fs::rename(&target, &kept).with_context(|| {
+            format!(
+                "could not keep a backup of {} — nothing was written",
+                rel.as_str()
+            )
+        })?;
     }
     write_atomic(&target, bytes)?;
     apply_mode(&target, mode);
@@ -179,11 +183,15 @@ mod tests {
             let rel = projpath::validate_stored(&format!("secrets/{name}")).expect("rel");
             write_one(&root, &rel, b"restored", 0o600, true).expect("restore");
         }
-        let read = |name: &str| std::fs::read_to_string(root.join("secrets").join(name)).expect(name);
+        let read =
+            |name: &str| std::fs::read_to_string(root.join("secrets").join(name)).expect(name);
         assert_eq!(read("server.crt.bak"), "old certificate");
         assert_eq!(read("server.key.bak"), "old key");
         assert_eq!(read("server.crt"), "restored");
-        assert!(!root.join("secrets/server.bak").exists(), "no shared backup name");
+        assert!(
+            !root.join("secrets/server.bak").exists(),
+            "no shared backup name"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
