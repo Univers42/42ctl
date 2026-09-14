@@ -163,7 +163,7 @@ HELD=$!
 sleep 8
 assert_green "ada's push is held open at the object store, so the overlap below is real" -- kill -0 "$HELD"
 assert_green "meanwhile ben pushes a tree that needs no object store, and it lands" \
-	-- bash -c 'out="$(in_tree ben "$BEN" "env push $E" 2>&1)" || { printf "%s\n" "$out"; exit 1; }'
+	-- bash -c 'out="$(timeout 120 bash -c "in_tree ben \"\$BEN\" \"env push \$E\"" 2>&1)" || { printf "%s\n" "$out"; exit 1; }'
 docker unpause "$QA_S3_SRV" >/dev/null
 wait "$HELD"
 assert_green "ada's push, begun before ben's landed, is refused and says what to do" \
@@ -248,7 +248,7 @@ HELD=$!
 sleep 8
 assert_green "ada's rotation is held open at the object store, re-chunking the volume" -- kill -0 "$HELD"
 assert_green "meanwhile ben pushes a small tree to staging at the old key, and it lands" \
-	-- bash -c 'out="$(in_tree ben "$STAGE_B" "env push $S" 2>&1)" || { printf "%s\n" "$out"; exit 1; }'
+	-- bash -c 'out="$(timeout 120 bash -c "in_tree ben \"\$STAGE_B\" \"env push \$S\"" 2>&1)" || { printf "%s\n" "$out"; exit 1; }'
 docker unpause "$QA_S3_SRV" >/dev/null
 wait "$HELD"
 assert_green "the rotation completes, and says it carried what landed while it ran" \
@@ -269,9 +269,19 @@ docker pause "$QA_S3_SRV" >/dev/null
 HELD=$!
 sleep 8
 assert_green "ben's push of a new volume is held open at the object store" -- kill -0 "$HELD"
+# Bounded, and the store is unpaused whatever happens: staging holds no chunked file only if the
+# carry above worked, and a rotation that has to re-chunk one would wait on the paused store for
+# as long as the spec waited on it.
+(
+	act ada "env keys rotate $S" >"$W/rotate-free.out" 2>&1
+	printf '%s' "$?" >"$W/rotate-free.code"
+) &
+FREE=$!
+for _ in $(seq 90); do kill -0 "$FREE" 2>/dev/null || break; sleep 1; done
 assert_green "meanwhile ada rotates staging, which holds no chunked file, and it completes" \
-	-- bash -c 'out="$(act ada "env keys rotate $S" 2>&1)" || { printf "%s\n" "$out"; exit 1; }'
+	-- bash -c '[ "$(cat "$W/rotate-free.code" 2>/dev/null)" = 0 ] || { printf "still running, or failed:\n"; cat "$W/rotate-free.out"; exit 1; }'
 docker unpause "$QA_S3_SRV" >/dev/null
+wait "$FREE"
 wait "$HELD"
 assert_green "ben's push, which the rotation overtook, is refused and says to push again" \
 	-- bash -c '[ "$(cat "$W/push-held.code")" != 0 ] || { printf "it succeeded:\n"; cat "$W/push-held.out"; exit 1; }

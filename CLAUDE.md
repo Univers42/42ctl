@@ -76,12 +76,19 @@ What to know before running it:
 - **One battery per Docker daemon.** Every run starts by tearing down the shared qa42-* containers,
   so `run.sh` holds a flock and a second run exits 3. Running a spec file with `bash` directly
   bypasses the lock — don't, while a battery is going.
+- **Never edit a spec, `run.sh` or the source while a run uses them.** bash reads a script as it
+  executes, so an edited spec runs half old, half new (assertions duplicate, fragments run as
+  commands); and every spec starts with `cargo build`, so a source edit lands mid-battery.
+- **A spec that pauses a container must bound every wait behind the pause.** s45 holds pushes
+  and rotations open with `docker pause` on the object store; a step that unexpectedly needs the
+  store waits as long as the spec waits on it, so the battery hangs instead of going red.
 - **It measures which commands and flags RAN.** 42ctl (`src/trace.rs`) writes each parsed command
   path and the NAMES of the flags given (never a value) to `FT_TRACE_COMMANDS`; a full run prints
   "commands exercised" and "flags given" against `42ctl help commands`. `QA_REQUIRE_COVERAGE=1`
   fails the run if a command never ran, `QA_REQUIRE_FLAGS=1` if a flag was never given. A new
-  verb therefore needs a spec that runs it. Ran is not checked, though: `org github` runs, and
-  can never succeed against vault42 (see Trip-wires).
+  verb therefore needs a spec that runs it. Ran is not checked, though, so a verb that can only
+  be refused counts as covered — which is how `org github` (routes the authority never had) and
+  `unseal` (no seal state) sat green until they were removed. Drive the success path.
 - **Every listing is checked in every output shape** by `qa/lib/listing.sh` (s40 for the cloud
   listings, s43 for the rest), and each of those specs compares its list with `help commands`. A
   new verb taking `--format` needs a row there and a fixture giving it two differing rows.
@@ -114,7 +121,7 @@ grew out of `cmd/` as the verbs got real:
 | `ops/` | `impl Session` verbs — the vault/sync/notes logic over an open session |
 | `adapters/` | the I/O edge: keystore, passphrase, gRPC session, authority, grobase REST, envelope codecs |
 
-`main.rs` → `cmd::dispatch`: `version`/`update`/`unseal`/`config` run synchronously; everything else
+`main.rs` → `cmd::dispatch`: `version`/`update`/`config` run synchronously; everything else
 goes through a fresh multi-thread tokio runtime. `unsafe_code = "forbid"`.
 
 ### Two credentials, two planes — the thing that trips people up
@@ -271,12 +278,11 @@ their epoch and `env pull` takes the caller's private manifest from the newest e
   Distribution is `install.sh` and `42ctl update`, both reading the raw GitHub Release assets named
   `42ctl-<target>` (D11). A release is cut by `auto-release.yml` or `scripts/release.sh`; nothing is
   published by hand.
-- **`42ctl unseal` refuses, exit 1.** vault42 has no seal state (its `Unseal` RPC always reports
-  unsealed), so the verb says it is not implemented rather than printing a line that reads as success.
-- **`org github connect/link/sync` cannot succeed against vault42.** They call
-  `/v1/orgs/{org}/github/*`, which grobase served and the authority does not — with or without a
-  GitHub app. They say so on the 404. `auth login --github` is different: the authority implements
-  it, and it works wherever `GITHUB_CLIENT_ID` is set (production has none).
+- **There is no `unseal` and no `org github`.** Both were removed because neither could act
+  against vault42: it has no seal state, and the authority never served the
+  `/v1/orgs/{org}/github/*` routes grobase had. `auth login --github` is different — the authority
+  implements it, and it works wherever `GITHUB_CLIENT_ID` is set (production has none). Rebuilding
+  GitHub org sync means authority routes and a registered GitHub App first.
 - **The vault holds 42ctl's own records** under `__42ctl/` (notes, push manifests, chunk lists).
   `vault ls` hides them unless `--all`, `vault rm` refuses them and `vault export` skips them —
   `vault rm $(vault ls -q)` used to delete a person's notes. `db ls` is the record-level view and
