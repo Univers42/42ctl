@@ -52,7 +52,6 @@ mod scope_wrap;
 mod sync;
 mod team;
 mod team_members;
-mod unseal;
 mod update;
 mod vault;
 mod version;
@@ -69,7 +68,6 @@ pub fn dispatch(cli: &Cli) -> anyhow::Result<()> {
     match command {
         Command::Version => version::run(),
         Command::Help { topic } => help::run(topic.as_deref()),
-        Command::Unseal => unseal::run(),
         Command::Config(cmd) => config::run(cmd, &profile),
         _ => block_on_net(command, &profile),
     }

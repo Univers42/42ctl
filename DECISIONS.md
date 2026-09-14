@@ -13,7 +13,7 @@ is signed + provenance-attested, every installer verifies before executing.
 ## D1 — Reconciliation with the vault42 build (done first)
 
 - **`42ctl` supersedes the planned `vault42/cli`.** There is no separate vault CLI; the vault
-  verbs are the `42ctl vault`/`secrets` group, and `unseal` is `42ctl unseal`. The already-shipped
+  verbs are the `42ctl vault`/`secrets` group. (`unseal` became `42ctl unseal`, later removed: vault42 has no seal state.) The already-shipped
   `vault42-cli` (in vault42 v0.1.1, deployed) is kept but superseded — a thin reference client,
   not deleted (deletion-gate discipline). Recorded in vault42 `DECISIONS.md` D12.
 - **The crypto is the future standalone `vault-crypto` crate.** Until it is published to crates.io

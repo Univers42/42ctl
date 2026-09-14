@@ -32,7 +32,7 @@ pub const SECTIONS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Operator Commands", &["cloud"]),
-    ("Commands", &["help", "update", "unseal"]),
+    ("Commands", &["help", "update"]),
 ];
 
 #[cfg(test)]

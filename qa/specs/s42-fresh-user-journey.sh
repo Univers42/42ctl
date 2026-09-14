@@ -11,8 +11,8 @@
 #
 # It is also where the verbs no other spec runs get run: config profile/show, keys init's
 # refusal to overwrite, vault import/export/audit/rotate/rm, db, notes, help, version,
-# update --check, auth mfa, and the two verbs that must say plainly they cannot act here —
-# `unseal` (vault42 has no seal state) and `org github` (the authority has no such routes).
+# update --check, auth mfa, and the absence of the two verbs that could never act against vault42 —
+# `unseal` (no seal state) and `org github` (routes the authority never had).
 #
 # Spellings are the current ones throughout; `vault get-env --help` is checked once to prove
 # the old spelling still lands on the same page.
@@ -225,17 +225,13 @@ assert_green "the account now says a second factor is required" \
 assert_green "and she turns it off again the same way" \
 	-- bash -c 'qa_actor_otp lea "$W/laptop" "auth mfa --off" "$MAIL" 2>/dev/null | grep -qx "second factor off for $MAIL"'
 
-# ── the verbs that must say plainly what they cannot do here ─────────────────
-assert_green "unseal refuses and says it is not implemented, rather than printing success" \
-	-- bash -c 'out="$(lea unseal 2>&1)" && exit 1; grep -q "not implemented" <<<"$out"'
-# The vault42 authority serves no `/v1/orgs/{org}/github/*` route at all — only grobase did — so
-# these three can never succeed here, whatever GitHub app the authority has (this battery's has
-# one, see s44). What they must do is say so, rather than print a bare 404.
-for verb in "connect $ORG" "link $ORG some-github-org" "sync $ORG"; do
-	assert_green "org github ${verb%% *} says this authority has no GitHub organisation routes" \
-		-- bash -c 'out="$(lea "org github $1" 2>&1)" && { echo "succeeded: $out"; exit 1; }
-			grep -q "this authority does not serve GitHub organisation routes" <<<"$out" || { printf "%s\n" "$out"; exit 1; }' _ "$verb"
-done
+# ── no verb that cannot act ───────────────────────────────────────────────────
+# `unseal` and `org github` could only ever be refused against vault42 — no seal state, and no
+# `/v1/orgs/{org}/github/*` routes on the authority — and a command that exists only to refuse
+# still counts as covered. They are gone; neither the parser nor the help may offer them.
+assert_green "unseal and org github are not commands, and help commands does not list them" \
+	-- bash -c '! lea unseal >/dev/null 2>&1 && ! lea "org github sync $ORG" >/dev/null 2>&1 &&
+		! lea "help commands" 2>/dev/null | grep -qE "42ctl (unseal|org github)"'
 assert_green "update --check reports what is installed" \
 	-- bash -c 'lea update --check 2>/dev/null | grep -qE "^installed +[0-9]+\.[0-9]+\.[0-9]+"'
 

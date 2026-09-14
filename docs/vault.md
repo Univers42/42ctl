@@ -200,16 +200,6 @@ UUID**; `--user` accepts an **account id or an email**, and the email must belon
 of that organisation. A reference that resolves to nothing is refused with a message naming
 which one missed — never a bare 400.
 
-### `org github` — mirror a GitHub org into RBAC
-
-```sh
-42ctl org github connect acme          # prints the install URL + nonce
-42ctl org github link acme <gh-org>    # link a GitHub org login
-42ctl org github sync acme             # teams / members / repos → RBAC
-```
-
-Needs `auth login --github`.
-
 ---
 
 ## 7. Personal secrets — `vault`
@@ -690,9 +680,13 @@ both would silently make them the same value in every automated run.
 Stated plainly, because a manual that implies a verb exists costs more than one that admits it
 does not.
 
-- **`42ctl unseal` is not implemented, and says so with exit 1.** The server's unseal RPC
-  authenticates and then always reports 100% unsealed, so there is no seal state to manage. It
-  used to print a line and exit 0, which reads as an unseal that happened.
+- **No `unseal`.** vault42 has no seal state — its unseal RPC always reports 100% unsealed — so
+  there is nothing for an operator to open after a restart. The verb existed, first printing a
+  success and then refusing; it was removed rather than kept as a command that cannot act.
+- **No GitHub organisation sync.** The `org github connect | link | sync` verbs called routes
+  grobase served and the vault42 authority does not, so they could never succeed and were
+  removed. Members come in through `org invite` and `team member add`. Signing in WITH GitHub
+  (`auth login --github`) is unaffected: the authority implements it wherever it has a GitHub app.
 - **No `org`, `team`, `project`, `env` or `group` deletion.** Nothing removes an organisation,
   a team, a project, an environment or a group once created.
 - **No variables verbs.** The authority serves org/project/environment variables with

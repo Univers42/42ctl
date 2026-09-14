@@ -55,12 +55,6 @@ pub enum Org {
         #[arg(long, value_name = "TOKEN")]
         token: String,
     },
-    /// GitHub App connect / link / sync — needs a control plane with those routes; vault42's has none
-    ///
-    /// These call `/v1/orgs/{org}/github/*`, which grobase served and the vault42 authority does
-    /// not, so against vault42 each one says so and exits 1.
-    #[command(subcommand)]
-    Github(OrgGithub),
 }
 
 /// `org member` subcommands.
@@ -350,32 +344,6 @@ pub enum Invite {
         /// Invite id
         #[arg(long, value_name = "ID")]
         id: String,
-    },
-}
-
-/// `org github` subcommands.
-#[derive(Subcommand)]
-pub enum OrgGithub {
-    /// Start connecting a GitHub App installation to ORG (prints the install URL + nonce)
-    Connect {
-        /// Org slug
-        #[arg(value_name = "ORG")]
-        org: String,
-    },
-    /// Link a GitHub organisation login to ORG
-    Link {
-        /// Org slug
-        #[arg(value_name = "ORG")]
-        org: String,
-        /// The GitHub organisation's login name
-        #[arg(value_name = "GITHUB_ORG")]
-        github_org: String,
-    },
-    /// Sync GitHub teams / members / repos into ORG's RBAC
-    Sync {
-        /// Org slug
-        #[arg(value_name = "ORG")]
-        org: String,
     },
 }
 

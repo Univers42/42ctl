@@ -32,7 +32,6 @@ pub mod flyapi;
 pub mod flyctl;
 pub mod github;
 pub mod github_device;
-pub mod github_org;
 pub mod keystore;
 pub mod otp;
 pub mod passphrase;
