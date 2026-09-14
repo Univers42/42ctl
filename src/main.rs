@@ -29,6 +29,7 @@ use std::process::ExitCode;
 
 /// Entry point: parse, dispatch, map errors to an exit code.
 fn main() -> ExitCode {
+    quiet_on_a_closed_pipe();
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -36,6 +37,28 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// End quietly, as a shell does, when whoever reads the output has gone.
+///
+/// `42ctl vault ls | head -1` closes the pipe after one line, and the next `println!` answers
+/// with a panic: `failed printing to stdout: Broken pipe` plus a backtrace hint, on stderr, for
+/// what is an ordinary way to read a listing. A closed pipe exits 141 and prints nothing; every
+/// other panic still reaches the default hook.
+fn quiet_on_a_closed_pipe() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info.payload();
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or_default();
+        if message.contains("Broken pipe") {
+            std::process::exit(141);
+        }
+        default(info);
+    }));
 }
 
 /// Parse the CLI and dispatch to the command layer, answering a help request for a command
