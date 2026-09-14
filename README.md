@@ -13,6 +13,8 @@ sync your project's `*.env` tree, and manage teams, environments and shared keys
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Univers42/42ctl/main/install.sh | sh
+# no curl? (Alpine, minimal images)
+wget -qO- https://raw.githubusercontent.com/Univers42/42ctl/main/install.sh | sh
 ```
 
 That downloads the static binary for your machine from the latest GitHub Release, verifies its
@@ -25,7 +27,13 @@ Already installed?
 ```sh
 42ctl update --check     # is there a newer release?
 42ctl update             # download → verify SHA-256 → atomic swap
+42ctl update --version 0.1.7   # or pin one, up or down
 ```
+
+Every merge to `main` that passes CI becomes a patch release on its own (`auto-release.yml`), so
+`update` always reaches what was merged. After each release `install-check.yml` installs it from
+scratch and updates an older install to it, on Debian with curl (x86_64 and aarch64) and on
+Alpine with only BusyBox wget — `scripts/verify/install-e2e.sh` runs the same check by hand.
 
 Other channels: the Docker image (`deploy/Dockerfile.dist`, `FROM scratch`, non-root) and the raw
 assets on the [Releases](https://github.com/Univers42/42ctl/releases) page — see `SECURITY.md` to

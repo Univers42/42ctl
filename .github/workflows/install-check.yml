@@ -1,0 +1,81 @@
+# Prove every published release installs and updates on a machine that has never seen 42ctl.
+#
+# `auto-release.yml` makes a tag follow main and `release.yml` publishes its binaries, but
+# nothing checked that what was published can actually be installed. The installer's wget
+# path had been broken on every BusyBox system (Alpine, most minimal images) for as long as it
+# existed, because the only machines it ever ran on had curl. So after each release this runs
+# scripts/verify/install-e2e.sh — fresh install into ~/.local/bin as a non-root user, a pinned
+# older install, `42ctl update` in place, and an update with nothing to do — on:
+#
+#   debian + curl on x86_64 and on aarch64 (native runners, no emulation), and
+#   alpine with only BusyBox wget.
+#
+# P7-hardened: actions pinned by commit SHA (re-pin with `pinact run`).
+name: install-check
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release releases/latest should be (e.g. v0.1.9)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: debian curl x86_64
+            runner: ubuntu-24.04
+            image: public.ecr.aws/docker/library/debian:bookworm-slim
+            setup: apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null && useradd -m tester
+          - name: debian curl aarch64
+            runner: ubuntu-24.04-arm
+            image: public.ecr.aws/docker/library/debian:bookworm-slim
+            setup: apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null && useradd -m tester
+          - name: alpine busybox-wget x86_64
+            runner: ubuntu-24.04
+            image: public.ecr.aws/docker/library/alpine:3.20
+            setup: adduser -D tester
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the release and the one before it
+        id: tags
+        env:
+          DISPATCHED: ${{ inputs.tag }}
+          RAN_FOR: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          want="${DISPATCHED:-$RAN_FOR}"
+          case "$want" in v[0-9]*) ;; *) echo "not a release tag: '$want'" >&2; exit 1 ;; esac
+          older=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -vx "$want" | head -n 1)
+          [ -n "$older" ] || { echo "no release before $want to update from" >&2; exit 1; }
+          echo "want=$want" >> "$GITHUB_OUTPUT"
+          echo "older=$older" >> "$GITHUB_OUTPUT"
+          echo "checking $want, updating from $older"
+
+      - name: Install fresh, pin older, update in place
+        env:
+          IMAGE: ${{ matrix.image }}
+          SETUP: ${{ matrix.setup }}
+          WANT: ${{ steps.tags.outputs.want }}
+          OLDER: ${{ steps.tags.outputs.older }}
+        run: |
+          docker run --rm -v "$PWD":/repo:ro -e WANT -e OLDER -e SETUP "$IMAGE" sh -c '
+            set -e
+            eval "$SETUP"
+            su tester -c "cd && sh /repo/scripts/verify/install-e2e.sh $WANT $OLDER /repo/install.sh"'
