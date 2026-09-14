@@ -55,9 +55,6 @@ pub enum Org {
         #[arg(long, value_name = "TOKEN")]
         token: String,
     },
-    /// GitHub App connect / link / sync for an org (needs `auth login --github`)
-    #[command(subcommand)]
-    Github(OrgGithub),
 }
 
 /// `org member` subcommands.
@@ -287,7 +284,12 @@ pub enum ProjectGrant {
         #[command(flatten)]
         out: super::Output,
     },
-    /// Grant a user a role on a project (optionally one environment only)
+    /// Grant a user, or one of the project's groups, a role on a project (optionally one
+    /// environment only)
+    ///
+    /// Name exactly one grantee. A group grant reaches the group's CURRENT members, and ends for
+    /// anyone who leaves the group or the organization. A team is granted with `team grant`.
+    #[command(group(clap::ArgGroup::new("grantee").required(true).args(["user", "group"])))]
     Add {
         /// Org slug
         #[arg(long, value_name = "SLUG")]
@@ -297,7 +299,10 @@ pub enum ProjectGrant {
         project: String,
         /// User id or email
         #[arg(long, value_name = "USER")]
-        user: String,
+        user: Option<String>,
+        /// Group id (from `group create`), which must belong to this project
+        #[arg(long, value_name = "ID")]
+        group: Option<String>,
         /// Project role: admin, write or read
         #[arg(long, value_name = "ROLE")]
         role: String,
@@ -342,28 +347,25 @@ pub enum Invite {
     },
 }
 
-/// `org github` subcommands.
-#[derive(Subcommand)]
-pub enum OrgGithub {
-    /// Start connecting a GitHub App installation to ORG (prints the install URL + nonce)
-    Connect {
-        /// Org slug
-        #[arg(value_name = "ORG")]
-        org: String,
-    },
-    /// Link a GitHub organisation login to ORG
-    Link {
-        /// Org slug
-        #[arg(value_name = "ORG")]
-        org: String,
-        /// The GitHub organisation's login name
-        #[arg(value_name = "GITHUB_ORG")]
-        github_org: String,
-    },
-    /// Sync GitHub teams / members / repos into ORG's RBAC
-    Sync {
-        /// Org slug
-        #[arg(value_name = "ORG")]
-        org: String,
-    },
+#[cfg(test)]
+mod tests {
+    use crate::cli::Cli;
+    use clap::Parser;
+
+    fn parses(line: &str) -> bool {
+        Cli::try_parse_from(line.split_whitespace()).is_ok()
+    }
+
+    /// A grant names exactly one grantee: a user or a group, never both, never neither.
+    #[test]
+    fn a_project_grant_names_exactly_one_grantee() {
+        let base = "42ctl project grant add --org acme --project api --role read";
+        assert!(parses(&format!("{base} --user a@x.io")));
+        assert!(parses(&format!("{base} --group g1 --env prod")));
+        assert!(
+            !parses(&format!("{base} --user a@x.io --group g1")),
+            "two grantees in one grant would leave one of them silently ignored"
+        );
+        assert!(!parses(base), "a grant to nobody is refused at the parser");
+    }
 }

@@ -66,7 +66,7 @@ Alpine with only BusyBox wget, whose `wget` lacked the flag the installer used u
 
 ### The QA battery, and the older verify gates
 
-`./qa/run.sh` is the real end-to-end coverage: 30 specs standing up vault42-server, the authority
+`./qa/run.sh` is the real end-to-end coverage: 33 specs standing up vault42-server, the authority
 and a MinIO chunk store in Docker. Its exit status counts REGRESSIONS ONLY, so it works as a merge
 gate while `assert_spec` assertions stay red on purpose. `QA_SHUFFLE=1` randomises the order —
 use it, because specs have passed or failed because of what ran before them. `qa/README.md`
@@ -79,17 +79,32 @@ What to know before running it:
 - **One battery per Docker daemon.** Every run starts by tearing down the shared qa42-* containers,
   so `run.sh` holds a flock and a second run exits 3. Running a spec file with `bash` directly
   bypasses the lock — don't, while a battery is going.
-- **It measures which commands RAN.** 42ctl writes each parsed command path (never an argument) to
-  `FT_TRACE_COMMANDS`; after a full run the summary prints "commands exercised X of Y" against
-  `42ctl help commands`, and `QA_REQUIRE_COVERAGE=1` fails the run if any command never ran. A new
-  verb therefore needs a spec that runs it. `org github link`/`sync` count by being refused.
+- **Never edit a spec, `run.sh` or the source while a run uses them.** bash reads a script as it
+  executes, so an edited spec runs half old, half new (assertions duplicate, fragments run as
+  commands); and every spec starts with `cargo build`, so a source edit lands mid-battery.
+- **A spec that pauses a container must bound every wait behind the pause.** s45 holds pushes
+  and rotations open with `docker pause` on the object store; a step that unexpectedly needs the
+  store waits as long as the spec waits on it, so the battery hangs instead of going red.
+- **It measures which commands and flags RAN.** 42ctl (`src/trace.rs`) writes each parsed command
+  path and the NAMES of the flags given (never a value) to `FT_TRACE_COMMANDS`; a full run prints
+  "commands exercised" and "flags given" against `42ctl help commands`. `QA_REQUIRE_COVERAGE=1`
+  fails the run if a command never ran, `QA_REQUIRE_FLAGS=1` if a flag was never given. A new
+  verb therefore needs a spec that runs it. Ran is not checked, though, so a verb that can only
+  be refused counts as covered — which is how `org github` (routes the authority never had) and
+  `unseal` (no seal state) sat green until they were removed. Drive the success path.
+- **Every listing is checked in every output shape** by `qa/lib/listing.sh` (s40 for the cloud
+  listings, s43 for the rest), and each of those specs compares its list with `help commands`. A
+  new verb taking `--format` needs a row there and a fixture giving it two differing rows.
 - **Name specs as separate arguments.** A name that selects nothing is an error (exit 2); it used to
   run the preflight alone and print "No regressions".
-- **The server rev matters**: s41 asserts authorization fixes that go red on older vault42 revs, and
-  `QA_VAULT42_REV` defaults to one that has them.
+- **The server rev matters**: s41 asserts authorization fixes and group grants that go red on older
+  vault42 revs, and `QA_VAULT42_REV` defaults to one that has them. `QA_VAULT42_REV=` (empty)
+  builds the sibling working tree; each spec prints which source it built.
 - s40 (cloud) needs no server: `qa/fixtures/fly/flyctl` stands in for flyctl and records every
   command, which is how "no destructive command ever ran" is asserted. s41 is who-may-do-what
-  through the CLI alone; s42 is one user's first day from an empty machine.
+  through the CLI alone; s42 is one user's first day from an empty machine; s44 drives
+  `auth login --github` to a session against `qa/fixtures/github/stub.pl`, which every battery
+  authority is pointed at.
 
 `scripts/verify/v10-secret-sync.sh` … `v13-github-cli.sh` predate it and still work, but **both
 their defaults are wrong on this machine**: they need `RUST_TOOLCHAIN_IMG` (the default image is
@@ -109,7 +124,7 @@ grew out of `cmd/` as the verbs got real:
 | `ops/` | `impl Session` verbs — the vault/sync/notes logic over an open session |
 | `adapters/` | the I/O edge: keystore, passphrase, gRPC session, authority, grobase REST, envelope codecs |
 
-`main.rs` → `cmd::dispatch`: `version`/`update`/`unseal`/`config` run synchronously; everything else
+`main.rs` → `cmd::dispatch`: `version`/`update`/`config` run synchronously; everything else
 goes through a fresh multi-thread tokio runtime. `unsafe_code = "forbid"`.
 
 ### Two credentials, two planes — the thing that trips people up
@@ -209,6 +224,13 @@ second stores nothing — deduplication between people, with no convergent ciphe
 Each stored chunk carries its author key in a small framing, because a deduplicated set's
 chunks can have different authors and the object store hands back bytes alone.
 
+**A restore is always one push's tree.** `env pull` reads each file at the revision its manifest
+entry records (`Entry.rev`), and `env push` reads every head once before its first write and
+conditions every put on it (`cmd/scope_store.rs`), so an overtaken push is refused rather than
+interleaved. Both halves are needed: a push that dies or loses partway leaves newer revisions no
+manifest names, and reading the newest restores those. s45 forces both interleavings (a push held
+at a paused object store, a push whose store is unreachable); s35's four timed rounds could not.
+
 **The manifest is hostile input on this path**, which it is not on the personal one: anyone who
 may write the environment may write the manifest a colleague's machine then acts on. The
 traversal guard already covered where files land; the MODE did not, and a manifest asking for
@@ -224,7 +246,11 @@ then `env keys sync` wraps the scope secret to every authorized member that has 
 pubkey. `env secret set` seals to the scope **public** key; `env secret get` recovers the scope **secret** from
 the caller's own wrap (the two-hop unwrap in `cmd/scope_recover.rs`). `env keys rotate` re-seals every
 env secret at `epoch+1` and re-wraps only the remaining members, so a removed member loses access by
-absence. The scope secret never leaves a `Zeroizing` buffer. The server gates all of it behind
+absence. It moves a tree as a tree (`cmd/scope_reseal.rs`): shared files at the manifest's
+revisions, chunked files re-chunked under the new key, the manifest rewritten last. Members'
+private files cannot be moved — the server accepts a write only from its author — so they stay in
+their epoch and `env pull` takes the caller's private manifest from the newest epoch holding one
+(DECISIONS D13). The scope secret never leaves a `Zeroizing` buffer. The server gates all of it behind
 `VAULT42_SCOPE_KEYS_ENABLED`.
 
 ## Trip-wires
@@ -255,8 +281,15 @@ absence. The scope secret never leaves a `Zeroizing` buffer. The server gates al
   Distribution is `install.sh` and `42ctl update`, both reading the raw GitHub Release assets named
   `42ctl-<target>` (D11). A release is cut by `auto-release.yml` or `scripts/release.sh`; nothing is
   published by hand.
-- **`42ctl unseal` refuses, exit 1.** vault42 has no seal state (its `Unseal` RPC always reports
-  unsealed), so the verb says it is not implemented rather than printing a line that reads as success.
+- **There is no `unseal` and no `org github`.** Both were removed because neither could act
+  against vault42: it has no seal state, and the authority never served the
+  `/v1/orgs/{org}/github/*` routes grobase had. `auth login --github` is different — the authority
+  implements it, and it works wherever `GITHUB_CLIENT_ID` is set (production has none). Rebuilding
+  GitHub org sync means authority routes and a registered GitHub App first.
+- **The vault holds 42ctl's own records** under `__42ctl/` (notes, push manifests, chunk lists).
+  `vault ls` hides them unless `--all`, `vault rm` refuses them and `vault export` skips them —
+  `vault rm $(vault ls -q)` used to delete a person's notes. `db ls` is the record-level view and
+  shows everything.
 - **CI's push trigger names `develop`, which does not exist here** (branches are `main` plus
   `feat/*`). Pull requests are what actually run CI.
 

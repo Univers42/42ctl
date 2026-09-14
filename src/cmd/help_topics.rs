@@ -335,12 +335,7 @@ $ 42ctl group invite --group <id> --email dev@example.com
 $ 42ctl team member rm --org acme --team backend --user dev@example.com       # org membership stays
 $ 42ctl group member rm --group <id> --user dev@example.com
 $ 42ctl org member rm --org acme --user dev@example.com       # teams, groups, grants, pubkey too
-! Removal ends AUTHORIZATION, not a key already held: rotate the environment (42ctl help scopes).
-
-## GitHub App (mirror your GitHub org into RBAC; needs auth login --github)
-$ 42ctl org github connect acme                           # prints the install URL
-$ 42ctl org github link acme <github-org>
-$ 42ctl org github sync acme                              # teams / members / repos → RBAC";
+! Removal ends AUTHORIZATION, not a key already held: rotate the environment (42ctl help scopes).";
 
 const SCOPES: &str = "\
 A scope is one environment's SHARED key. Secrets sealed to it are readable by every

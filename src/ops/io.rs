@@ -69,13 +69,19 @@ impl Session {
         Ok(())
     }
 
-    /// The caller's secret paths under `prefix` (owner-scoped by the server).
+    /// The caller's secret paths under `prefix` (owner-scoped by the server), without 42ctl's
+    /// own records: a push's stored files and manifests are not `KEY=value` secrets, and
+    /// exporting them wrote whole multi-line files into what should be a dotenv.
     async fn list_paths(&mut self, prefix: &str) -> anyhow::Result<Vec<String>> {
         let mut request = Request::new(LsRequest {
             prefix: prefix.to_string(),
         });
         self.authorize(&mut request, "/vault.v1.Vault/Ls")?;
         let secrets = self.client.ls(request).await?.into_inner().secrets;
-        Ok(secrets.into_iter().map(|secret| secret.path).collect())
+        Ok(secrets
+            .into_iter()
+            .map(|secret| secret.path)
+            .filter(|path| !super::manage::is_own_record(path))
+            .collect())
     }
 }

@@ -23,6 +23,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/harness.sh"
 source "$QA_LIB_DIR/server.sh"
+source "$QA_LIB_DIR/listing.sh"
 
 spec_begin "s40-cloud-controller"
 command -v docker >/dev/null 2>&1 || spec_skip "docker is not available"
@@ -279,6 +280,72 @@ assert_green "health fails the deployment when a snapshot is ten days old, and s
 assert_green "--no-wake skips the probes that would start a stopped machine, and says so" \
 	-- bash -c 'cloud cloud health --no-wake --format "{{.Check}}|{{.Status}}" 2>/dev/null |
 		grep -qx "authority /healthz|skip"'
+
+# ── every cloud listing, in every shape ──────────────────────────────────────
+# The format checks above pin exact text on one listing. This runs the whole matrix — default,
+# json, templates, -q, every kind of --filter and both refusals — on EVERY cloud listing, and
+# the list below is checked against `help commands`, so a listing added later without a row
+# here turns this spec red rather than going unchecked.
+cloud_line() { eval "cloud $1"; }
+declare -A CLOUD_LISTINGS=(
+	["cloud apps"]="cloud apps"
+	["cloud status"]="cloud status"
+	["cloud health"]="cloud health --no-wake"
+	["cloud machine ls"]="cloud machine ls"
+	["cloud machine ports"]="cloud machine ports"
+	["cloud machine top"]="cloud machine top 91c5d2e6a7f0b3"
+	["cloud machine events"]="cloud machine events 91c5d2e6a7f0b3"
+	["cloud volume ls"]="cloud volume ls"
+	["cloud volume snapshots"]="cloud volume snapshots vol_authority000001 --app vault42-authority"
+	["cloud secret ls"]="cloud secret ls"
+	["cloud net ips"]="cloud net ips"
+	["cloud net certs"]="cloud net certs"
+)
+cloud help commands >"$W/commands.txt" 2>/dev/null
+assert_green "the matrix below covers exactly the cloud listings help commands knows" \
+	-- bash -c 'want="$1"; got="$(printf "%s\n" "${@:2}" | sort)"
+		[ -n "$want" ] && [ "$want" = "$got" ] || { diff <(printf "%s\n" "$want") <(printf "%s\n" "$got"); exit 1; }' \
+	_ "$(listing_commands "$W/commands.txt" | grep "^cloud ")" "${!CLOUD_LISTINGS[@]}"
+for name in $(printf '%s\n' "${!CLOUD_LISTINGS[@]}" | sort | tr ' ' '+'); do
+	name="${name//+/ }"
+	if [ "$name" = "cloud health" ]; then export LISTING_OK_EXIT="0 1"; else export LISTING_OK_EXIT=0; fi
+	listing_matrix "$name" cloud_line "${CLOUD_LISTINGS[$name]}"
+done
+unset LISTING_OK_EXIT
+
+# The matrix is only worth its green if it goes red on a listing that lies. Each mutation below
+# plants one lie into a copy of a captured listing and the checker must reject that copy.
+lying_listing() {
+	local check="$1" mutation="$2" copy
+	copy="$(mktemp -d)"
+	cp "$QA_RESULTS/listings/cloud-machine-ls/"* "$copy/"
+	(cd "$copy" && eval "$mutation")
+	python3 "$QA_LIB_DIR/listing.py" verify "$copy" "$check" >/dev/null
+	local verdict=$?
+	rm -rf "$copy"
+	[ "$verdict" -ne 0 ]
+}
+export -f lying_listing
+for lie in \
+	"quiet|sed -i 1d quiet.out" \
+	"quiet|sed -i s/3d8e4a1f0b2c77/vault42-server/ quiet.out" \
+	"filter|cp base-json.out filter.out" \
+	"filter-case|echo 1 >filter-case.code" \
+	"filter-and|cp filter.out filter-and.out; sed -i s/3d8e4a1f0b2c77/91c5d2e6a7f0b3/ filter-and.out" \
+	"quiet-filter|cp quiet.out quiet-filter.out" \
+	"filter-none|echo 0 >filter-none.code" \
+	"filter-none|cp quiet.out filter-none.out" \
+	"default|sed -i 3d default.out" \
+	"default|sed -i s/started/stopped/ default.out" \
+	"template|sed -i s/cdg/fra/ template.out" \
+	"json-line|sed -i 1d json-line.out" \
+	"table-template|sed -i 1s/App/Name/ table-template.out" \
+	"columns|echo 0 >columns.code" \
+	"quiet-format|echo 0 >quiet-format.code" \
+	"json|echo 1 >base-json.code"; do
+	assert_green "the matrix rejects a listing whose ${lie%%|*} lies (${lie#*|})" \
+		-- lying_listing "${lie%%|*}" "${lie#*|}"
+done
 
 # ── lifecycle: administrators only ───────────────────────────────────────────
 assert_green "an administrator's token stops a machine, and the command run is echoed first" \

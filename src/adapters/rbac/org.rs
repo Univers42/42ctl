@@ -57,20 +57,20 @@ pub async fn accept_invite(grobase: &str, token: &str, invite_token: &str) -> an
     rbac::post_unit(grobase, token, "/v1/orgs/invites/accept", &body).await
 }
 
-/// Grant `user` a `project_role` on `project` (optionally scoped to `env`)
-/// (`POST /v1/orgs/{org}/projects/{project}/grants`).
-pub async fn grant_user(
+/// Grant a grantee — `("user", id or email)` or `("group", group id)` — a `project_role` on
+/// `project`, optionally scoped to `env` (`POST /v1/orgs/{org}/projects/{project}/grants`).
+pub async fn grant(
     grobase: &str,
     token: &str,
-    ids: (&str, &str, &str),
+    ids: (&str, &str, (&str, &str)),
     project_role: &str,
     env: Option<&str>,
 ) -> anyhow::Result<rbac::Grant> {
-    let (org, project, user) = ids;
+    let (org, project, (kind, grantee)) = ids;
     let path = format!("/v1/orgs/{org}/projects/{project}/grants");
     let body = GrantRequest {
-        grantee_kind: "user".to_string(),
-        grantee_id: user.to_string(),
+        grantee_kind: kind.to_string(),
+        grantee_id: grantee.to_string(),
         project_role: project_role.to_string(),
         env_id: env.map(str::to_string),
     };

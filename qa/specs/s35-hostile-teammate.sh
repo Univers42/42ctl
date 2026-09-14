@@ -192,22 +192,36 @@ done
 # Four rounds, because a race that happens to serialise once proves nothing about a race. Each
 # round writes different content on both sides, so any mixture is visible in the restored tree.
 #
-# It holds for a structural reason rather than by luck, and the reason is worth recording so
-# nobody removes the thing that makes it true. Files are pushed in sorted order, each with
-# optimistic concurrency, and the MANIFEST is written last. So the first contended file acts as
-# a lock: the writer that loses it aborts before reaching any later file and before writing any
-# manifest, and the winner goes on to publish a tree entirely its own. Reordering the manifest
-# to the front, or continuing past a conflicting file, would both break that — which is what
-# this round-trips four times to catch.
+# This used to explain why it held "for a structural reason": files pushed in sorted order with
+# optimistic concurrency, so the first contended file acts as a lock. It never did. Each put
+# read the head just before writing, so the second writer read the FIRST writer's new revision
+# and passed; and a restore fetched each file's newest revision, so a push that lost or died
+# partway left files the published manifest never named. The rounds usually serialise, which is
+# how that went unseen until a run mixed the tree. What makes it hold now is that a push reads
+# every head before its first write and conditions every put on that snapshot, and a restore
+# reads the revision the manifest names — s45 forces both interleavings rather than hoping.
+#
+# So each round checks what must be true whatever the timing: the tree restores whole from ONE
+# writer, that writer's push succeeded, and a push that failed says it was overtaken.
 assert_green "two writers pushing the same environment at once never produce a mixed tree" \
 	-- bash -c 'for round in 1 2 3 4; do
 			for who in a b; do
 				printf "RACER=%s\nVALUE=race-%s-%s\n" "$who" "$who" "$round" >"$1/racer-$who/srcs/.env"
 				printf "RACER=%s\nROUND=%s\n" "$who" "$round" >"$1/racer-$who/marker.env"
 			done
-			qa_actor alice "$1/racer-a" "vault push-env --org $2 --project $3 --env prod" >/dev/null 2>&1 &
-			qa_actor mallory "$1/racer-b" "vault push-env --org $2 --project $3 --env prod" >/dev/null 2>&1 &
-			wait
+			qa_actor alice "$1/racer-a" "vault push-env --org $2 --project $3 --env prod" >"$1/race-a.out" 2>&1 &
+			pid_a=$!
+			qa_actor mallory "$1/racer-b" "vault push-env --org $2 --project $3 --env prod" >"$1/race-b.out" 2>&1 &
+			pid_b=$!
+			wait "$pid_a"; code_a=$?
+			wait "$pid_b"; code_b=$?
+			[ "$code_a" = 0 ] || [ "$code_b" = 0 ] ||
+				{ printf "round %s: both pushes failed\n" "$round"; cat "$1/race-a.out" "$1/race-b.out"; exit 1; }
+			for who in a b; do
+				code=$([ "$who" = a ] && echo "$code_a" || echo "$code_b")
+				[ "$code" = 0 ] || grep -q "while this push ran" "$1/race-$who.out" ||
+					{ printf "round %s: %s failed without saying it was overtaken\n" "$round" "$who"; cat "$1/race-$who.out"; exit 1; }
+			done
 			d="$1/race-restore"; rm -rf "$d"; mkdir -p "$d"
 			qa_actor victim "$d" "vault pull-env --org $2 --project $3 --env prod --apply" >/dev/null 2>&1 ||
 				{ printf "round %s: nothing could be restored after the race\n" "$round"; exit 1; }
@@ -217,6 +231,10 @@ assert_green "two writers pushing the same environment at once never produce a m
 				{ printf "round %s: the restored tree is incomplete\n" "$round"; exit 1; }
 			[ "$one" = "$two" ] ||
 				{ printf "round %s: MIXED — srcs/.env from %s, marker.env from %s\n" "$round" "$one" "$two"; exit 1; }
+			[ "$(sed -n "s/^ROUND=//p" "$d/marker.env")" = "$round" ] ||
+				{ printf "round %s: the restored tree is from an earlier round\n" "$round"; exit 1; }
+			won=$([ "$one" = a ] && echo "$code_a" || echo "$code_b")
+			[ "$won" = 0 ] || { printf "round %s: the tree is %s'"'"'s, whose push failed\n" "$round" "$one"; exit 1; }
 		done' \
 	_ "$W" "$ORG" "$PUUID"
 

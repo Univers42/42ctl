@@ -22,17 +22,25 @@ use tonic::Request;
 use vault42_proto::vault::v1::{LsRequest, PushRequest, RmRequest};
 
 impl Session {
-    /// List the caller's secrets under `prefix`: `Path Version Updated`.
+    /// List the caller's secrets under `prefix`: `Path Version Updated`. `scope` is the prefix
+    /// and whether 42ctl's own records are included (`vault ls --all`, and always for `db ls`,
+    /// which is the record-level view).
     ///
     /// `--format`/`--filter` take precedence. Without them a pipe still gets the historical
     /// tab-separated `path version updated_at` lines, so scripts written against that keep
     /// working, and an empty vault on a terminal still gets its hint.
-    pub async fn cmd_ls(&mut self, prefix: &str, shape: ui::Shape<'_>) -> anyhow::Result<()> {
+    pub async fn cmd_ls(
+        &mut self,
+        scope: (&str, bool),
+        shape: ui::Shape<'_>,
+    ) -> anyhow::Result<()> {
+        let (prefix, all) = scope;
         let mut request = Request::new(LsRequest {
             prefix: prefix.to_string(),
         });
         self.authorize(&mut request, "/vault.v1.Vault/Ls")?;
-        let secrets = self.client.ls(request).await?.into_inner().secrets;
+        let mut secrets = self.client.ls(request).await?.into_inner().secrets;
+        secrets.retain(|secret| all || !is_own_record(&secret.path));
         let unshaped = shape.is_default();
         if unshaped && !ui::styled() {
             for secret in &secrets {
@@ -74,6 +82,12 @@ impl Session {
     /// Remove every version of one `path`. A path that is not there is reported, not an error:
     /// the vault holds nothing under it either way, which is what the caller asked for.
     async fn rm_one(&mut self, path: &str) -> anyhow::Result<()> {
+        if is_own_record(path) {
+            anyhow::bail!(
+                "this is 42ctl's own record (a note, or a push's manifest or chunk list) — \
+                 removing it loses what it holds; `42ctl note rm` removes a note"
+            );
+        }
         let mut request = Request::new(RmRequest {
             path: path.to_string(),
             version: 0,
@@ -113,5 +127,28 @@ impl Session {
         let version = self.client.rotate(request).await?.into_inner().version;
         ui::success(&format!("rotated {path} to v{version}"));
         Ok(())
+    }
+}
+
+/// Whether `path` is one of 42ctl's own records — notes, and a push's manifest and chunk
+/// lists — rather than a secret somebody stored. Those live under the reserved prefix that no
+/// project path may use, so a secret can never be mistaken for one.
+pub(super) fn is_own_record(path: &str) -> bool {
+    path.split('/').next() == Some(crate::core::projpath::RESERVED_PREFIX) && path.contains('/')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_own_record;
+
+    /// Only the reserved first segment marks a record; a secret merely NAMED like it is not one.
+    #[test]
+    fn only_the_reserved_prefix_is_a_record() {
+        assert!(is_own_record("__42ctl/m/project"));
+        assert!(is_own_record("__42ctl/nb/project/8ce9"));
+        assert!(!is_own_record("app/__42ctl/m/project"));
+        assert!(!is_own_record("__42ctl_backup/x"));
+        assert!(!is_own_record("__42ctl"));
+        assert!(!is_own_record("app/DB_URL"));
     }
 }

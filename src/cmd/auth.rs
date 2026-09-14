@@ -136,15 +136,14 @@ async fn me(profile: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Log in to grobase via the GitHub device flow and save the minted session token. No
-/// local identity is needed — this is a grobase login (org/RBAC), not a vault42 contract.
+/// Log in through the GitHub device flow and save the session the authority mints. No local
+/// identity is needed — this is an account session (org/RBAC), not a vault42 contract, and
+/// GitHub only vouches for an address: the account must already exist.
 async fn github_login(profile: &str) -> anyhow::Result<()> {
     let endpoint = Config::load()?.endpoint(profile)?;
     let token = github_device::device_login(endpoint.otp_base()).await?;
     session::save(profile, &token)?;
-    ui::success(&format!(
-        "logged in to grobase via GitHub on profile '{profile}'"
-    ));
+    ui::success(&format!("logged in via GitHub on profile '{profile}'"));
     Ok(())
 }
 

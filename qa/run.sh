@@ -119,9 +119,10 @@ COVERAGE_FAILED=0
 if [ $# -eq 0 ] && [ -x "$C42_ROOT/target/debug/42ctl" ]; then
 	docker run --rm -v "$C42_ROOT":/work "$QA_IMG" /work/target/debug/42ctl help commands \
 		>"$QA_RESULTS/commands.all" 2>/dev/null
-	if python3 "$QA_DIR/coverage.py" "$QA_RESULTS/commands.all" "$QA_RESULTS/commands.trace" \
-		${QA_REQUIRE_COVERAGE:+--require-all} >"$QA_RESULTS/coverage.txt"; then :; else COVERAGE_FAILED=1; fi
-	printf '  %-28s %s\n' "commands exercised" "$(grep -oE '^[0-9]+ of [0-9]+' "$QA_RESULTS/coverage.txt")"
+	if python3 -B "$QA_DIR/coverage.py" "$QA_RESULTS/commands.all" "$QA_RESULTS/commands.trace" \
+		${QA_REQUIRE_COVERAGE:+--require-all} ${QA_REQUIRE_FLAGS:+--require-flags} >"$QA_RESULTS/coverage.txt"; then :; else COVERAGE_FAILED=1; fi
+	printf '  %-28s %s\n' "commands exercised" "$(grep -oE '^[0-9]+ of [0-9]+ commands' "$QA_RESULTS/coverage.txt" | cut -d' ' -f1-3)"
+	printf '  %-28s %s\n' "flags given" "$(grep -oE '^[0-9]+ of [0-9]+ flags' "$QA_RESULTS/coverage.txt" | cut -d' ' -f1-3)"
 	grep '^never ran:' "$QA_RESULTS/coverage.txt" | sed 's/^/  /'
 fi
 
@@ -136,7 +137,7 @@ if [ "$REG" -gt 0 ]; then
 	exit 1
 fi
 if [ "$COVERAGE_FAILED" = 1 ]; then
-	printf '\n  Every command must run in a full battery (QA_REQUIRE_COVERAGE=1): see %s\n' "$QA_RESULTS/coverage.txt"
+	printf '\n  Every command (QA_REQUIRE_COVERAGE=1) or flag (QA_REQUIRE_FLAGS=1) must run in a full battery: see %s\n' "$QA_RESULTS/coverage.txt"
 	exit 1
 fi
 printf '\n  No regressions.\n'

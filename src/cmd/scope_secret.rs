@@ -69,7 +69,7 @@ pub async fn get_env(session: &mut Session, ctx: &Ctx, path: &str) -> anyhow::Re
     let secret =
         recover_scope_secret(session, scope_id, epoch, ctx.scope_pubkey.as_deref()).await?;
     let (envelope, author) = session
-        .get_env_secret(&owner, epoch, path)
+        .get_env_secret(&owner, epoch, path, 0)
         .await?
         .ok_or_else(|| anyhow::anyhow!("no env secret '{path}' for this env"))?;
     let expected = derive::secret_id(&owner, path);

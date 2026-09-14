@@ -75,7 +75,7 @@ survive in the text. `docs/vault.md` is the long-form manual, checked against a 
 42ctl push | pull                                     # your project's env tree, sealed to you
 42ctl note     add | get | ls | rm
 42ctl db       get | ls
-42ctl org      create | member ls|rm | invite | github connect|link|sync
+42ctl org      create | member ls|rm | invite
 42ctl team     create | ls | member add|rm | invite | grant
 42ctl group    create | member add|rm | invite
 42ctl env      create | ls | init | push | pull | files           # a project's environments,
@@ -84,7 +84,7 @@ survive in the text. `docs/vault.md` is the long-form manual, checked against a 
 42ctl invite   accept | show
 42ctl config   profile | endpoint | show
 42ctl cloud    apps | status | health | machine … | volume … | secret ls | net …
-42ctl version | update | help | unseal
+42ctl version | update | help
 ```
 
 ## Architecture

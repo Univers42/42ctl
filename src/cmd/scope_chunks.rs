@@ -21,7 +21,8 @@ use crate::adapters::compose::{self, ScopeChunkSeal};
 use crate::adapters::{decrypt, derive};
 use crate::cmd::scope::Ctx;
 use crate::cmd::scope_recover::recover_scope_secret;
-use crate::cmd::scope_tree::{put_one, scope_public, tree_path};
+use crate::cmd::scope_store::{self, Dest, Heads};
+use crate::cmd::scope_tree::tree_path;
 use crate::core::chunk::{self, ChunkSet, Naming};
 use crate::core::manifest::Entry;
 use crate::ops::largeobj;
@@ -34,17 +35,20 @@ use zeroize::Zeroizing;
 /// The chunks are sealed to the ENVIRONMENT rather than to the pusher, so every member who
 /// holds a wrap can open them. Sealing them to one identity would put the team's archive
 /// somewhere only its author can read, which is the failure the shared tree exists to avoid.
+///
+/// `at` is the file's relative path, the naming to chunk it under, and the heads the chunk
+/// list's write is conditional on.
 pub(super) async fn seal_large(
     session: &mut Session,
-    ctx: &Ctx,
-    at: (&str, &str, &Naming),
+    dest: Dest<'_>,
+    at: (&str, &Naming, &Heads),
     plaintext: &[u8],
 ) -> anyhow::Result<Entry> {
-    let (owner, rel, naming) = at;
+    let (rel, naming, heads) = at;
+    let (owner, scope_pub) = (dest.owner, dest.to);
     let vault_path = tree_path(owner, rel);
     let store = store_for(session, rel, plaintext.len())?;
     store.ensure_bucket().await?;
-    let scope_pub = scope_public(ctx)?;
     let identity = &session.identity;
     let author = identity.author_public().to_bytes();
     let set = largeobj::put_chunks(store, (&vault_path, naming), plaintext, |part, bytes| {
@@ -60,8 +64,8 @@ pub(super) async fn seal_large(
         Ok(compose::chunkframe::wrap(&author, &envelope))
     })
     .await?;
-    let at = (owner, vault_path.as_str(), scope_pub);
-    let rev = put_one(session, ctx, at, &set.to_bytes()?).await?;
+    let at = (vault_path.as_str(), heads.of(&vault_path));
+    let rev = scope_store::put_one(session, dest, at, &set.to_bytes()?).await?;
     ui::field(
         rel,
         &format!("{} chunk(s) in the object store", set.chunks.len()),

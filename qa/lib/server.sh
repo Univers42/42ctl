@@ -41,7 +41,14 @@ export QA_DOCKER_USER
 # group route that resolves a member by email, the removal hint in the current spelling, and the
 # grant listing that says whom each grant is for. s41 asserts all of them and goes red against
 # f699f61 — proved, not assumed.
-: "${QA_VAULT42_REV:=65b91bc}"
+#
+# 288aa00 is develop with vault42 #7 merged: a project group can be granted a role. s41's member
+# whose only right is a group grant fails three assertions on 65b91bc. It is also what production
+# runs since the deploy of 2026-09-14.
+#
+# `=` and not `:=`: an EMPTY value is the documented way to build the working tree, and `:=`
+# replaced it with the pin — so a run meant to test local server changes silently tested the pin.
+: "${QA_VAULT42_REV=288aa00}"
 : "${QA_NET:=qa42-net}"
 : "${QA_SRV:=qa42-srv}"
 : "${QA_PORT:=8443}"
@@ -75,6 +82,11 @@ qa_pick_host_port() {
 }
 : "${QA_HOST_PORT:=$(qa_pick_host_port)}"
 : "${QA_AUTH_SRV:=qa42-auth}"
+# The GitHub stand-in the authority's device flow is pointed at (qa/fixtures/github/stub.pl).
+# The authority always carries a client id and these bases, so any spec may start the stub;
+# nothing ever reaches github.com from a battery.
+: "${QA_GITHUB_SRV:=qa42-github}"
+: "${QA_GITHUB_IMAGE:=public.ecr.aws/docker/library/debian@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171}"
 : "${QA_AUTH_PORT:=8444}"
 : "${QA_AUTH_HOST_PORT:=$(qa_pick_host_port $((QA_HOST_PORT + 1)))}"
 # The authority is a SEPARATE binary on its own port, not a route table bolted onto
@@ -127,6 +139,7 @@ qa_pin_vault42() {
 qa_require_docker_stack() {
 	qa_require_cmd docker
 	qa_pin_vault42 || spec_skip "cannot resolve pinned vault42 rev ${QA_VAULT42_REV:-}"
+	printf '# vault42 server built from %s\n' "${QA_VAULT42_REV:-the working tree at $VAULT42_DIR}"
 	docker image inspect "$QA_IMG" >/dev/null 2>&1 ||
 		spec_skip "toolchain image absent: $QA_IMG (docker pull $QA_IMG)"
 	[ -d "$VAULT42_DIR" ] ||
@@ -354,6 +367,8 @@ qa_authority_up() {
 		-e MAIL_TRANSPORT=file -e MAIL_OUTBOX=/outbox \
 		-e MAIL_FROM=qa-sender@archicode.codes \
 		-e VAULT42_OTP_PROOF_SECRET=qa-otp-proof-secret-do-not-use-in-production \
+		-e GITHUB_CLIENT_ID=qa-github-client \
+		-e GITHUB_OAUTH_BASE="http://$QA_GITHUB_SRV:8080" -e GITHUB_API_BASE="http://$QA_GITHUB_SRV:8080" \
 		-e RUST_LOG=info \
 		"$QA_IMG" sh -c 'cargo run --quiet --bin vault42-authority' >/dev/null || return 1
 	for i in $(seq 1 600); do
@@ -389,6 +404,25 @@ qa_authority_is_up() {
 
 qa_authority_down() {
 	docker rm -fv "$QA_AUTH_SRV" >/dev/null 2>&1 || true
+}
+
+# Start the GitHub stand-in on the battery network, serving from the state directory given.
+qa_github_up() {
+	local state="$1" i
+	docker rm -fv "$QA_GITHUB_SRV" >/dev/null 2>&1 || true
+	# shellcheck disable=SC2086 # QA_DOCKER_USER is empty or a two-word flag
+	docker run -d --name "$QA_GITHUB_SRV" --network "$QA_NET" $QA_DOCKER_USER \
+		-v "$QA_ROOT/fixtures/github":/fixture:ro -v "$state":/stub -e STUB_DIR=/stub \
+		"$QA_GITHUB_IMAGE" perl /fixture/stub.pl >/dev/null || return 1
+	for i in $(seq 1 30); do
+		docker logs "$QA_GITHUB_SRV" 2>&1 | grep -q '^listening$' && return 0
+		sleep 0.5
+	done
+	return 1
+}
+
+qa_github_down() {
+	docker rm -fv "$QA_GITHUB_SRV" >/dev/null 2>&1 || true
 }
 
 # Copy everything the server persisted, so a spec can prove against the REAL stored bytes

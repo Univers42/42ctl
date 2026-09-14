@@ -14,7 +14,7 @@
 //! stack: `auth` (grobase/contract), `keys` + `vault`/`secrets` (zero-knowledge, all
 //! plaintext crypto local), `push`/`pull`/`note` (project sync), the RBAC verbs (`rbac`),
 //! `config` (profiles), `version`, `update` (verify-before-swap), `help` (the guided
-//! walkthrough), and operator-only `unseal`. Types only — handlers live under `cmd/`.
+//! walkthrough), and `cloud` (the deployment, through flyctl). Types only — handlers live under `cmd/`.
 
 pub mod cloud;
 mod env;
@@ -26,7 +26,7 @@ mod vault;
 
 pub use cloud::{Cloud, CloudMachine, CloudNet, CloudSecret, CloudVolume, Lifecycle};
 pub use env::{Env, EnvKeys, EnvSecret, Scope};
-pub use rbac::{Group, GroupMember, Invite, Org, OrgGithub, OrgMember, Project, ProjectGrant};
+pub use rbac::{Group, GroupMember, Invite, Org, OrgMember, Project, ProjectGrant};
 pub use rbac::{Team, TeamMember};
 pub use store::{Db, Note};
 pub use vault::Vault;
@@ -133,7 +133,7 @@ pub enum Command {
     /// RBAC-checked encrypted records, decrypted client-side
     #[command(subcommand)]
     Db(Db),
-    /// Organisations: create, member ls / rm, invite, GitHub App connect / link / sync
+    /// Organisations: create, member ls / rm, invite
     #[command(subcommand)]
     Org(Org),
     /// Teams inside an org: create, ls, member add / rm, invite, grant
@@ -178,8 +178,6 @@ pub enum Command {
     /// inherits its behaviour rather than re-implementing Fly's API. Needs FLY_API_TOKEN.
     #[command(subcommand)]
     Cloud(Cloud),
-    /// Operator-only, NOT IMPLEMENTED: vault42 has no seal state yet, so this refuses
-    Unseal,
 }
 
 /// `auth` subcommands.
@@ -303,8 +301,8 @@ pub struct Output {
     /// Keep only rows where KEY equals VALUE; `label=K=V` matches a label. Repeatable, all must hold
     ///
     /// KEY is a column name, matched whatever the case: `--filter role=member`. A key that
-    /// names no column is refused, so a typo cannot quietly read as "there is nothing here";
-    /// a key that does exist and matches no row prints nothing and succeeds.
+    /// names no column is refused, and so is a filter that keeps no row (`no row matches …`),
+    /// so a typo in either half cannot quietly read as "there is nothing here".
     #[arg(long, value_name = "KEY=VALUE")]
     pub filter: Vec<String>,
     /// Print only the first column, one id per line, for `$( … )` composition

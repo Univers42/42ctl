@@ -214,9 +214,9 @@ mod tests {
     #[test]
     fn nested_groups_reach_their_leaves_and_groups_are_not_leaves() {
         let paths = all_paths();
-        assert!(paths.contains(&"42ctl org github sync".to_string()));
+        assert!(paths.contains(&"42ctl project grant add".to_string()));
         assert!(paths.contains(&"42ctl env keys sync".to_string()));
-        assert!(!paths.contains(&"42ctl org github".to_string()));
+        assert!(!paths.contains(&"42ctl project grant".to_string()));
         assert!(!paths.contains(&"42ctl env keys".to_string()));
         assert!(!paths.contains(&"42ctl env".to_string()));
     }

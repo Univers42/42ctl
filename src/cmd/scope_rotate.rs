@@ -21,6 +21,7 @@ use crate::adapters::rbac::{pubkey, ScopeKeyRequest};
 use crate::adapters::scope as crypto;
 use crate::cmd::scope::Ctx;
 use crate::cmd::scope_recover::recover_scope_secret;
+use crate::cmd::scope_reseal;
 use crate::cmd::scope_secret_reseal::{self, RotateState};
 use crate::ui;
 use vault42_core::generate_keyset;
@@ -38,6 +39,9 @@ use vault42_core::generate_keyset;
 /// The failure directions are not symmetric, which is why this is the right way round. Wraps
 /// without secrets is an epoch that is simply empty, and re-running fixes it. Secrets without
 /// wraps is data at an epoch nobody can open, including the administrator who wrote it.
+///
+/// Publishing is followed by one more look at the old epoch, because members keep pushing to it
+/// until the publish reaches them: whatever landed meanwhile is carried across then.
 pub async fn rotate_scope(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()> {
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let old_epoch = ctx.epoch();
@@ -54,9 +58,10 @@ pub async fn rotate_scope(session: &mut Session, ctx: &Ctx) -> anyhow::Result<()
         keyset: &keyset,
     };
     let rewrapped = scope_secret_reseal::rewrap_remaining(session, ctx, &state).await?;
-    let resealed = scope_secret_reseal::reseal_all(session, &state).await?;
+    let (resealed, before) = scope_reseal::reseal_all(session, ctx, &state).await?;
     publish(ctx, keyset.public.to_bytes(), new_epoch).await?;
-    report(new_epoch, resealed, rewrapped);
+    let late = scope_reseal::carry_late(session, ctx, &state, &before).await?;
+    report(new_epoch, (resealed, late), rewrapped);
     Ok(())
 }
 
@@ -73,10 +78,15 @@ async fn publish(ctx: &Ctx, public: [u8; 32], new_epoch: u32) -> anyhow::Result<
     Ok(())
 }
 
-/// Print the rotation summary: new epoch, secrets re-sealed, members re-wrapped.
-fn report(new_epoch: u32, resealed: usize, rewrapped: usize) {
+/// Print the rotation summary: new epoch, items re-sealed, members re-wrapped — and, only when
+/// a push landed during the rotation, how many items were carried again after publishing.
+fn report(new_epoch: u32, resealed: (usize, usize), rewrapped: usize) {
+    let (first, late) = resealed;
     ui::field("new_epoch", &new_epoch.to_string());
-    ui::field("resealed", &resealed.to_string());
+    ui::field("resealed", &first.to_string());
+    if late > 0 {
+        ui::field("carried_late", &late.to_string());
+    }
     ui::field("rewrapped", &rewrapped.to_string());
     ui::success("rotated scope (revoked members lose access by absence at the new epoch)");
 }

@@ -26,33 +26,27 @@
 //! `push` does: real paths live only inside the sealed manifest.
 
 use crate::adapters::api::Session;
-use crate::adapters::compose::{self, ScopeSeal};
+use crate::adapters::derive;
+use crate::adapters::rbac::pubkey;
 use crate::adapters::scope as crypto;
-use crate::adapters::scope_env_grpc::EnvSecretPut;
-use crate::adapters::{decrypt, derive};
 use crate::cmd::scope::Ctx;
 use crate::cmd::scope_chunks;
 use crate::cmd::scope_private::{self, Pick, Scanned};
 use crate::cmd::scope_recover::recover_scope_secret;
+use crate::cmd::scope_store::{self, Dest, Heads, Key, Slot};
 use crate::core::chunk::{self, ChunkSet, Naming};
 use crate::core::manifest::{Entry, Manifest};
 use crate::core::materialize::Opts;
 use crate::core::{materialize, project, projpath};
 use crate::ui;
+use anyhow::Context as _;
 use std::collections::BTreeMap;
 use std::path::Path;
-use vault42_core::{ReadScope, RecipientPublicKey};
+use vault42_core::RecipientPublicKey;
 use zeroize::Zeroizing;
 
 /// The reserved env-secret path holding the tree manifest.
 pub(super) const TREE_MANIFEST: &str = "__42ctl/tree";
-
-/// Which key opens an environment secret: the environment's recovered secret for a shared
-/// file, or the caller's own identity for one sealed to them alone.
-pub(super) enum Key<'a> {
-    Scope(&'a Zeroizing<[u8; 32]>),
-    Me,
-}
 
 /// The operator's push flags, parsed: extra private patterns and the labels for every file.
 pub struct PushRules {
@@ -61,13 +55,15 @@ pub struct PushRules {
 }
 
 /// A push in progress: what every file of it shares — the environment's owner id, the
-/// project it belongs to, the operator's flags, and the chunk naming, derived on first need.
+/// project it belongs to, the operator's flags, the chunk naming, derived on first need, and
+/// the environment's heads as they stood before this push wrote anything.
 struct Push<'a> {
     owner: String,
     project_id: String,
     scope_id: [u8; 16],
     naming: Option<Naming>,
     rules: &'a PushRules,
+    heads: Heads,
 }
 
 /// Scan the project at the working directory and seal every file to the environment — or,
@@ -77,6 +73,10 @@ struct Push<'a> {
 /// a manifest naming files that are not there — the same commit-point rule the chunked-object
 /// path uses, for the same reason. An oversized private file is refused before anything is
 /// uploaded, so a push is never half done.
+///
+/// Every write is conditional on the heads read before the first one, so a push that another
+/// push overtook is refused, whichever file it was writing — and a pull, which reads the
+/// revisions a manifest names, never sees the files it had already written.
 pub async fn push_env(session: &mut Session, ctx: &Ctx, rules: &PushRules) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let (proj, _) = project::open(&cwd, None)?;
@@ -84,22 +84,59 @@ pub async fn push_env(session: &mut Session, ctx: &Ctx, rules: &PushRules) -> an
     let (shared, private) = scope_private::partition(&files, &proj.root, &rules.private)?;
     scope_private::refuse_oversized(&private)?;
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
+    let owner = hex::encode(scope_id);
     let mut push = Push {
-        owner: hex::encode(scope_id),
+        heads: Heads::read(session, &owner, ctx.epoch()).await?,
+        owner,
         project_id: proj.project_id.clone(),
         scope_id,
         naming: None,
         rules,
     };
-    seal_tree(session, ctx, &mut push, &shared).await?;
-    let ids = (push.owner.as_str(), proj.project_id.as_str());
-    let mine = scope_private::push(session, ctx, ids, (&private, &rules.labels)).await?;
+    let mine = publish(session, ctx, &mut push, (&shared, &private))
+        .await
+        .map_err(|error| scope_store::overtaken(error, &ctx.env_name))?;
+    refuse_if_rotated(ctx).await?;
     ui::success(&format!(
         "pushed {} shared and {mine} private file(s) to environment '{}'",
         shared.len(),
         ctx.env_name
     ));
     Ok(())
+}
+
+/// Refuse to report a push that the environment's key was rotated under.
+///
+/// A push writes at the epoch it resolved when it began. A rotation carries what that epoch
+/// holds when it has published the next one, so a push landing later is in an epoch nobody
+/// reads any more — and "pushed" would be a receipt for a lost update.
+async fn refuse_if_rotated(ctx: &Ctx) -> anyhow::Result<()> {
+    let now = pubkey::list_environments(&ctx.grobase, &ctx.token, &ctx.project)
+        .await?
+        .into_iter()
+        .find(|env| env.id == ctx.env_id)
+        .map_or(0, |env| env.scope_epoch);
+    if now.max(1) == ctx.epoch() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "environment '{}' had its key rotated while this push ran, so the rotation may not have \
+         carried it — push again",
+        ctx.env_name
+    )
+}
+
+/// Publish the shared tree, then the pusher's private files. Returns the private count.
+async fn publish(
+    session: &mut Session,
+    ctx: &Ctx,
+    push: &mut Push<'_>,
+    files: (&[Scanned], &[Scanned]),
+) -> anyhow::Result<usize> {
+    let (shared, private) = files;
+    seal_tree(session, ctx, push, shared).await?;
+    let at = (push.owner.as_str(), push.project_id.as_str(), &push.heads);
+    scope_private::push(session, ctx, at, (private, &push.rules.labels)).await
 }
 
 /// Seal every shared file and commit their manifest last, so an interrupted push leaves
@@ -112,13 +149,24 @@ async fn seal_tree(
 ) -> anyhow::Result<()> {
     let mut manifest = Manifest::new(&push.project_id);
     for (file, rel) in shared {
-        let entry = seal_scanned(session, ctx, push, (rel, file)).await?;
+        let entry = seal_scanned(session, ctx, push, (rel, file))
+            .await
+            .with_context(|| format!("could not push {rel}"))?;
         manifest.upsert(labelled(entry, file, &push.rules.labels));
     }
-    let to = scope_public(ctx)?;
-    let at = (push.owner.as_str(), TREE_MANIFEST, to);
-    put_one(session, ctx, at, &manifest.to_bytes()?).await?;
+    let dest = shared_dest(ctx, &push.owner)?;
+    let at = (TREE_MANIFEST, push.heads.of(TREE_MANIFEST));
+    scope_store::put_one(session, dest, at, &manifest.to_bytes()?).await?;
     Ok(())
+}
+
+/// Where a shared file goes: the environment's current epoch, sealed to its public key.
+fn shared_dest<'a>(ctx: &Ctx, owner: &'a str) -> anyhow::Result<Dest<'a>> {
+    Ok(Dest {
+        owner,
+        epoch: ctx.epoch(),
+        to: scope_public(ctx)?,
+    })
 }
 
 /// Seal one shared file — whole, or chunked to the object store above the ceiling.
@@ -130,14 +178,15 @@ async fn seal_scanned(
 ) -> anyhow::Result<Entry> {
     let (rel, file) = at;
     let plaintext = Zeroizing::new(std::fs::read(file)?);
+    let dest = shared_dest(ctx, &push.owner)?;
     if !chunk::needs_chunking(plaintext.len() as u64) {
-        return seal_one(session, ctx, (&push.owner, rel), &plaintext).await;
+        return seal_one(session, dest, (rel, &push.heads), &plaintext).await;
     }
     if push.naming.is_none() {
         push.naming = Some(scope_chunks::environment_naming(session, ctx, push.scope_id).await?);
     }
     let named = push.naming.as_ref().expect("just derived");
-    scope_chunks::seal_large(session, ctx, (&push.owner, rel, named), &plaintext).await
+    scope_chunks::seal_large(session, dest, (rel, named, &push.heads), &plaintext).await
 }
 
 /// Finish an entry with the file's on-disk mode and this push's labels.
@@ -167,7 +216,7 @@ pub async fn pull_env(
     let secret =
         recover_scope_secret(session, scope_id, ctx.epoch(), ctx.scope_pubkey.as_deref()).await?;
     let (shared, mine) = scope_private::both_manifests(session, ctx, (&owner, &secret)).await?;
-    let merged = scope_private::merge(&shared, mine.as_ref());
+    let merged = scope_private::merge(&shared, mine.as_ref().map(|m| &m.manifest));
     scope_private::report_shadows(&merged.shadowed);
     let selected: Vec<&Pick> = merged
         .picks
@@ -175,30 +224,39 @@ pub async fn pull_env(
         .filter(|p| selects(&p.entry.relative_path, only))
         .collect();
     refuse_empty_selection(selected.len(), only, &ctx.env_name)?;
-    restore_all(session, ctx, (&owner, &secret), (&root, &selected, opts)).await?;
+    let mine_epoch = mine.as_ref().map_or(ctx.epoch(), |m| m.epoch);
+    let key = (owner.as_str(), &secret, mine_epoch);
+    restore_all(session, ctx, key, (&root, &selected, opts)).await?;
     report(selected.len(), merged.picks.len(), &ctx.env_name);
     Ok(())
 }
 
-/// Restore every selected file, opening each with the key its manifest came from.
+/// Restore every selected file, opening each with the key its manifest came from, in the
+/// epoch that manifest was found in — a private manifest may be older than the current epoch.
 async fn restore_all(
     session: &mut Session,
     ctx: &Ctx,
-    key: (&str, &Zeroizing<[u8; 32]>),
+    key: (&str, &Zeroizing<[u8; 32]>, u32),
     what: (&Path, &[&Pick<'_>], &Opts),
 ) -> anyhow::Result<()> {
-    let (owner, secret) = key;
+    let (owner, secret, mine_epoch) = key;
     let (root, selected, opts) = what;
     if !opts.apply {
         ui::field("env pull", "dry-run — re-run with --apply to write");
     }
     for pick in selected {
-        let key = if pick.private {
-            Key::Me
+        let (key, epoch) = if pick.private {
+            (Key::Me, mine_epoch)
         } else {
-            Key::Scope(secret)
+            (Key::Scope(secret), ctx.epoch())
         };
-        restore_one(session, ctx, (owner, &key), (root, pick.entry, opts)).await?;
+        let slot = Slot {
+            owner,
+            epoch,
+            path: &pick.entry.vault_path,
+            rev: pick.entry.rev,
+        };
+        restore_one(session, ctx, (slot, &key), (root, pick.entry, opts)).await?;
     }
     Ok(())
 }
@@ -244,101 +302,35 @@ fn report(selected: usize, total: usize, env: &str) {
 /// Seal one file to the environment and return the manifest entry describing it.
 async fn seal_one(
     session: &mut Session,
-    ctx: &Ctx,
-    at: (&str, &str),
+    dest: Dest<'_>,
+    at: (&str, &Heads),
     plaintext: &[u8],
 ) -> anyhow::Result<Entry> {
-    let (owner, rel) = at;
-    let vault_path = tree_path(owner, rel);
-    let to = scope_public(ctx)?;
-    let rev = put_one(session, ctx, (owner, &vault_path, to), plaintext).await?;
+    let (rel, heads) = at;
+    let vault_path = tree_path(dest.owner, rel);
+    let after = heads.of(&vault_path);
+    let rev = scope_store::put_one(session, dest, (&vault_path, after), plaintext).await?;
     Ok(Entry::file(rel, vault_path, rev, plaintext.len() as u64))
-}
-
-/// Seal `plaintext` to `to` — the environment's key, or the caller's own for a private
-/// file — and store it at `path` under the environment's owner.
-pub(super) async fn put_one(
-    session: &mut Session,
-    ctx: &Ctx,
-    at: (&str, &str, RecipientPublicKey),
-    plaintext: &[u8],
-) -> anyhow::Result<u64> {
-    let (owner, path, to) = at;
-    let epoch = ctx.epoch();
-    let current = head_version(session, owner, epoch, path).await?;
-    let envelope = compose::scope_envelope(
-        &session.identity,
-        &ScopeSeal {
-            owner,
-            vault_path: path,
-            project_id: owner,
-            scope_pub: to,
-            rev: current + 1,
-            plaintext,
-        },
-    )?;
-    session
-        .put_env_secret(EnvSecretPut {
-            scope_id: owner,
-            epoch,
-            path,
-            envelope,
-            expected_prev_rev: current,
-        })
-        .await
-}
-
-/// Fetch and decrypt one env secret, or `None` when the environment holds nothing at `path`.
-pub(super) async fn fetch_one(
-    session: &mut Session,
-    ctx: &Ctx,
-    at: (&str, &str),
-    key: &Key<'_>,
-) -> anyhow::Result<Option<Zeroizing<Vec<u8>>>> {
-    let (owner, path) = at;
-    let Some((envelope, author)) = session.get_env_secret(owner, ctx.epoch(), path).await? else {
-        return Ok(None);
-    };
-    let expected = derive::secret_id(owner, path);
-    let scope = ReadScope {
-        secret_id: &expected,
-        min_rev: 0,
-    };
-    let plain = match key {
-        Key::Scope(secret) => decrypt::open_env_envelope(secret, &envelope, &author, scope)?,
-        Key::Me => decrypt::open_private_envelope(&session.identity, &envelope, &author, scope)?,
-    };
-    Ok(Some(plain))
-}
-
-/// Fetch and decrypt one env secret that has to be there.
-pub(super) async fn open_one(
-    session: &mut Session,
-    ctx: &Ctx,
-    at: (&str, &str),
-    key: &Key<'_>,
-) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-    fetch_one(session, ctx, at, key)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("environment '{}' holds no tree", ctx.env_name))
 }
 
 /// Restore one file from the manifest, validating its stored path before touching disk.
 async fn restore_one(
     session: &mut Session,
     ctx: &Ctx,
-    key: (&str, &Key<'_>),
+    key: (Slot<'_>, &Key<'_>),
     what: (&Path, &Entry, &Opts),
 ) -> anyhow::Result<()> {
-    let (owner, key) = key;
+    let (slot, key) = key;
     let (root, entry, opts) = what;
     let rel = projpath::validate_stored(&entry.relative_path)?; // sec: validate before any FS op
-    let stored = open_one(session, ctx, (owner, &entry.vault_path), key).await?;
+    let stored = scope_store::fetch_one(session, slot, key)
+        .await?
+        .ok_or_else(|| unheld(entry))?;
     let bytes = match (entry.chunked, key) {
         (false, _) => stored,
         (true, Key::Scope(secret)) => {
             let set = ChunkSet::from_bytes(&stored)?;
-            scope_chunks::open_large(session, ctx, (owner, secret), &set).await?
+            scope_chunks::open_large(session, ctx, (slot.owner, secret), &set).await?
         }
         (true, Key::Me) => anyhow::bail!(
             "private file '{}' claims to be chunked, which this client never writes",
@@ -352,6 +344,23 @@ async fn restore_one(
     materialize::write_one(root, &rel, &bytes, owner_only(entry.mode), opts.backup)?;
     ui::field(rel.as_str(), "restored");
     Ok(())
+}
+
+/// A manifest names a revision the environment does not hold.
+///
+/// Refused rather than answered with the newest revision, because the newest is exactly what a
+/// dead or overtaken push leaves behind. The one honest way to get here is a tree rotated by a
+/// 42ctl that copied the newest revisions forward without rewriting the manifest.
+fn unheld(entry: &Entry) -> anyhow::Error {
+    let which = match entry.rev {
+        0 => "a file".to_string(),
+        rev => format!("revision {rev}"),
+    };
+    anyhow::anyhow!(
+        "{}: the manifest names {which}, which this environment does not hold — push the tree \
+         again to republish it",
+        entry.relative_path
+    )
 }
 
 /// Narrow a mode from the manifest to the owner alone.
@@ -408,22 +417,6 @@ pub(super) fn scope_public(ctx: &Ctx) -> anyhow::Result<RecipientPublicKey> {
             )
         })?;
     crypto::x25519_pub(b64)
-}
-
-/// The current head version of `path` within `(scope_id, epoch)`, or 0 if absent.
-pub(super) async fn head_version(
-    session: &mut Session,
-    owner: &str,
-    epoch: u32,
-    path: &str,
-) -> anyhow::Result<u64> {
-    Ok(session
-        .list_env_secrets(owner, epoch)
-        .await?
-        .into_iter()
-        .find(|entry| entry.path == path)
-        .map(|entry| entry.version)
-        .unwrap_or(0))
 }
 
 #[cfg(test)]

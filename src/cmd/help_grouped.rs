@@ -288,7 +288,7 @@ mod tests {
             "a noun groups its verbs"
         );
         assert!(
-            page("42ctl org github --help").is_some(),
+            page("42ctl env keys --help").is_some(),
             "so does a nested one"
         );
         assert!(

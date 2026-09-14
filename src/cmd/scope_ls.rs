@@ -34,7 +34,7 @@ pub async fn ls_env(session: &mut Session, ctx: &Ctx, out: &Output) -> anyhow::R
     let secret =
         recover_scope_secret(session, scope_id, ctx.epoch(), ctx.scope_pubkey.as_deref()).await?;
     let (shared, mine) = scope_private::both_manifests(session, ctx, (&owner, &secret)).await?;
-    let merged = scope_private::merge(&shared, mine.as_ref());
+    let merged = scope_private::merge(&shared, mine.as_ref().map(|m| &m.manifest));
     scope_private::report_shadows(&merged.shadowed);
     let rows = merged.picks.iter().map(row).collect();
     ui::render(
