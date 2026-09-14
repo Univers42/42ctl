@@ -223,4 +223,19 @@ nothing else), creates four accounts and one organisation on the deployment it p
 non-zero if any check fails. `C42_AUTHORITY` and `C42_SERVER` point it at another deployment, and
 `C42_BIN` at another 42ctl build.
 
-RESULTS_PLACEHOLDER
+Each check prints `ok` or `FAIL`, a failure followed by the last lines of what the command said, and the
+run ends with the count of each and the list of failures:
+
+```text
+== the whole tree, shared with prod
+ok   ada pushes it, with labels; her .env.local stays hers
+ok   the inventory marks the private file, and every file carries the push's labels
+ok   bea's fresh clone: the dry run names every file and writes none
+ok   env pull --apply restores the shared tree byte-exact
+…
+81 passed, 0 failed — work directory /tmp/inception-walkthrough
+```
+
+The work directory keeps every clone and every person's configuration, so a failure can be reproduced
+with the same identities. The pull request that last changed this chapter or the script records the run it
+was checked against.
