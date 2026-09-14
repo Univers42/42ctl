@@ -123,14 +123,21 @@ async fn grants(
         .iter()
         .map(grant_row)
         .collect();
-    ui::render(&["GrantID", "Role", "Env"], rows, out.shape())
+    ui::render(
+        &["GrantID", "Kind", "Grantee", "Role", "Env"],
+        rows,
+        out.shape(),
+    )
 }
 
 /// One grant row. A grant with no environment reaches every one, which is what the whole
 /// project's name in that column says.
+///
+/// `Kind` and `Grantee` say whom it is for, so `project grant rm --grant $(project grant ls -q
+/// --filter Grantee=<id>)` revokes exactly one person's or one team's grants.
 fn grant_row(g: &crate::adapters::rbac::ProjectGrant) -> serde_json::Value {
     serde_json::json!({
-        "GrantID": g.id, "Role": g.project_role,
+        "GrantID": g.id, "Kind": g.grantee_kind, "Grantee": g.grantee, "Role": g.project_role,
         "Env": g.env_id.clone().unwrap_or_else(|| "(project-wide)".into()),
     })
 }

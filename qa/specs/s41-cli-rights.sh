@@ -199,10 +199,14 @@ refused_as "a plain member cannot grant a team anything" eve "" \
 	"team grant --org $ORG --team readers --project $PROJECT --role admin"
 assert_green "the grant listing shows one write and one read" \
 	-- bash -c '[ "$(act ada "project grant ls --org $ORG --project $PROJECT --format {{.Role}}" 2>/dev/null | sort | tr "\n" " ")" = "read write " ]'
+assert_green "the grant listing says whom each grant is for, a team by its slug" \
+	-- bash -c '[ "$(act ada "project grant ls --org $ORG --project $PROJECT --format {{.Kind}}:{{.Grantee}}:{{.Role}}" 2>/dev/null | sort | tr "\n" " ")" = "team:readers:read team:writers:write " ]'
 
 GRANT="$(act ada "project grant add --org $ORG --project $PROJECT --user $(mail eve) --role read" 2>/dev/null | field grant_id)"
 export GRANT
 assert_green "a user grant is added and its id printed" -- test -n "$GRANT"
+assert_green "filtering the listing on one person's id finds exactly their grant" \
+	-- bash -c '[ "$(act ada "project grant ls --org $ORG --project $PROJECT -q --filter Grantee=$1" 2>/dev/null)" = "$GRANT" ]' _ "${ID[eve]}"
 assert_green "three grants are listed now" \
 	-- bash -c '[ "$(act ada "project grant ls --org $ORG --project $PROJECT -q" 2>/dev/null | grep -c .)" -eq 3 ]'
 refused_as "a plain member cannot revoke a grant" eve "" "project grant rm --org $ORG --project $PROJECT --grant $GRANT"

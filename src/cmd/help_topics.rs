@@ -440,7 +440,7 @@ $ 42ctl org member ls --org acme -q --filter Role=member
 Removal verbs take as many targets as you give them, so the two compose:
 $ 42ctl vault rm $(42ctl vault ls dev/ -q)
 $ 42ctl org member rm --org acme --user $(42ctl org member ls --org acme -q --filter Role=member)
-$ 42ctl project grant rm --org acme --project api --grant $(42ctl project grant ls --org acme --project api -q)
+$ 42ctl project grant rm --org acme --project api --grant $(42ctl project grant ls --org acme --project api -q --filter Grantee=<account-id>)
 Every target is attempted even when an earlier one fails. Each failure is named as it
 happens and the command fails once at the end listing what to retry — so a stale id in the
 middle of a long list costs you that one removal, not the rest of them.

@@ -125,8 +125,8 @@ pub struct Grant {
 }
 
 /// A live project grant row (`GET .../grants`). `env_id` is omitted for project-wide grants;
-/// only the fields the scope-key orchestration consumes are projected.
-#[derive(Deserialize)]
+/// only the fields the scope-key orchestration and the listing consume are projected.
+#[derive(Deserialize, Default)]
 pub struct ProjectGrant {
     pub id: String,
     #[serde(default)]
@@ -135,6 +135,12 @@ pub struct ProjectGrant {
     /// plane that stops sending it degrades to the weakest role instead of failing to parse.
     #[serde(default)]
     pub project_role: String,
+    /// `user` or `team` — empty from an authority that predates reporting it.
+    #[serde(default)]
+    pub grantee_kind: String,
+    /// What a person reads the grantee by: the team's slug, or the account's id.
+    #[serde(default)]
+    pub grantee: String,
 }
 
 /// What a removal achieved, as the authority reports it.
