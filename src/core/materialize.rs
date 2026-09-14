@@ -17,7 +17,8 @@
 //! keeps a `.bak`. ponytail: per-file atomic (validate-all-first), not a whole-tree journal.
 
 use crate::core::projpath::{self, RelPath};
-use std::path::Path;
+use anyhow::Context as _;
+use std::path::{Path, PathBuf};
 
 /// The pull policy: dry-run unless `apply`; `force` takes remote even on divergence (no
 /// conflict markers); `backup` keeps a `.bak` before overwriting an existing file.
@@ -40,11 +41,25 @@ pub(crate) fn write_one(
     guard(root, rel)?;
     let target = projpath::to_native(root, rel);
     if backup && target.exists() {
-        let _ = std::fs::rename(&target, target.with_extension("bak"));
+        let kept = backup_path(&target);
+        std::fs::rename(&target, &kept)
+            .with_context(|| format!("could not keep a backup of {} — nothing was written", rel.as_str()))?;
     }
     write_atomic(&target, bytes)?;
     apply_mode(&target, mode);
     Ok(())
+}
+
+/// Where a replaced file is kept: its whole name with `.bak` appended.
+///
+/// Replacing the extension instead sent `secrets/server.crt` and `secrets/server.key` to the one
+/// `secrets/server.bak`, so restoring a TLS pair with `--backup` kept only whichever came second —
+/// and the failed rename was ignored, so nothing said so. `.bak` anywhere in a name is also what
+/// the scan skips, so a backup is never pushed as a secret.
+fn backup_path(target: &Path) -> PathBuf {
+    let mut name = target.file_name().unwrap_or_default().to_os_string();
+    name.push(".bak");
+    target.with_file_name(name)
 }
 
 /// Refuse to materialize through a symlinked ancestor (existing ancestors only — the
@@ -145,6 +160,30 @@ mod tests {
         for dir in [root.join("a"), root.join("a/b"), root.join("a/b/c"), deep] {
             assert_eq!(mode_of(&dir), 0o700, "{} must be owner-only", dir.display());
         }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// `--backup` keeps every file it replaces, including two that differ only in extension.
+    ///
+    /// A TLS pair is exactly that: `server.crt` and `server.key` both went to `server.bak`, so a
+    /// backed-up restore kept one and silently lost the other.
+    #[test]
+    fn a_backup_keeps_the_whole_name_so_a_key_pair_keeps_both() {
+        let root = std::env::temp_dir().join(format!("v42-mat-bak-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("secrets")).expect("create");
+        for (name, old) in [("server.crt", "old certificate"), ("server.key", "old key")] {
+            std::fs::write(root.join("secrets").join(name), old).expect("seed");
+        }
+        for name in ["server.crt", "server.key"] {
+            let rel = projpath::validate_stored(&format!("secrets/{name}")).expect("rel");
+            write_one(&root, &rel, b"restored", 0o600, true).expect("restore");
+        }
+        let read = |name: &str| std::fs::read_to_string(root.join("secrets").join(name)).expect(name);
+        assert_eq!(read("server.crt.bak"), "old certificate");
+        assert_eq!(read("server.key.bak"), "old key");
+        assert_eq!(read("server.crt"), "restored");
+        assert!(!root.join("secrets/server.bak").exists(), "no shared backup name");
         let _ = std::fs::remove_dir_all(&root);
     }
 
