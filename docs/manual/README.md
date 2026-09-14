@@ -69,9 +69,12 @@ Two mechanisms, both in the 42ctl repository, stop it drifting from the program 
 - **Every `$ 42ctl …` line in these chapters is parsed by the real command parser** in 42ctl's test
   suite (`every_manual_example_command_parses`). A renamed command, a removed flag or a missing
   required argument fails the build before it reaches a reader.
-- **The walkthrough in chapter 13 is executed**, command for command, by
-  `qa/live/inception.sh` against a live deployment, and every behaviour this manual states as a
-  guarantee is asserted by the QA battery in `qa/specs/`.
+- **The walkthrough in chapter 13 is executed**, command for command, by `qa/live/inception.sh`. The
+  **walkthrough** workflow runs it on every change to it, against a deployment it first builds by
+  executing the operator's manual as written (`qa/live/self-host.sh`), and it is run by hand against
+  production.
+- **The QA battery** in `qa/specs/` drives the client against a local server, authority and object
+  store every night, refusals included.
 
 What the parser cannot check is whether a command *succeeds* in a given situation; that is what the
 walkthrough and the battery are for.
