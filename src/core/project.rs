@@ -45,7 +45,7 @@ pub fn open(start: &Path, explicit_id: Option<&str>) -> anyhow::Result<(Project,
     let root = root_of(start);
     let marker = root.join(MARKER_DIR).join("project.json");
     if let Some(id) = explicit_id {
-        return Ok((mk(root, id, default_patterns()), false));
+        return Ok((mk(root, id, patterns_at(&marker)?), false));
     }
     if marker.exists() {
         let m: Marker = serde_json::from_slice(&std::fs::read(&marker)?)?;
@@ -99,6 +99,25 @@ fn refuse_path_patterns(patterns: &[String]) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// The scan patterns in force at `marker`, or the defaults when there is none.
+///
+/// `--project` names WHICH project, not WHAT the scan takes, but it used to return
+/// `default_patterns()` outright. A project that had widened its scan lost the widening the
+/// moment anything passed `--project` — and every wrapper does, because the project id must be
+/// the same on every machine (`ctl-env.sh` hard-codes `--project`). The widened file simply
+/// never travelled and `push` reported success: the same silent shape as the `secrets/` and
+/// `vendor/` omissions this module already carries scars from. Validation moves with the
+/// patterns, so the path that always passes `--project` is no longer the one path that never
+/// checks them. A missing marker is not an error: a fresh machine pulling by id has none yet.
+fn patterns_at(marker: &Path) -> anyhow::Result<Vec<String>> {
+    if !marker.exists() {
+        return Ok(default_patterns());
+    }
+    let m: Marker = serde_json::from_slice(&std::fs::read(marker)?)?;
+    refuse_path_patterns(&m.patterns)?;
+    Ok(m.patterns)
 }
 
 /// Whether the project root is itself a secret directory, so `scan` starts with `all` set.
@@ -456,6 +475,61 @@ mod tests {
         )
         .expect("rewrite marker");
         assert!(open(&root, None).is_ok(), "name patterns are accepted");
+    }
+
+    /// `--project` selects WHICH project, not WHAT the scan takes.
+    ///
+    /// It used to also swap the marker's patterns for the defaults, so a project that widened
+    /// its scan lost the widening the moment anything passed `--project` — and every wrapper
+    /// does, because the project id has to be the same on every machine. The file simply never
+    /// travelled and push reported success: the same silent shape as the `secrets/` and
+    /// `vendor/` omissions above.
+    #[test]
+    fn an_explicit_project_id_keeps_the_marker_patterns() {
+        let root = temp_project("explicit-id-patterns");
+        std::fs::create_dir_all(root.join(".42ctl")).expect("mkdir");
+        std::fs::write(
+            root.join(".42ctl/project.json"),
+            br#"{"project_id":"local-id","patterns":["*.env*","*.crt"]}"#,
+        )
+        .expect("write marker");
+
+        let (project, created) = open(&root, Some("groot")).expect("open");
+        assert!(!created, "an existing marker is not re-created");
+        assert_eq!(project.project_id, "groot", "the explicit id still wins");
+        assert!(
+            project.patterns.iter().any(|p| p == "*.crt"),
+            "the marker's widened patterns survive --project: {:?}",
+            project.patterns
+        );
+    }
+
+    /// A marker whose patterns cannot match must be refused whether or not `--project` is
+    /// passed — otherwise the wrapper that always passes it is the one path that never
+    /// validates.
+    #[test]
+    fn an_explicit_project_id_still_refuses_a_path_pattern() {
+        let root = temp_project("explicit-id-path-pattern");
+        std::fs::create_dir_all(root.join(".42ctl")).expect("mkdir");
+        std::fs::write(
+            root.join(".42ctl/project.json"),
+            br#"{"project_id":"p","patterns":["srcs/.env"]}"#,
+        )
+        .expect("write marker");
+        let error = open(&root, Some("groot"))
+            .err()
+            .expect("a path pattern must be refused")
+            .to_string();
+        assert!(error.contains("srcs/.env"), "names the pattern: {error}");
+    }
+
+    /// With no marker, an explicit id keeps working on the defaults — a fresh machine pulling
+    /// by id has no marker yet, and that must not become an error.
+    #[test]
+    fn an_explicit_project_id_without_a_marker_uses_the_defaults() {
+        let root = temp_project("explicit-id-no-marker");
+        let (project, _) = open(&root, Some("groot")).expect("open");
+        assert_eq!(project.patterns, default_patterns());
     }
 
     #[test]
