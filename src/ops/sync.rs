@@ -64,18 +64,15 @@ impl Session {
                 .await?;
             manifest.upsert(entry);
         }
-        let pruned = if prune {
-            let before = manifest.entries.len();
-            manifest
-                .entries
-                .retain(|e| scanned.contains(&e.relative_path));
-            before - manifest.entries.len()
+        let (pruned, kept_present) = if prune {
+            manifest.prune_to_scanned(&scanned, &proj.root)
         } else {
-            0
+            (0, Vec::new())
         };
         self.push_manifest(&proj.project_id, &manifest).await?;
         state.save(&proj.root)?;
         report_declined(&proj.root, &scan.declined);
+        report_kept(&kept_present);
         ui::success(&format!(
             "pushed {} file(s){} + manifest for project {}",
             files.len(),
@@ -141,12 +138,11 @@ impl Session {
         rel: &str,
         plaintext: &[u8],
     ) -> anyhow::Result<Zeroizing<Vec<u8>>> {
-        let store = self.store.as_ref().ok_or_else(|| {
+        let store = self.store.as_ref().map_err(|gap| {
             anyhow::anyhow!(
-                "{rel} is {} bytes, above the {MAX_BLOB} byte transport ceiling, and this \
-                 profile names no object store — set one with `42ctl config endpoint \
-                 --blobstore <url> --bucket <name>` and export FT_S3_KEY and FT_S3_SECRET",
-                plaintext.len()
+                "{rel} is {} bytes, above the {MAX_BLOB} byte transport ceiling, and {}",
+                plaintext.len(),
+                gap.explain()
             )
         })?;
         store.ensure_bucket().await?;
@@ -287,11 +283,12 @@ impl Session {
             return Ok(stored);
         }
         let set = ChunkSet::from_bytes(&stored)?;
-        let store = self.store.as_ref().ok_or_else(|| {
+        let store = self.store.as_ref().map_err(|gap| {
             anyhow::anyhow!(
-                "{} is stored as {} chunk(s) and this profile names no object store",
+                "{} is stored as {} chunk(s) and {}",
                 entry.relative_path,
-                set.chunks.len()
+                set.chunks.len(),
+                gap.explain()
             )
         })?;
         largeobj::get_object(&self.identity, &self.principal, store, &set).await
@@ -452,6 +449,29 @@ fn report_declined(root: &std::path::Path, declined: &[std::path::PathBuf]) {
         ui::warn(&format!(
             "skipped {} (they hold files this project would otherwise store)",
             names.join(", ")
+        ))
+    );
+}
+
+/// Name the entries a prune KEPT because their file is still on disk though the scan did
+/// not produce it.
+///
+/// Reported independently of `report_declined`, which fires only when the declined-directory
+/// probe found a candidate — and that probe gives up past its entry limit, so the biggest
+/// declined directory is the one it cannot see. This line is what tells an operator their
+/// tree is incomplete on the run that would otherwise have deleted those entries.
+fn report_kept(kept: &[String]) {
+    if kept.is_empty() {
+        return;
+    }
+    println!(
+        "{}",
+        ui::warn(&format!(
+            "kept {} manifest entr{} whose file is present but was not scanned (first: {}) \
+             — this tree is incomplete, so nothing was pruned for it",
+            kept.len(),
+            if kept.len() == 1 { "y" } else { "ies" },
+            kept[0]
         ))
     );
 }

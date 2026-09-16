@@ -28,7 +28,9 @@ pub(in crate::cmd) async fn open_session(profile: &str) -> anyhow::Result<Sessio
 }
 
 /// `push` — scan + seal + upload the project's tree and its encrypted manifest.
-/// `prune` mirrors: manifest entries whose file is no longer scanned are dropped.
+/// `prune` drops manifest entries whose file is gone from the disk. An entry the scan did
+/// not produce but whose file is still present is KEPT and named: the scan declines whole
+/// directories, so "not scanned" is a lower bound on the tree, never proof of deletion.
 pub async fn push(profile: &str, project: Option<&str>, prune: bool) -> anyhow::Result<()> {
     let mut session = open_session(profile).await?;
     session.cmd_push(project, prune).await

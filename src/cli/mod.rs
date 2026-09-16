@@ -100,7 +100,7 @@ pub enum Command {
         /// Project id: any name, the same on every machine (default: `.42ctl/project.json` here)
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
-        /// Drop manifest entries whose file is no longer scanned (mirror the tree)
+        /// Drop manifest entries whose file is GONE from the disk (never merely unscanned)
         #[arg(long)]
         prune: bool,
     },
@@ -363,6 +363,18 @@ pub struct EndpointArgs {
     /// The signing region for that object store (default us-east-1)
     #[arg(long, value_name = "REGION")]
     pub region: Option<String>,
+}
+
+impl EndpointArgs {
+    /// Whether the caller named no endpoint at all, in which case there is nothing to set.
+    pub fn is_empty(&self) -> bool {
+        self.server.is_none()
+            && self.authority.is_none()
+            && self.grobase.is_none()
+            && self.blobstore.is_none()
+            && self.bucket.is_none()
+            && self.region.is_none()
+    }
 }
 
 /// `keys` subcommands.

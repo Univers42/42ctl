@@ -15,8 +15,10 @@
 //! ciphertext: the blob entries it can see carry opaque vault paths, never the real
 //! file paths. Maps each file's `relative_path` → its opaque `vault_path` + Unix mode.
 
+use crate::core::projpath;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::path::Path;
 
 /// The manifest shape this client understands and writes.
 ///
@@ -75,6 +77,14 @@ pub struct Entry {
     pub labels: BTreeMap<String, String>,
 }
 
+/// Whether a REGULAR file exists at `path`, without following a final symlink.
+///
+/// The scan skips symlinks, so a symlink left where a file used to be is not that file
+/// coming back; neither is a directory at the same path.
+fn is_regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file())
+}
+
 /// `skip_serializing_if` needs a function, and a zero size is "not recorded".
 impl Entry {
     /// A whole file at the default owner-only mode, carrying no labels yet.
@@ -130,6 +140,50 @@ impl Manifest {
         Some(self.entries.remove(idx))
     }
 
+    /// Drop entries the scan did not produce AND whose file is genuinely gone.
+    ///
+    /// `scanned` is what the scan FOUND, which is a lower bound on the tree rather than a
+    /// census of it, and never evidence that a file was deleted. The scan declines whole
+    /// directories — a vendored tree that is not its own repository — and the probe that
+    /// reports a declined directory gives up past its entry limit, so the largest omission
+    /// is the silent one. Pruning on "not scanned" therefore deleted live secrets from the
+    /// vault and exited 0: measured at 33 of 39 files scanned, six entries destroyed.
+    ///
+    /// Absence from the FILESYSTEM is the evidence. The failure direction inverts with it:
+    /// the worst case becomes a stale entry that was kept, not a secret that was destroyed.
+    ///
+    /// Returns how many were pruned, and the paths kept because their file is still on disk
+    /// (or their stored path could not be validated) — an incomplete tree the caller must
+    /// name, because this is the run that would otherwise have deleted them.
+    pub fn prune_to_scanned(
+        &mut self,
+        scanned: &HashSet<String>,
+        root: &Path,
+    ) -> (usize, Vec<String>) {
+        let before = self.entries.len();
+        let mut kept = Vec::new();
+        self.entries.retain(|entry| {
+            if scanned.contains(&entry.relative_path) {
+                return true;
+            }
+            // A note has no file and never had one, and the scan cannot produce its path,
+            // so every prune would delete every note in the project.
+            if entry.kind == vault42_core::Kind::Note as u8 {
+                return true;
+            }
+            // sec: validate before any FS op — an unvalidatable path is never joined and
+            // never stat'd, and is kept rather than deleted on a check that did not run.
+            match projpath::validate_stored(&entry.relative_path) {
+                Ok(rel) if !is_regular_file(&projpath::to_native(root, &rel)) => false,
+                _ => {
+                    kept.push(entry.relative_path.clone());
+                    true
+                }
+            }
+        });
+        (before - self.entries.len(), kept)
+    }
+
     /// Serialize to canonical JSON bytes (sealed by the caller).
     pub fn to_bytes(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_json::to_vec(self)?)
@@ -161,6 +215,7 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     /// A manifest from a client that knows something this one does not must be REFUSED, not
     /// read past. The field it does not understand is dropped silently by serde, so the
@@ -283,5 +338,102 @@ mod tests {
         let json = String::from_utf8(manifest.to_bytes().expect("encode")).expect("utf8");
         assert!(!json.contains("\"size\""), "{json}");
         assert!(!json.contains("\"labels\""), "{json}");
+    }
+
+    /// A scratch root for the presence checks, named by pid so parallel tests do not collide.
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("v42-prune-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("mkdir");
+        root
+    }
+
+    fn entry_at(rel: &str, kind: u8) -> Entry {
+        let mut e = Entry::file(rel, "__42ctl/b/p/id".into(), 1, 0);
+        e.kind = kind;
+        e
+    }
+
+    /// A note has no file on disk and the scan can never produce its path, so a prune that
+    /// asks only "was this scanned?" deletes every note in the project.
+    #[test]
+    fn a_note_is_never_pruned() {
+        let root = scratch("note");
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(entry_at("notes/todo", vault42_core::Kind::Note as u8));
+        let (pruned, kept) = manifest.prune_to_scanned(&HashSet::new(), &root);
+        assert_eq!(pruned, 0, "a note was pruned");
+        assert!(
+            kept.is_empty(),
+            "a note is not an incomplete-tree warning: {kept:?}"
+        );
+        assert_eq!(manifest.entries.len(), 1);
+    }
+
+    /// The case prune exists for: the file really is gone, so the entry goes too.
+    #[test]
+    fn an_entry_whose_file_is_gone_is_pruned() {
+        let root = scratch("gone");
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(entry_at(".env.removed", 1));
+        let (pruned, kept) = manifest.prune_to_scanned(&HashSet::new(), &root);
+        assert_eq!(pruned, 1);
+        assert!(kept.is_empty());
+        assert!(manifest.entries.is_empty());
+    }
+
+    /// The bug this fixes. The scan declines whole directories, so "not scanned" is a LOWER
+    /// BOUND on the tree — never evidence the file was deleted. Measured: pushing from a tree
+    /// whose vendor/ dirs were not repositories scanned 33 of 39 files and, with --prune,
+    /// deleted the other six from the vault while reporting success.
+    #[test]
+    fn an_unscanned_entry_still_on_disk_is_kept_and_named() {
+        let root = scratch("present");
+        std::fs::create_dir_all(root.join("vendor/qa")).expect("mkdir");
+        std::fs::write(root.join("vendor/qa/.env"), b"KEY=v").expect("write");
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(entry_at("vendor/qa/.env", 1));
+        let (pruned, kept) = manifest.prune_to_scanned(&HashSet::new(), &root);
+        assert_eq!(pruned, 0, "a file that still exists was pruned");
+        assert_eq!(kept, vec!["vendor/qa/.env".to_string()]);
+    }
+
+    /// The scan skips symlinks, so a symlink left at the path is not the file coming back.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_is_not_presence() {
+        let root = scratch("symlink");
+        std::fs::write(root.join("real"), b"x").expect("write");
+        std::os::unix::fs::symlink(root.join("real"), root.join(".env.link")).expect("symlink");
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(entry_at(".env.link", 1));
+        let (pruned, _) = manifest.prune_to_scanned(&HashSet::new(), &root);
+        assert_eq!(pruned, 1, "a symlink counted as the file being present");
+    }
+
+    /// A directory sitting where a file was is not that file.
+    #[test]
+    fn a_directory_is_not_presence() {
+        let root = scratch("dir");
+        std::fs::create_dir_all(root.join(".env.d")).expect("mkdir");
+        let mut manifest = Manifest::new("p");
+        manifest.upsert(entry_at(".env.d", 1));
+        let (pruned, _) = manifest.prune_to_scanned(&HashSet::new(), &root);
+        assert_eq!(pruned, 1, "a directory counted as the file being present");
+    }
+
+    /// An entry whose stored path escapes the root is never joined and never stat'd — the
+    /// module's invariant is validate-before-any-FS-op. It is kept, so a manifest that cannot
+    /// be checked is never deleted on the strength of a check that did not happen.
+    #[test]
+    fn a_path_that_escapes_the_root_is_kept_and_never_stated() {
+        let root = scratch("escape");
+        let mut manifest = Manifest::new("p");
+        for bad in ["../outside/.env", "/etc/passwd"] {
+            manifest.entries.push(entry_at(bad, 1));
+        }
+        let (pruned, kept) = manifest.prune_to_scanned(&HashSet::new(), &root);
+        assert_eq!(pruned, 0, "an unvalidatable path was pruned");
+        assert_eq!(kept.len(), 2, "both should be reported: {kept:?}");
     }
 }

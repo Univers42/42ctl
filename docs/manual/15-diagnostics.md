@@ -62,7 +62,9 @@
 | `refusing to write through a symlinked path` | a directory on the restore path is a symbolic link | replace the link with a real directory |
 | `illegal path form (nul/backslash/absolute/drive/unc)`, `empty or dot path component`, `path uses the reserved __42ctl prefix` | a manifest entry whose path could escape the project or is malformed | nothing was written; report it — a writer of the environment produced that manifest |
 | `scan pattern … names a path, but patterns match file names` | a `/` in `.42ctl/project.json` | use a name pattern, or keep the file under `secrets/` |
-| `… is stored as N chunk(s) and this profile names no object store` / a push refused naming `--blobstore` | a file over 4 MiB with no object store configured | `config endpoint --blobstore URL --bucket NAME`, and `FT_S3_KEY` / `FT_S3_SECRET` |
+| `… and this profile names no object store` | a file over 4 MiB with no endpoint/bucket configured | `config endpoint --blobstore URL --bucket NAME` |
+| `… names object-store bucket `X`, but FT_S3_KEY and FT_S3_SECRET are not set` | the location IS configured; only the credential is missing | export `FT_S3_KEY` / `FT_S3_SECRET` — re-running `config endpoint` cannot help |
+| `kept N manifest entries whose file is present but was not scanned` | the tree is incomplete (often a non-recursive clone), so `--prune` refused to drop them | push from a `git clone --recursive` checkout |
 | `could not keep a backup of … — nothing was written` | `--backup` could not rename the existing file | check the directory's permissions and free space |
 | `your private copy shadows the shared one` (a notice) | you hold a private file at a shared path | nothing — yours was restored; rename one if both are needed |
 | `this is 42ctl's own record …` from `vault rm` | a path under `__42ctl/` | remove notes with `note rm`; trees are replaced by pushing |

@@ -64,6 +64,51 @@ impl<'a> Call<'a> {
     }
 }
 
+/// Why a profile yielded no object store. The two cases are fixed differently, and
+/// reporting one as the other sends the operator to the wrong file.
+///
+/// A missing credential used to collapse into the same `None` as a missing location, so a
+/// profile that demonstrably named an endpoint, a bucket and a region was reported as
+/// naming "no object store" — and the advice was to re-run the one command that could not
+/// help. Carries the bucket NAME only, which `config show` already prints; never a
+/// credential, and deliberately no `Debug` derive that could put one in an error chain.
+#[derive(Clone, PartialEq, Eq)]
+pub enum StoreGap {
+    /// No endpoint or bucket, in the profile or the environment.
+    NoLocation,
+    /// A location is configured, but the credential is not in the environment.
+    NoCredential { bucket: String },
+}
+
+/// Written by hand rather than derived. This type travels in an error chain, and `anyhow`
+/// prints that chain — a derive would print whatever field someone adds next. Only the
+/// bucket name is ever safe to show here, so adding a field forces a decision in this impl
+/// instead of leaking by default.
+impl std::fmt::Debug for StoreGap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoreGap::NoLocation => write!(f, "NoLocation"),
+            StoreGap::NoCredential { bucket } => write!(f, "NoCredential({bucket})"),
+        }
+    }
+}
+
+impl StoreGap {
+    /// The cause and its fix, naming environment VARIABLES and never their values.
+    pub fn explain(&self) -> String {
+        match self {
+            StoreGap::NoLocation => "this profile names no object store — set one with \
+                 `42ctl config endpoint --blobstore <url> --bucket <name>` and export \
+                 FT_S3_KEY and FT_S3_SECRET"
+                .to_string(),
+            StoreGap::NoCredential { bucket } => format!(
+                "this profile names object-store bucket `{bucket}`, but FT_S3_KEY and \
+                 FT_S3_SECRET are not set in this environment — export them and retry"
+            ),
+        }
+    }
+}
+
 impl BlobStore {
     /// Build a store client. `endpoint` is the service root, without the bucket.
     pub fn new(endpoint: &str, region: &str, bucket: &str, key_id: &str, secret: &str) -> Self {
@@ -83,18 +128,19 @@ impl BlobStore {
     /// than inventing a destination. The location may also be given by `FT_S3_ENDPOINT`,
     /// `FT_S3_BUCKET` and `FT_S3_REGION` for CI; the credential comes only from
     /// `FT_S3_KEY` / `FT_S3_SECRET`, because the config file has nowhere to put one.
-    pub fn from_profile(location: &BlobLocation) -> Option<Self> {
-        let endpoint = configured(&location.endpoint, "FT_S3_ENDPOINT")?;
-        let bucket = configured(&location.bucket, "FT_S3_BUCKET")?;
+    pub fn from_profile(location: &BlobLocation) -> Result<Self, StoreGap> {
+        let (Some(endpoint), Some(bucket)) = (
+            configured(&location.endpoint, "FT_S3_ENDPOINT"),
+            configured(&location.bucket, "FT_S3_BUCKET"),
+        ) else {
+            return Err(StoreGap::NoLocation);
+        };
         let region = configured(&location.region, "FT_S3_REGION")
             .unwrap_or_else(|| location.signing_region().to_string());
-        Some(Self::new(
-            &endpoint,
-            &region,
-            &bucket,
-            &from_env("FT_S3_KEY")?,
-            &from_env("FT_S3_SECRET")?,
-        ))
+        let (Some(key), Some(secret)) = (from_env("FT_S3_KEY"), from_env("FT_S3_SECRET")) else {
+            return Err(StoreGap::NoCredential { bucket });
+        };
+        Ok(Self::new(&endpoint, &region, &bucket, &key, &secret))
     }
 
     /// Store `body` under `name`, overwriting any existing object.
@@ -402,5 +448,50 @@ mod tests {
             store.list(&prefix).await.expect("list after").is_empty(),
             "delete did not remove"
         );
+    }
+
+    /// A configured profile whose credential is absent used to be reported as naming "no
+    /// object store", sending the operator to re-run `config endpoint` — the one action that
+    /// cannot help. The two gaps must read differently.
+    #[test]
+    fn a_missing_credential_is_not_reported_as_a_missing_store() {
+        let text = StoreGap::NoCredential {
+            bucket: "vault42-seeds".to_string(),
+        }
+        .explain();
+        assert!(text.contains("vault42-seeds"), "{text}");
+        assert!(
+            text.contains("FT_S3_KEY") && text.contains("FT_S3_SECRET"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("names no object store"),
+            "a missing credential still reads as a missing store: {text}"
+        );
+    }
+
+    /// The other half: a profile that truly names nothing keeps the original wording, which
+    /// the QA battery asserts on.
+    #[test]
+    fn a_missing_location_still_names_the_flag_to_set() {
+        let text = StoreGap::NoLocation.explain();
+        assert!(text.contains("names no object store"), "{text}");
+        assert!(text.contains("--blobstore"), "{text}");
+    }
+
+    /// The refusal names environment VARIABLES, never their values — the gap carries the
+    /// bucket and nothing else, and derives no `Debug` that could put a credential in a chain.
+    #[test]
+    fn a_refusal_never_carries_a_credential_value() {
+        for gap in [
+            StoreGap::NoLocation,
+            StoreGap::NoCredential {
+                bucket: "b".to_string(),
+            },
+        ] {
+            let text = gap.explain();
+            assert!(!text.contains("AKIA"), "{text}");
+            assert!(!text.to_lowercase().contains("secret="), "{text}");
+        }
     }
 }

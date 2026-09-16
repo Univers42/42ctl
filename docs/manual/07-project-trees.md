@@ -134,8 +134,20 @@ $ 42ctl push --prune
 files that were not stored.
 
 Without `--prune`, the manifest keeps entries for files that have since disappeared from your disk, so
-a file deleted on one machine is not deleted from the vault. `--prune` makes the stored tree mirror
-the disk exactly.
+a file deleted on one machine is not deleted from the vault. `--prune` drops those entries.
+
+`--prune` drops an entry only when the file is **gone from the disk**, never merely because the scan
+did not produce it. The scan declines whole directories — a vendored tree that is not its own
+repository — so "not scanned" is a lower bound on the tree rather than a census of it. An entry whose
+file is still present but was not scanned is kept, and the push says so: that is the run that would
+otherwise have deleted a live secret and reported success. Notes are never pruned, since they have no
+file on disk at all.
+
+Two limits worth knowing. Withdrawing a file whose local copy still exists therefore means
+deleting it locally and pruning — tracked as
+[#13](https://github.com/Univers42/42ctl/issues/13). And this guard covers `push --prune`
+only: `env push` still rebuilds the shared tree from the same lower-bound scan, tracked as
+[#12](https://github.com/Univers42/42ctl/issues/12).
 
 ## 7.5 Personal sync: `pull`
 

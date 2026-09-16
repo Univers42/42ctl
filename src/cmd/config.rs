@@ -75,6 +75,15 @@ fn profile_cmd(name: Option<&str>) -> anyhow::Result<()> {
 /// call this repeatedly to add one setting at a time.
 fn set_endpoint(profile: &str, args: &EndpointArgs) -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
+    // With no flag there is nothing to assign, and saving anyway rewrote the file with
+    // identical content and reported "updated endpoints" — an update that did not happen.
+    // Showing is what a caller with no arguments meant; `show` is reused rather than a
+    // second renderer that can drift from it. The unknown-profile failure below still runs
+    // first, so a bad --profile is an error either way.
+    if args.is_empty() {
+        cfg.endpoint(profile)?;
+        return show(profile);
+    }
     let endpoint = cfg
         .profiles
         .get_mut(profile)

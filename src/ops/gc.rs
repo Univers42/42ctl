@@ -66,9 +66,10 @@ impl Session {
             principal: &self.principal,
         };
         let naming = largeobj::naming(&owner);
-        let store = self.store.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("this profile names no object store, so there is nothing to collect")
-        })?;
+        let store = self
+            .store
+            .as_ref()
+            .map_err(|gap| anyhow::anyhow!("nothing to collect: {}", gap.explain()))?;
         let cutoff = sigv4::instant_ago(grace * 3600)?;
         let stored = store.list(&naming.prefix()).await?;
         let mut removed = 0usize;

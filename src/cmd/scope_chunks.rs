@@ -119,11 +119,10 @@ fn verify_name(naming: &Naming, name: &str, plaintext: &[u8]) -> anyhow::Result<
 
 /// The configured object store, or a refusal naming what to configure.
 fn store_for<'a>(session: &'a Session, what: &str, len: usize) -> anyhow::Result<&'a BlobStore> {
-    session.store.as_ref().ok_or_else(|| {
+    session.store.as_ref().map_err(|gap| {
         anyhow::anyhow!(
-            "{what} is {len} bytes, above the transport ceiling, and this profile names no \
-             object store — set one with `42ctl config endpoint --blobstore <url> --bucket \
-             <name>` and export FT_S3_KEY and FT_S3_SECRET"
+            "{what} is {len} bytes, above the transport ceiling, and {}",
+            gap.explain()
         )
     })
 }

@@ -16,7 +16,7 @@
 //! registered contract (managed multi-tenancy — the vault gate requires it). The channel
 //! uses TLS for `https://` URLs (the fly edge cert) and plaintext for local `http://`.
 
-use crate::adapters::blobstore::BlobStore;
+use crate::adapters::blobstore::{BlobStore, StoreGap};
 use crate::profile::Endpoint;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::metadata::MetadataValue;
@@ -33,7 +33,8 @@ pub struct Session {
     pub identity: Identity,
     pub principal: String,
     pub contract: Option<String>,
-    pub store: Option<BlobStore>,
+    /// The object store, or WHY there is none — so each refusal can name the real cause.
+    pub store: Result<BlobStore, StoreGap>,
 }
 
 impl Session {
