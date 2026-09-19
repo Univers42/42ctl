@@ -1,0 +1,1090 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Groot Vault Handbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --paper: #edefea;
+  --paper-2: #e3e6df;
+  --sheet: #f8f9f6;
+  --ink: #1b1f24;
+  --ink-2: #545c66;
+  --rule: #c9cec4;
+  --cobalt: #1f4fd8;
+  --cobalt-ink: #ffffff;
+  --cobalt-wash: #dfe6fa;
+  --amber: #9a6a12;
+  --amber-wash: #f6ecd6;
+  --green: #1f7a4d;
+  --green-wash: #dff1e6;
+  --red: #b3261e;
+  --red-wash: #f9e2e0;
+  --term: #101827;
+  --term-ink: #e6ebf2;
+  --term-dim: #8a97ab;
+  --term-prompt: #8fb0ff;
+  --term-rule: #22304a;
+  --sans: "Atkinson Hyperlegible", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --fs-0: 1.0625rem;
+  --fs-1: 1.25rem;
+  --fs-2: 1.5rem;
+  --fs-3: 2.125rem;
+  --fs-4: 3rem;
+  --fs-s: 0.9375rem;
+  --fs-xs: 0.8125rem;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14171b; --paper-2: #1b1f25; --sheet: #1e232a; --ink: #e8eaec; --ink-2: #a0a8b2; --rule: #313941;
+    --cobalt: #8aa6ff; --cobalt-ink: #0d1524; --cobalt-wash: #1c2742;
+    --amber: #e2b45c; --amber-wash: #33270f;
+    --green: #6fd39a; --green-wash: #10301f;
+    --red: #ff8a80; --red-wash: #3a1a17;
+    --term: #0a0f17; --term-ink: #dfe6ef; --term-dim: #7f8ca0; --term-prompt: #8fb0ff; --term-rule: #1d2838;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #14171b; --paper-2: #1b1f25; --sheet: #1e232a; --ink: #e8eaec; --ink-2: #a0a8b2; --rule: #313941;
+  --cobalt: #8aa6ff; --cobalt-ink: #0d1524; --cobalt-wash: #1c2742;
+  --amber: #e2b45c; --amber-wash: #33270f;
+  --green: #6fd39a; --green-wash: #10301f;
+  --red: #ff8a80; --red-wash: #3a1a17;
+  --term: #0a0f17; --term-ink: #dfe6ef; --term-dim: #7f8ca0; --term-prompt: #8fb0ff; --term-rule: #1d2838;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: var(--sans); font-size: var(--fs-0); line-height: 1.55;
+  padding-inline: 16px; padding-block: env(safe-area-inset-top, 0px) env(safe-area-inset-bottom, 0px);
+}
+a { color: var(--cobalt); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--cobalt); outline-offset: 2px; }
+h1, h2, h3, h4 { font-family: var(--mono); line-height: 1.15; margin: 0; text-wrap: balance; font-weight: 600; }
+h1 { font-size: clamp(2rem, 5.5vw, var(--fs-4)); letter-spacing: -0.02em; }
+h2 { font-size: var(--fs-3); letter-spacing: -0.01em; }
+h3 { font-size: var(--fs-2); }
+h4 { font-size: var(--fs-1); }
+p { margin: 0; }
+.measure { max-width: 68ch; }
+code, kbd { font-family: var(--mono); }
+p code, li code, td code, dd code, dt code { font-size: 0.9em; background: var(--paper-2); padding: 0.05em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+ul, ol { margin: 0; padding-left: 1.3em; }
+li { margin-block: 0.25em; }
+strong { font-weight: 700; }
+
+/* ─── page frame ─── */
+.frame { max-width: 1240px; margin: 0 auto; display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 56px; padding-block: 40px 120px; }
+@media (max-width: 960px) { .frame { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-block: 24px 80px; } }
+main { min-width: 0; display: grid; gap: 88px; }
+@media (max-width: 960px) { main { gap: 64px; } }
+
+/* ─── rail ─── */
+.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; display: grid; gap: 20px; }
+@media (max-width: 960px) { .rail { position: static; } }
+.rail-box { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; }
+.rail h4 { font-size: var(--fs-s); font-weight: 500; color: var(--ink-2); margin-bottom: 8px; }
+.rail ol, .rail ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.rail li { margin: 0; }
+.rail a { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 8px; align-items: baseline; text-decoration: none; color: var(--ink); padding: 4px 6px; margin-inline: -6px; border-radius: 4px; font-size: var(--fs-s); }
+.rail a:hover { background: var(--paper-2); }
+.rail a .n { font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rail a.done .n { color: var(--green); }
+.rail a.done .n::after { content: " ✓"; }
+.rail .bar { height: 6px; background: var(--paper-2); border-radius: 3px; overflow: hidden; margin: 10px 0 4px; }
+.rail .bar i { display: block; height: 100%; width: 0; background: var(--green); transition: width 200ms; }
+.rail .progress { font-size: var(--fs-xs); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.theme { display: flex; gap: 6px; }
+.theme button { font: 500 var(--fs-xs) var(--mono); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink-2); cursor: pointer; }
+.theme button[aria-pressed="true"] { background: var(--cobalt); color: var(--cobalt-ink); border-color: var(--cobalt); }
+@media (max-width: 960px) { .rail-box.contents { display: none; } }
+
+/* ─── masthead ─── */
+.masthead { display: grid; gap: 22px; }
+.masthead .lede { font-size: var(--fs-1); color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0; border-block: 1px solid var(--rule); }
+.facts div { padding: 10px 14px 10px 0; display: grid; gap: 2px; }
+.facts div + div { padding-left: 14px; border-left: 1px solid var(--rule); }
+@media (max-width: 600px) { .facts div + div { border-left: 0; padding-left: 0; } .facts div { border-top: 1px solid var(--rule); } .facts div:first-child { border-top: 0; } }
+.facts span { font-size: var(--fs-xs); color: var(--ink-2); }
+.facts b { font-family: var(--mono); font-weight: 500; font-size: var(--fs-s); overflow-wrap: anywhere; }
+.notice { display: grid; gap: 4px; padding: 14px 18px; border-left: 4px solid var(--amber); background: var(--amber-wash); border-radius: 0 6px 6px 0; max-width: 78ch; }
+.notice.green { border-color: var(--green); background: var(--green-wash); }
+.notice.red { border-color: var(--red); background: var(--red-wash); }
+.notice.blue { border-color: var(--cobalt); background: var(--cobalt-wash); }
+.notice b { font-family: var(--mono); font-weight: 600; font-size: var(--fs-s); }
+
+/* ─── terminal pane ─── */
+.term { position: relative; background: var(--term); color: var(--term-ink); border-radius: 8px; overflow: hidden; max-width: 100%; }
+.term .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px 7px 14px; font: 500 var(--fs-xs) var(--mono); color: var(--term-dim); border-bottom: 1px solid var(--term-rule); }
+.term pre { margin: 0; padding: 12px 14px 14px; overflow-x: auto; font-family: var(--mono); font-size: 0.875rem; line-height: 1.6; tab-size: 2; }
+.term .cmd { display: block; white-space: pre; color: var(--term-ink); }
+.term .cmd::before { content: "$ "; color: var(--term-prompt); user-select: none; }
+.term .cont { display: block; white-space: pre; padding-left: 2ch; }
+.term .out { display: block; white-space: pre; color: var(--term-dim); }
+.term .out::before { content: "  "; }
+.term .note { display: block; white-space: pre; color: var(--term-dim); font-style: italic; }
+.term .ok { color: #7ee2a8; }
+.term .bad { color: #ff9e95; }
+.term .k { color: var(--term-prompt); }
+.copy { font: 500 var(--fs-xs) var(--mono); padding: 3px 10px; border-radius: 5px; border: 1px solid var(--term-rule); background: transparent; color: var(--term-ink); cursor: pointer; }
+.copy:hover { background: var(--term-rule); }
+.copy[data-done="1"] { border-color: #7ee2a8; color: #7ee2a8; }
+
+/* ─── steps ─── */
+.part { display: grid; gap: 24px; }
+.part-head { display: grid; gap: 10px; }
+.part-head .sub { color: var(--ink-2); max-width: 66ch; }
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; counter-reset: step; }
+.step { counter-increment: step; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0 20px; padding-block: 28px; border-top: 1px solid var(--rule); margin: 0; }
+.step:last-child { border-bottom: 1px solid var(--rule); }
+.step-no { font-family: var(--mono); font-size: var(--fs-3); font-weight: 600; color: var(--cobalt); line-height: 1; font-variant-numeric: tabular-nums; padding-top: 2px; }
+.step-no::before { content: counter(step); }
+.step.is-done .step-no { color: var(--green); }
+.step-body { display: grid; gap: 14px; min-width: 0; }
+.step-body > p { max-width: 68ch; }
+.step h3 { font-size: var(--fs-1); }
+.see { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 14px; background: var(--green-wash); border-radius: 6px; max-width: 78ch; font-size: var(--fs-s); }
+.see::before { content: "You should see"; font: 600 var(--fs-xs) var(--mono); color: var(--green); white-space: nowrap; padding-top: 2px; }
+.see p { margin: 0; }
+.disk { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 14px; background: var(--cobalt-wash); border-radius: 6px; max-width: 78ch; font-size: var(--fs-s); }
+.disk::before { content: "Disk space"; font: 600 var(--fs-xs) var(--mono); color: var(--cobalt); white-space: nowrap; padding-top: 2px; }
+.disk p { margin: 0; }
+.done { display: inline-flex; align-items: center; gap: 10px; font-size: var(--fs-s); cursor: pointer; user-select: none; }
+.done input { width: 20px; height: 20px; accent-color: var(--green); margin: 0; }
+@media (max-width: 600px) { .step { grid-template-columns: minmax(0, 1fr); gap: 10px; } .step-no { font-size: var(--fs-2); } }
+
+/* ─── secrets: sealed values ─── */
+.secret-list { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.secret { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 8px 24px; padding-block: 18px; border-bottom: 1px solid var(--rule); }
+@media (max-width: 760px) { .secret { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
+.secret h4 { font-size: var(--fs-0); }
+.secret .name { display: grid; gap: 4px; align-content: start; }
+.secret .name small { font-family: var(--mono); font-size: var(--fs-xs); color: var(--amber); overflow-wrap: anywhere; }
+.secret .info { display: grid; gap: 8px; min-width: 0; }
+.secret dl { margin: 0; display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 4px 12px; font-size: var(--fs-s); }
+.secret dt { color: var(--ink-2); }
+.secret dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.secret .term pre { font-size: 0.8125rem; }
+.group { font-family: var(--mono); font-weight: 600; font-size: var(--fs-s); color: var(--ink-2); margin-top: 10px; }
+.slot {
+  display: inline; font-family: var(--mono); font-size: 0.9em; padding: 0.05em 0.45em; border-radius: 4px;
+  background: var(--amber-wash); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  overflow-wrap: anywhere; user-select: all; cursor: pointer;
+}
+.slot.hidden-value { filter: blur(6px); }
+.slot.empty { font-style: italic; user-select: text; cursor: default; }
+.term .slot { background: #2a2a1c; color: #e2b45c; border-color: #6b5a2a; }
+.reveal-all { font: 500 var(--fs-xs) var(--mono); padding: 5px 12px; border-radius: 6px; border: 1px solid var(--amber); background: var(--amber-wash); color: var(--amber); cursor: pointer; justify-self: start; }
+
+/* ─── who runs a step, who may hold a value ─── */
+.step-title { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.who { justify-self: start; font: 600 var(--fs-xs) var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); white-space: nowrap; }
+.who.owner { background: var(--cobalt); color: var(--cobalt-ink); border-color: var(--cobalt); }
+.who.team { background: var(--green-wash); color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.who.hand { background: var(--amber-wash); color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.steps.letters .step-no::before { content: counter(step, lower-alpha); }
+.team-only[hidden] { display: none; }
+.yes { color: var(--green); font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+.no { color: var(--ink-2); font-family: var(--mono); white-space: nowrap; }
+
+/* ─── tables ─── */
+.table { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--sheet); max-width: 100%; }
+table { border-collapse: collapse; width: 100%; font-size: var(--fs-s); }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-family: var(--mono); font-weight: 500; font-size: var(--fs-xs); color: var(--ink-2); background: var(--paper-2); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td:first-child code { white-space: nowrap; }
+td .wrap, td.wrap code { white-space: normal; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.filter input { font: inherit; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); width: min(100%, 360px); }
+.filter small { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* ─── two-column helpers ─── */
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.two > div { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.plain { display: grid; gap: 12px; max-width: 78ch; }
+.plain > .term { max-width: none; }
+footer { color: var(--ink-2); font-size: var(--fs-s); border-top: 1px solid var(--rule); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="frame">
+
+<aside class="rail">
+  <div class="rail-box contents">
+    <h4>Bring a teammate in</h4>
+    <ol>
+      <li><a href="#o1" data-step="o1"><span class="n">a</span>Object-store key → team</a></li>
+      <li><a href="#o2" data-step="o2"><span class="n">b</span>Share .env.local lines</a></li>
+      <li><a href="#o3" data-step="o3"><span class="n">c</span>Publish tree + seeds</a></li>
+      <li><a href="#t1" data-step="t1"><span class="n">1</span>Docker, git, 42ctl</a></li>
+      <li><a href="#t2" data-step="t2"><span class="n">2</span>Their identity</a></li>
+      <li><a href="#t3" data-step="t3"><span class="n">3</span>Their account</a></li>
+      <li><a href="#t4" data-step="t4"><span class="n">4</span>Invite</a></li>
+      <li><a href="#t5" data-step="t5"><span class="n">5</span>Accept + enroll</a></li>
+      <li><a href="#t6" data-step="t6"><span class="n">6</span>Grant + key sync</a></li>
+      <li><a href="#t7" data-step="t7"><span class="n">7</span>Clone + team pull</a></li>
+      <li><a href="#t8" data-step="t8"><span class="n">8</span>make all</a></li>
+    </ol>
+    <div class="bar"><i id="rail-bar-team"></i></div>
+    <div class="progress" id="rail-progress-team">0 of 11 done</div>
+  </div>
+  <div class="rail-box contents">
+    <h4>Also on this page</h4>
+    <ul>
+      <li><a href="#spaces"><span class="n">→</span>Where data lives, who opens it</a></li>
+      <li><a href="#secrets"><span class="n">→</span>Your secrets</a></li>
+      <li><a href="#new"><span class="n">→</span>Making new secrets</a></li>
+      <li><a href="#ref"><span class="n">→</span>42ctl and make</a></li>
+      <li><a href="#seeds"><span class="n">→</span>The seeds</a></li>
+      <li><a href="#fix"><span class="n">→</span>When something fails</a></li>
+    </ul>
+  </div>
+  <div class="theme" role="group" aria-label="Theme">
+    <button type="button" data-theme-set="system" aria-pressed="true">System</button>
+    <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+  </div>
+</aside>
+
+<main>
+
+<!-- ═══════════════ masthead ═══════════════ -->
+<header class="masthead">
+  <h1>Groot Vault Handbook</h1>
+  <p class="lede">How to get your whole Groot setup — code, configuration, secrets and all seven databases — onto another computer, how to keep the two in step, and how to bring a teammate in with an identity of their own. Written with the real values in the commands.</p>
+  <div class="facts">
+    <div><span>Source machine</span><b>dlesieur · Ubuntu 26.04.1</b></div>
+    <div><span>Repository</span><b>~/Documents/Groot @ 97416b44 + team targets</b></div>
+    <div><span>Vault project</span><b>groot · 54 files in sync</b></div>
+    <div><span>Team environment</span><b>univers42 / groot / prod · 32 files</b></div>
+    <div><span>42ctl</span><b>0.1.12</b></div>
+    <div><span>Written</span><b>2026-09-17 · teammates 2026-09-19</b></div>
+  </div>
+  <div class="notice green team-only">
+    <b>This is the teammate copy.</b>
+    <p>It holds the registration token and the shared application secrets, and none of the owner's identity — no passphrase, no keystore, no account password. The values are real all the same: keep the file private (<code>chmod 600</code>), never in git or a group chat. Start at <a href="#team">Bring a teammate in</a>; blurred values show when you click them.</p>
+  </div>
+</header>
+
+
+<!-- ═══════════════ part 2b: teammates ═══════════════ -->
+<section class="part" id="team">
+  <div class="part-head">
+    <h2>Bring a teammate in</h2>
+    <p class="sub">A teammate gets an identity and an account of their own, joins the <code>univers42</code> organisation, and is granted the <code>prod</code> environment of project <code>groot</code>. From then on one <code>make</code> command gives their machine the same secrets and the same seven databases as this one. Nothing of the owner's changes hands except the registration token.</p>
+  </div>
+
+  <div class="plain" id="spaces">
+    <h3>Where data lives, and who can open it</h3>
+    <p>vault42 seals every file on the machine that sends it, and who can open the file later depends only on what it was sealed to. Three spaces, three answers:</p>
+  </div>
+  <div class="table">
+    <table>
+      <thead><tr><th>Space</th><th>Commands</th><th>Sealed to</th><th>Who opens it</th><th>Holds</th></tr></thead>
+      <tbody>
+        <tr><td class="wrap"><strong>Team environment</strong><br><code>univers42 / groot / prod</code></td><td class="wrap"><code>make vault42-team-pull</code> · <code>make vault42-team-push</code> · <code>42ctl env secret get / set</code></td><td class="wrap">the environment's shared key</td><td class="wrap">every org member granted <code>prod</code>, once the owner has run <code>env keys sync</code></td><td class="wrap">the shared <code>*.env*</code> tree — Binocle, grobase, osionos, mail, calendar, website — and the seeds under <code>secrets/</code></td></tr>
+        <tr><td class="wrap"><strong>Personal project</strong></td><td class="wrap"><code>make vault42-push-all</code> · <code>make vault42-pull-all</code></td><td class="wrap">one identity</td><td class="wrap">that identity alone, on a machine holding its keystore</td><td class="wrap">that person's own copy of the tree and their own seeds</td></tr>
+        <tr><td class="wrap"><strong>Personal secrets</strong></td><td class="wrap"><code>42ctl vault set / get / ls</code></td><td class="wrap">one identity</td><td class="wrap">that identity alone</td><td class="wrap">single values, such as <code>infra/S3_KEY</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="plain">
+    <p>Personal spaces never collide: a teammate's <code>42ctl push --project groot</code> lands in their own namespace, because every stored name is derived from the pusher's principal (<code>42ctl src/ops/sync.rs:486</code>) and the server filters every read by owner (<code>vault42-server secret_read.rs:13</code>). The other side of that coin: <strong>a teammate cannot read the owner's personal <code>groot</code></strong>, which is the trap below.</p>
+    <div class="notice red">
+      <b>The trap — a teammate's plain make all lands in LOCAL mode</b>
+      <p><code>make all</code> pulls the <em>personal</em> project. Under a teammate's identity that project is empty — measured: <code>no manifest for project groot (push first, or pass --project)</code> — so the machine falls back to self-generated secrets, loads the old git snapshot, drops <code>.vault42-local-mode</code>, and skips the vault on every later run. Undoing that means wiping the data volumes. A teammate pulls the team environment <em>first</em>: <code>make vault42-team-pull APPLY=1</code>, or <code>make all VAULT42_SOURCE=team</code>, which stops with an error instead of falling back.</p>
+    </div>
+    <div class="notice blue">
+      <b>*.local never reaches a teammate</b>
+      <p>The team push seals every <code>*.local</code> file to the pusher alone: a teammate sees neither its bytes nor its name (measured: 0 of 6). <code>apps/grobase/.env.local</code> holds the owner's Fly, Vercel, npm, Docker, GitHub and Sonar tokens and stays with the owner. The root <code>.env.local</code> is rebuilt on the teammate's machine from the shared <code>apps/grobase/.env</code>, then the few lines that point into the seeded data are laid over it from the shared secret <code>team/env-local</code> (step b). The mail, calendar, website and osionos <code>.env.local</code> files are optional per-developer OAuth clients; Compose loads them with <code>required: false</code>.</p>
+    </div>
+  </div>
+
+  <div class="term">
+    <div class="bar"><span>Proof — a throwaway teammate taken through steps 1 to 8 against the live vault on 2026-09-19, then removed</span></div>
+    <pre><span class="out"><span class="ok">PASS</span>  own identity, sign-up with the registration token, login, contract bound</span>
+<span class="out"><span class="ok">PASS</span>  org invite (one-time token, 7 days, bound to the email) → accepted → keys enrolled</span>
+<span class="out"><span class="ok">PASS</span>  before any grant: every env command refused</span>
+<span class="out"><span class="ok">PASS</span>  grant read on prod only → pending-provision → env keys sync "provisioned 1" → active</span>
+<span class="out"><span class="ok">PASS</span>  env files: 32 shared files listed, 0 private ones</span>
+<span class="out"><span class="ok">PASS</span>  env pull preview: 32 relative paths, nothing written</span>
+<span class="out"><span class="ok">PASS</span>  team pull --apply into an empty folder: 32 files, mode 600, .env.local derived with 32 keys</span>
+<span class="out"><span class="ok">PASS</span>  31 of 32 files byte-identical to this machine (the vault's apps/grobase/.env predates DATA_PLANE_IMAGE_SUFFIX)</span>
+<span class="out"><span class="ok">PASS</span>  read-only teammate writing an env secret: the server answered PermissionDenied, nothing stored</span>
+<span class="out"><span class="ok">PASS</span>  teammate's personal pull: "no manifest for project groot", nothing written</span>
+<span class="out"><span class="ok">PASS</span>  org member rm + account delete: old login 401, org back to the owner alone, owner's files untouched</span>
+<span class="out">RESULT: 11 passed, 0 failed</span>
+<span class="note">not yet exercised: pulling the seeds, infra/S3_KEY and team/env-local from the environment —
+the vault holds none of those until steps a to c have run.</span></pre>
+  </div>
+
+  <div class="step-title"><h3>Once, before the first teammate</h3><span class="who owner">owner</span></div>
+  <p class="measure">Three uploads the live run found missing. They send data to the vault, so the owner runs them by hand (agents are blocked from sending secrets off the machine), signed in for the session.</p>
+  <ol class="steps letters">
+
+    <li class="step" id="o1">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Seal the object-store pair into the environment</h3><span class="who owner">owner</span></div>
+        <p>Files over 4 MiB — the MinIO and WordPress archives — travel as chunks in the Tigris bucket, and pulling them needs <code>FT_S3_KEY</code> and <code>FT_S3_SECRET</code>. Today the pair sits only in the owner's personal vault. Sealed to the environment, every member can read it and <code>make vault42-team-pull</code> loads it by itself.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">for p in infra/S3_KEY infra/S3_SECRET; do \</span>
+<span class="cont">  v=$(42ctl vault get "$p") || { echo "!! $p: not in your personal vault"; continue; }; \</span>
+<span class="cont">  [ -n "$v" ] || { echo "!! $p: empty — refusing to publish"; continue; }; \</span>
+<span class="cont">  printf '%s' "$v" | 42ctl env secret set --org univers42 --project groot --env prod "$p"; \</span>
+<span class="cont">done</span>
+<span class="out">✓ set infra/S3_KEY (v1)</span>
+<span class="out">✓ set infra/S3_SECRET (v1)</span>
+<span class="cmd">for p in infra/S3_KEY infra/S3_SECRET; do \</span>
+<span class="cont">  printf '%-18s %s bytes\n' "$p" "$(42ctl env secret get --org univers42 --project groot --env prod "$p" | wc -c)"; \</span>
+<span class="cont">done</span>
+<span class="out">infra/S3_KEY       20 bytes</span>
+<span class="out">infra/S3_SECRET    40 bytes</span></pre>
+        </div>
+        <div class="see"><p>Two <code>✓ set</code> lines, then two byte counts well above zero. This pair can delete chunks as well as read them; a read-only Tigris key for read-only teammates would be tighter, and none exists yet.</p></div>
+        <div class="notice red"><b>Why the loop, and not a plain pipe.</b><p>Write it as <code>42ctl vault get infra/S3_KEY | 42ctl env secret set … infra/S3_KEY</code> and a failure on the left — a typo in the path, a case slip such as <code>infra/S3_key</code>, a vault that simply does not hold it — produces <em>nothing</em> on stdout while the right-hand side still stores it and prints <code>✓ set … (v2)</code>. You now have an empty secret that reports success, and every teammate fails later with <code>FT_S3_KEY and FT_S3_SECRET are not set</code> — an error that names the symptom and not the cause. Measured on this project: exactly that typo published an empty <code>infra/S3_KEY</code>, and the next run bumped it to <code>v3</code> only because the path was retyped correctly by luck. The guard above refuses to write an empty value, and the byte counts prove what landed.</p></div>
+        <label class="done"><input type="checkbox" data-step="o1" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="o2">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Share the team half of the root .env.local</h3><span class="who owner">owner</span></div>
+        <p><code>.env.local</code> is private, so a teammate's copy is rebuilt by <code>scripts/gen-local-env.sh</code> from the shared backend keys. That script mints fresh osionos secrets and knows nothing of the live mounts. Two kinds of line must match the seeded data: <code>OSIONOS_BRIDGE_EMAIL_HASH_SALT</code> salts the <code>email_hash</code> column of <code>osionos_bridge_identities</code> (<code>bridge-api.mjs:254</code>), so with a fresh salt the restored identities are never found again; the <code>VITE_BAAS_*</code> lines name tenants, mounts and tables inside the restored database. Publish those lines, and only those:</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">grep -E '^(OSIONOS_BRIDGE_EMAIL_HASH_SALT|OSIONOS_BAAS_API_KEY|VITE_BAAS_[A-Z_]+)=' .env.local \</span>
+<span class="cont">| 42ctl env secret set --org univers42 --project groot --env prod team/env-local</span>
+<span class="cmd">42ctl env secret get --org univers42 --project groot --env prod team/env-local | cut -d= -f1</span>
+<span class="out">OSIONOS_BRIDGE_EMAIL_HASH_SALT</span>
+<span class="out">OSIONOS_BAAS_API_KEY</span>
+<span class="out">VITE_BAAS_API_KEY … (every VITE_BAAS_ line, 15 in all)</span></pre>
+        </div>
+        <div class="see"><p>The key names only, no values. Never share the rest of the file: <code>DOCKER_*</code>, <code>FLY_API_TOKEN</code>, <code>SONAR_TOK</code>, <code>GITHUB_PAT</code>, <code>GIPHY_API</code> and <code>EMAIL_RECUP_ADMIN_VAULT</code> are the owner's; <code>OSIONOS_RUNNER_URL</code>, <code>OSIONOS_IDE_*</code> and <code>VITE_OSIO_IDE</code> are per machine; <code>PERMS_SERVICE_*</code> stays blank.</p></div>
+        <label class="done"><input type="checkbox" data-step="o2" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="o3">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Publish the tree with the seeds</h3><span class="who owner">owner</span></div>
+        <p>Run it from a complete checkout — every submodule present, <code>./secrets</code> holding fresh dumps. What the scan finds is exactly what teammates pull: 46 shared files and 6 private ones on this machine on 2026-09-19. It also refreshes the environment's stale <code>apps/grobase/.env</code>.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">cd ~/Documents/Groot &amp;&amp; make vault42-seed &amp;&amp; make vault42-team-push</span>
+<span class="out">[vault-seed] captured: postgres mysql mongo minio redis mssql dynamodb</span>
+<span class="out">[vault42-team] object-store key loaded</span>
+<span class="out">[vault42-team] publishing this checkout to univers42/groot/prod — every teammate's next pull gets this tree</span>
+<span class="out">pushed 46 shared and 6 private file(s) to environment 'prod'</span>
+<span class="out">Path                         Size     Mode  Kind  Private  Labels</span>
+<span class="out">…</span>
+<span class="out">secrets/postgres-all.sql.gz  2981453  0664  file  false    {}</span></pre>
+        </div>
+        <div class="see"><p><code>pushed … shared and 6 private file(s)</code>, then a listing that includes every <code>secrets/*</code> dump and <code>SHA256SUMS</code>. <strong>Decide first about <code>secrets/inception-*.tar.gz</code>:</strong> they are another project's volumes (<code>vault-seed.sh</code> cannot produce them), and <code>--private</code> cannot hold them back — a private file over 4 MiB is refused before anything uploads — so move them out of <code>secrets/</code> for the push if the team should not have them.</p></div>
+        <label class="done"><input type="checkbox" data-step="o3" data-group="team"> Done</label>
+      </div>
+    </li>
+  </ol>
+
+  <div class="step-title"><h3>For each teammate</h3></div>
+  <p class="measure">Two machines, alternating. Each hand-off is one short private message: the registration token, the sign-up email, the invite token, “done”.</p>
+  <ol class="steps">
+
+    <li class="step" id="t1">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Install Docker, git and 42ctl</h3><span class="who team">teammate</span></div>
+        <p>Ubuntu on x86_64 or aarch64 — the only published 42ctl builds. The <code>usermod</code> line lets you use Docker without sudo; the installer checks the download's SHA-256 against the release before putting it in <code>~/.local/bin</code>.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">sudo apt update &amp;&amp; sudo apt install -y docker.io docker-compose-v2 git make curl openssl</span>
+<span class="cmd">sudo usermod -aG docker "$USER" &amp;&amp; newgrp docker</span>
+<span class="cmd">curl -fsSL https://raw.githubusercontent.com/Univers42/42ctl/main/install.sh | sh</span>
+<span class="cmd">export PATH="$HOME/.local/bin:$PATH"</span>
+<span class="cmd">42ctl version</span>
+<span class="out">42ctl 0.1.12</span>
+<span class="cmd">42ctl config show</span>
+<span class="out">server    https://vault42-server.fly.dev</span>
+<span class="out">authority https://vault42-authority.fly.dev</span></pre>
+        </div>
+        <div class="see"><p><code>42ctl 0.1.12</code> or newer, and exactly those two addresses. <code>vault42.fly.dev</code> is somebody else's app.</p></div>
+        <div class="disk"><p>20 GB free under <code>/var</code>: a fresh <code>make all</code> measured 14.1 GB of images and build cache, plus about 1 GB of restored data. Check with <code>df -h /var</code>.</p></div>
+        <label class="done"><input type="checkbox" data-step="t1" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="t2">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Create your identity</h3><span class="who team">teammate</span></div>
+        <p>One keypair, generated on your machine and locked with a passphrase you choose. It is what every file will be sealed to for you. It is not the owner's identity: never copy their <code>keystore.v42</code>, never type their passphrase.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">42ctl keys init</span>
+<span class="out">passphrase: choose one, and put it in a password manager now</span>
+<span class="out">identity created</span>
+<span class="out">principal 60cab039…</span>
+<span class="out">address   v42:…</span>
+<span class="cmd">42ctl keys export-pub</span>
+<span class="out">v42:…       ← your public address, safe to share</span></pre>
+        </div>
+        <div class="see"><p><code>identity created</code>, and <code>~/.config/42ctl/keystore.v42</code> with mode 600. Nobody can reset the passphrase: lose it and everything sealed to you is gone.</p></div>
+        <label class="done"><input type="checkbox" data-step="t2" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="t3">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Create your account and take a contract</h3><span class="who team">teammate</span></div>
+        <p>The account — email and password — is who you are to the control plane: organisations, grants, invites. Sign-up is closed; it needs the registration token below, which the owner passes on. The account password is a different secret from your passphrase.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">export FT_REGISTER_TOKEN='<span class="slot" data-slot="VAULT42_REGISTER_TOKEN" data-shell="1"></span>'</span>
+<span class="cmd">42ctl auth signup --email you@example.com</span>
+<span class="out">password: choose one, 12 characters or more</span>
+<span class="out">if you@example.com was not already registered, it is now — log in to obtain a session</span>
+<span class="cmd">42ctl auth login --password --email you@example.com --tenant yourname</span>
+<span class="out">logged in to 'yourname' on profile 'default'</span>
+<span class="cmd">42ctl auth whoami</span>
+<span class="out">contract  bound (profile 'default')</span>
+<span class="cmd">unset FT_REGISTER_TOKEN</span></pre>
+        </div>
+        <div class="see"><p><code>logged in to 'yourname'</code> and <code>contract bound</code>. The tenant is your permanent handle: 1 to 64 characters from <code>A–Z a–z 0–9 _ -</code>, first come first served (<code>409 tenant name is taken</code>), the same on every machine. Sign-up answers the same sentence whether or not the email already had an account; the login is the real test. Then tell the owner the exact email you used — the invite is bound to it. Optional: <code>42ctl auth mfa --on</code> emails a code at every sign-in.</p></div>
+        <label class="done"><input type="checkbox" data-step="t3" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="t4">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Invite them into the organisation</h3><span class="who owner">owner</span></div>
+        <p>Needs the owner session (the sign-in pane above). The token is good for 7 days and one use, and only an account signed in with that exact email can redeem it. There is no revoke command, so send it privately and promptly — a password-manager share or an end-to-end encrypted chat, never git, an issue or a group channel.</p>
+        <p><strong>Wait for their step 3 first.</strong> The invite binds to the email they actually signed up with. Invite a typo of it and the token is dead — no revoke, and you issue a second one. Ask them to paste the exact address back to you before you run this.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">42ctl org member ls --org univers42          <span class="k"># before: note who is already in</span></span>
+<span class="out">7704efb0-…  owner  3d ago</span>
+<span class="cmd">42ctl org invite --org univers42 --email them@example.com --role member</span>
+<span class="out">invite_id 4db61503-…</span>
+<span class="out">token     43 characters, shown once</span>
+<span class="out">invited them@example.com to org 'univers42' as 'member'</span></pre>
+        </div>
+        <div class="see"><p><code>invited … as 'member'</code>. <code>member</code> is the right org role; <code>owner</code> and <code>admin</code> can invite and remove people.</p></div>
+        <div class="notice"><b>The token prints once.</b><p>Copy it out of the terminal before you run anything else — there is no command that shows it again, and scrollback in a cleared or closed pane is gone. If you lose it, re-run the invite: a second token for the same email is harmless.</p></div>
+        <div class="see"><p><b>Being an org member is not access to anything.</b> It only lets them be granted. After they accept you will see their id in <code>org member ls</code>, and they will still read nothing — that is expected until step 6. An id that shows up in <code>org member ls</code> but never in <code>env keys ls</code> has no project grant.</p></div>
+        <label class="done"><input type="checkbox" data-step="t4" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="t5">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Accept the invite and publish your public keys</h3><span class="who team">teammate</span></div>
+        <p><code>keys enroll</code> is the step people skip, and skipping it is silent. Accepting the invite makes you an org member; <em>enrolling</em> publishes the public half of your identity so the owner's <code>env keys sync</code> has something to wrap the environment key to. Without it that sync reports <code>skipped 1 (no registered pubkey)</code> and you stay unable to read anything — with no error on your side.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">42ctl invite accept --token 'the-invite-token'</span>
+<span class="out">accepted invite</span>
+<span class="cmd">42ctl keys enroll --org univers42</span>
+<span class="out">pubkey enrolled in org univers42 — an admin can now provision environment keys to you</span>
+<span class="cmd">42ctl keys export-pub                        <span class="k"># your address; send it if asked</span></span>
+<span class="out">v42:…</span></pre>
+        </div>
+        <div class="see"><p><code>accepted invite</code>, then <code>pubkey enrolled</code>. A <code>403</code>: you are signed in with a different email than the one invited. A <code>409</code>: the invite expired or was already used — ask for a new one. Then tell the owner you are done: they cannot proceed until your public key is up.</p></div>
+        <div class="notice red"><b>Do not run <code>env init</code>.</b><p>Until the owner finishes step 6, every <code>env</code> command answers <code>no scope key for this env — run env init first</code>. That message is wrong for you. <code>env init</code> bootstraps a <em>new</em> key for the whole environment and would orphan everyone else's wraps. You are not missing an environment; you are missing <em>your wrap of it</em>, and only the owner can create that. On an environment that already has a key the command refuses anyway — <code>already has a scope key (epoch 1) with N provisioned member(s)</code> — which is the safe outcome, not a problem to solve.</p></div>
+        <label class="done"><input type="checkbox" data-step="t5" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="t6">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Grant prod and wrap its key to them</h3><span class="who owner">owner</span></div>
+        <p><code>read</code> is the right default: the server refuses env writes from a read-only member, and a writer's push replaces what everyone pulls next. The key is wrapped only to an account that is all three — org member, granted, enrolled — which is what <code>env keys sync</code> checks. Run this <em>after</em> they confirm step 5; a sync before they enrol silently provisions nobody.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">42ctl project grant add --org univers42 --project groot --user them@example.com --role read --env prod</span>
+<span class="out">grant_id  2dc6d608-…</span>
+<span class="out">granted them@example.com 'read' on project 'groot'</span>
+<span class="cmd">42ctl project grant ls --org univers42 --project groot</span>
+<span class="out">…  user  …  read  5f8221ab-…      ← the prod env id, NOT (project-wide)</span>
+<span class="cmd">42ctl env keys ls   --org univers42 --project groot --env prod</span>
+<span class="out">…  true    false        pending-provision</span>
+<span class="cmd">42ctl env keys sync --org univers42 --project groot --env prod</span>
+<span class="out">provisioned 1</span>
+<span class="out">skipped   0 (no registered pubkey)</span>
+<span class="cmd">42ctl env keys ls   --org univers42 --project groot --env prod</span>
+<span class="out">…  true    true         active</span></pre>
+        </div>
+        <div class="see"><p><code>provisioned 1</code> with <code>skipped 0</code>, then their row reads <code>active</code>. For several people at once: <code>team create</code>, <code>team member add</code>, then <code>team grant --role read --env prod</code>.</p></div>
+        <div class="see"><p><b>Read the two numbers, not just the tick.</b> <code>skipped N (no registered pubkey)</code> means those people never ran <code>keys enroll</code> — send them back to step 5 and re-run the sync; it is safe to repeat. <code>provisioned 0</code> with <code>skipped 0</code> means nobody is waiting: either they are already <code>active</code>, or they hold no grant on this environment and never appear in this list at all.</p></div>
+        <div class="notice"><b>If you forgot <code>--env prod</code>.</b><p>Omitting it grants the project as a whole, and <code>project grant ls</code> then shows <code>(project-wide)</code> in the Env column. That still works, but it is wider than intended and outlives any single environment. Narrow it with the grant id from the listing:</p>
+          <div class="term">
+            <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+            <pre><span class="cmd">42ctl project grant rm  --org univers42 --project groot --grant &lt;grant_id&gt;</span>
+<span class="cmd">42ctl project grant add --org univers42 --project groot --user them@example.com --role read --env prod</span>
+<span class="cmd">42ctl env keys sync     --org univers42 --project groot --env prod</span></pre>
+          </div>
+        </div>
+        <div class="see"><p><b>An id in <code>org member ls</code> that never appears in <code>env keys ls</code> has no grant on this environment.</b> That is the single most common reason a teammate reports <code>no manifest for project groot</code> while everything looks fine from the owner's side — being an org admin grants nothing here.</p></div>
+        <label class="done"><input type="checkbox" data-step="t6" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="t7">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Clone Groot and pull the team environment</h3><span class="who team">teammate</span></div>
+        <p>The submodules must be there before the pull: files land at their original paths, such as <code>apps/osionos/app/.env</code>. The two <code>insteadOf</code> lines fetch the submodules over HTTPS although they are recorded with SSH addresses; undo them once you have a GitHub SSH key. The pull asks for your passphrase once, hidden.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">git config --global --add url."https://github.com/".insteadOf "git@github.com:"</span>
+<span class="cmd">git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"</span>
+<span class="cmd">git clone --recursive https://github.com/Univers42/groot.git ~/Documents/Groot</span>
+<span class="cmd">cd ~/Documents/Groot</span>
+<span class="cmd">make vault42-team-pull              <span class="k"># preview: every path and size, nothing written</span></span>
+<span class="out">[vault42-team] object-store key loaded</span>
+<span class="out">env pull dry-run</span>
+<span class="out">apps/grobase/.env 7469 byte(s)      … one line per file</span>
+<span class="cmd">make vault42-team-pull APPLY=1      <span class="k"># writes the tree and the seeds, then builds .env.local</span></span>
+<span class="out">46 file(s) from environment 'prod'</span>
+<span class="out">[gen-local-env] wrote .env.local (BaaS keys derived from grobase, osionos secrets minted, cloud keys empty).</span>
+<span class="out">[vault42-team] laid 15 team key(s) over .env.local</span></pre>
+        </div>
+        <div class="see"><p><code>N file(s) from environment 'prod'</code> with N matching the preview, the two <code>.env.local</code> lines, and <code>./secrets</code> holding the dumps plus <code>SHA256SUMS</code>. Unlike the personal pull there is no three-way merge: <code>APPLY=1</code> overwrites what it restores. On a checkout you have edited, pull a subset — <code>sh scripts/vault42-team.sh pull --apply --only 'secrets/*'</code> — or add <code>--backup</code> and delete the <code>.bak</code> files afterwards (<code>.env.bak</code> matches the push scan).</p></div>
+        <label class="done"><input type="checkbox" data-step="t7" data-group="team"> Done</label>
+      </div>
+    </li>
+
+    <li class="step" id="t8">
+      <div class="step-no" aria-hidden="true"></div>
+      <div class="step-body">
+        <div class="step-title"><h3>Run make all</h3><span class="who team">teammate</span></div>
+        <p>With the tree in place, <code>make all</code> finds <code>apps/grobase/.env</code> and skips the vault, makes and trusts a local HTTPS certificate (one sudo prompt), starts the backend, loads all seven databases from <code>./secrets</code> because the engines are empty, then builds and starts the apps. Count on 20 to 40 minutes the first time.</p>
+        <div class="term">
+          <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+          <pre><span class="cmd">make all</span>
+<span class="out">[secrets] grobase/.env present — skipping vault pull</span>
+<span class="out">[certs] trusting the grobase CA in the system store (one sudo prompt)…</span>
+<span class="out">[backend] starting grobase backend (EDITION=devlean)…</span>
+<span class="out">[restore-if-empty] all running primary engines empty → restoring the vault seeds in ./secrets (all engines)…</span>
+<span class="out">[restore-if-empty] vault restore complete.</span>
+<span class="out">…</span>
+<span class="out">auth-gateway-https-200</span>
+<span class="cmd">docker exec mini-baas-postgres psql -U postgres -tAc "select count(*) from auth.users"</span>
+<span class="out">43</span></pre>
+        </div>
+        <div class="see"><p>Those lines in that order, <code>43</code> users — the same number as on the owner's machine — then <code>https://localhost:3001</code> signs you in with one of the <a href="#accounts">app accounts</a>. On a fresh clone steps 7 and 8 fold into one: <code>make all VAULT42_SOURCE=team</code> pulls the team environment and refuses to fall back. <code>mssql … SKIPPED</code> and <code>dynamodb … SKIPPED</code> are normal (optional extra engines). If the engines already held data, <code>restore-if-empty</code> leaves them alone; <code>make vault-restore</code> replays the seeds over them — destructive, and never with <code>FETCH=1</code>, which pulls the personal project.</p></div>
+        <div class="notice red"><b>Already in LOCAL mode?</b><p>If <code>make all</code> printed <code>THIS MACHINE IS IN LOCAL MODE</code>, the volumes were initialised with self-generated secrets. Recovery deletes this stack's local data volumes on this machine and nothing else: <code>docker compose -p mini-baas down -v --remove-orphans</code>, then <code>rm -f apps/grobase/.env apps/grobase/.env.secrets apps/grobase/.env.local ./.env.local .vault42-local-mode</code>, then <code>make vault42-team-pull APPLY=1 &amp;&amp; make all</code>.</p></div>
+        <label class="done"><input type="checkbox" data-step="t8" data-group="team"> Done</label>
+      </div>
+    </li>
+  </ol>
+
+  <div class="two">
+    <div>
+      <div class="step-title"><h3>Their own seeds, private to them</h3><span class="who team">teammate</span></div>
+      <p>Everything in the team environment is shared with everyone granted <code>prod</code>. Data that is yours alone — a database you have been filling, an experiment on the seeds — goes in your personal space, sealed to your identity, invisible to everyone including the owner. The owner's <code>make</code> targets work for you unchanged; they just open <em>your</em> <code>groot</code>. Give your vault the object-store pair once, then capture and push.</p>
+      <div class="term">
+        <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+        <pre><span class="cmd">printf '%s' "$(42ctl env secret get --org univers42 --project groot --env prod infra/S3_KEY)"    | 42ctl vault set infra/S3_KEY</span>
+<span class="cmd">printf '%s' "$(42ctl env secret get --org univers42 --project groot --env prod infra/S3_SECRET)" | 42ctl vault set infra/S3_SECRET</span>
+<span class="cmd">make vault42-seed              <span class="k"># dumps every running engine into ./secrets</span></span>
+<span class="cmd">make vault42-push-all          <span class="k"># seals the whole tree to YOU, *.local included</span></span>
+<span class="cmd">make vault42-pull-all          <span class="k"># dry run: everything "in sync"</span></span></pre>
+      </div>
+      <p>On a second machine of yours: <code>42ctl keys escrow</code> here, <code>42ctl keys recover</code> there, then <code>42ctl auth login --password --email … --tenant …</code> (recover restores the key, not the contract), then <code>make vault42-pull-all APPLY=1</code> and <code>make vault-restore</code>. Never <code>keys init</code> on the second machine. <code>./secrets</code> holds one seed set at a time: <code>sh scripts/vault42-team.sh pull --apply --only 'secrets/*'</code> brings the team's back, <code>make vault42-pull-all APPLY=1 FORCE=1</code> brings yours, <code>make vault-restore</code> loads whichever is on disk.</p>
+    </div>
+    <div>
+      <h3>Project roles</h3>
+      <div class="table">
+        <table>
+          <thead><tr><th>Role</th><th>Pull, list, read env secrets</th><th>Push, set env secrets</th><th>Grant, sync, rotate</th></tr></thead>
+          <tbody>
+            <tr><td><code>read</code></td><td class="yes">yes</td><td class="no">no — the server refuses</td><td class="no">no</td></tr>
+            <tr><td><code>write</code></td><td class="yes">yes</td><td class="yes">yes</td><td class="no">no</td></tr>
+            <tr><td><code>admin</code></td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Org roles are separate: <code>owner</code> and <code>admin</code> invite and remove people, never above their own rank; <code>member</code> is what a teammate gets. Changing somebody's project role needs <code>env keys rotate</code>: <code>env keys sync</code> only wraps members who hold no key yet, while a rotation re-wraps everyone at their current role.</p>
+    </div>
+    <div>
+      <h3>Day to day</h3>
+      <ul>
+        <li><code>HTTP 401</code> from an org, project or env command: the 24 h session ran out — <code>42ctl auth login --password --email … --tenant …</code>.</li>
+        <li>New team data: <code>make vault42-team-pull</code>, read the preview, then <code>APPLY=1</code>. The selected files are overwritten.</li>
+        <li>Writers publishing: <code>make vault42-team-push</code> from a complete checkout; your <code>*.local</code> files stay yours.</li>
+        <li>After a rotation you do nothing: the owner's rotate re-wraps you at your current role.</li>
+        <li><code>42ctl vault audit</code> lists what was written and when; <code>42ctl update --check</code> keeps you on a signed build.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="step-title"><h3>When someone leaves</h3><span class="who owner">owner</span></div>
+      <div class="term">
+        <div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div>
+        <pre><span class="cmd">42ctl org member rm --org univers42 --user them@example.com       <span class="k"># teams, groups, grants, pubkey go too</span></span>
+<span class="cmd">42ctl env keys rotate --org univers42 --project groot --env prod   <span class="k"># fresh key, re-sealed, re-wrapped to who is left</span></span></pre>
+      </div>
+      <p>Removal ends authorisation; rotation ends access to anything sealed afterwards. What they already pulled, they keep: every value in <code>apps/grobase/.env</code> sat on their disk in clear. When a departure calls for it, also rotate the backend secrets (<a href="#new">Making new secrets</a>), the Tigris pair, and the registration token if they still know it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ part 3: secrets ═══════════════ -->
+<section class="part" id="secrets">
+  <div class="part-head">
+    <h2>Your secrets</h2>
+    <p class="sub">Every credential this setup depends on: its value, where it lives on this machine, and how to print it again. Click a value to reveal it; click again to hide it. Each entry says who may hold it: <span class="who owner">owner only</span> never leaves the owner's machines; <span class="who team">team</span> reaches a teammate through the team environment; <span class="who hand">hand to teammates</span> is the one value the owner passes on directly.</p>
+    <button type="button" class="reveal-all" id="reveal-all">Reveal all values</button>
+  </div>
+
+  <div class="group">Vault identity</div>
+  <div class="secret-list">
+    <div class="secret">
+      <div class="name"><h4>Registration token</h4><small>VAULT42_REGISTER_TOKEN</small><span class="who hand">hand to teammates</span></div>
+      <div class="info">
+        <dl>
+          <dt>Value</dt><dd><span class="slot" data-slot="VAULT42_REGISTER_TOKEN">us2c0mop3hlI8tEuVkzszwNyiirC1EC</span></dd>
+          <dt>Used for</dt><dd>Creating an account on the vault42 authority — sign-up is closed without it (<code>auth/handlers.rs:110</code>). It gates account creation only: an account by itself opens nothing.</dd>
+          <dt>Hand over</dt><dd>Through a password-manager share, an end-to-end encrypted chat, or the teammate copy of this page — never git, an issue or a group channel. One shared string: no expiry, no per-person revocation.</dd>
+          <dt>Rotate</dt><dd>After onboarding, or when someone leaves — see <a href="#new">Making new secrets</a>. Existing accounts are unaffected.</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="secret">
+      <div class="name"><h4>Servers</h4><small>~/.config/42ctl/config.json</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Vault</dt><dd><code>https://vault42-server.fly.dev</code></dd>
+          <dt>Authority</dt><dd><code>https://vault42-authority.fly.dev</code></dd>
+          <dt>Never</dt><dd><code>vault42.fly.dev</code> or <code>grobase-nano.fly.dev</code> — those belong to other people.</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="group">Team environment — univers42 / groot / prod</div>
+  <div class="secret-list">
+    <div class="secret">
+      <div class="name"><h4>Scope</h4><small>org univers42 · project groot · env prod · epoch 1</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Owner</dt><dd><code>dev.pro.photo@gmail.com</code> — org owner, project admin, tenant <code>dylan</code></dd>
+          <dt>Members</dt><dd>The owner alone, as of 2026-09-19. Each teammate is added by steps 4 to 6 of <a href="#team">Bring a teammate in</a>.</dd>
+          <dt>Authority</dt><dd><code>https://vault42-authority.fly.dev</code> — accounts, invites, grants. Sessions last 24 h, contracts 365 days.</dd>
+          <dt>Holds</dt><dd>32 shared files since 2026-09-15 (env files only); after step c, the same plus <code>secrets/*</code>.</dd>
+        </dl>
+        <div class="term"><div class="bar"><span>who is in, who holds the key, what it holds</span><button type="button" class="copy">Copy</button></div><pre><span class="cmd">42ctl org member ls --org univers42</span>
+<span class="cmd">42ctl project grant ls --org univers42 --project groot</span>
+<span class="cmd">42ctl env keys ls --org univers42 --project groot --env prod      <span class="k"># everyone should read active</span></span>
+<span class="cmd">42ctl env files --org univers42 --project groot --env prod        <span class="k"># paths and sizes; fetches nothing</span></span></pre></div>
+      </div>
+    </div>
+    <div class="secret">
+      <div class="name"><h4>Object-store pair, shared</h4><small>env secrets infra/S3_KEY · infra/S3_SECRET</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Value</dt><dd>The Tigris pair for bucket <code>vault42-seeds</code>, sealed to the environment by step a. Absent until then (measured 2026-09-19).</dd>
+          <dt>Used by</dt><dd><code>make vault42-team-pull</code> and <code>-push</code> load it by themselves; a teammate copies it into their own vault once, for <code>make vault42-pull-all</code>.</dd>
+        </dl>
+        <div class="term"><div class="bar"><span>read it</span><button type="button" class="copy">Copy</button></div><pre><span class="cmd">42ctl env secret get --org univers42 --project groot --env prod infra/S3_KEY</span></pre></div>
+      </div>
+    </div>
+    <div class="secret">
+      <div class="name"><h4>Team lines of .env.local</h4><small>env secret team/env-local</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Holds</dt><dd><code>OSIONOS_BRIDGE_EMAIL_HASH_SALT</code>, <code>OSIONOS_BAAS_API_KEY</code> and every <code>VITE_BAAS_*</code> line of the owner's <code>.env.local</code> — the values that must match the seeded data. Absent until step b.</dd>
+          <dt>Used by</dt><dd><code>make vault42-team-pull APPLY=1</code> lays them over the freshly derived <code>.env.local</code>, once each.</dd>
+        </dl>
+        <div class="term"><div class="bar"><span>read it</span><button type="button" class="copy">Copy</button></div><pre><span class="cmd">42ctl env secret get --org univers42 --project groot --env prod team/env-local</span></pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="group">Backend — ~/Documents/Groot/apps/grobase/.env, shared with the team</div>
+  <div class="secret-list">
+    <div class="secret">
+      <div class="name"><h4>Service key</h4><small>SERVICE_ROLE_KEY</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Value</dt><dd><span class="slot" data-slot="SERVICE_ROLE_KEY">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODE3MTkzNzQsImV4cCI6MTkzOTM5OTM3NH0.m-DekQ-LRhkcObkSkgeY9U5HNyCF4w9WXkJ0fUEOrik</span></dd>
+          <dt>What</dt><dd>Full-access API key for the backend. The osionos bridge uses it for every call, including the permission engine.</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="secret">
+      <div class="name"><h4>Public key</h4><small>ANON_KEY</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Value</dt><dd><span class="slot" data-slot="ANON_KEY">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxNzE5Mzc0LCJleHAiOjE5MzkzOTkzNzR9.ee8_21t5tNxe3SKrN_q32_KCvPsiVmFrdrxYM-6qvPo</span></dd>
+          <dt>What</dt><dd>Shipped to browsers. Row-level security in Postgres is what keeps data safe from it.</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="secret">
+      <div class="name"><h4>Internal service token</h4><small>ADAPTER_REGISTRY_SERVICE_TOKEN</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Value</dt><dd><span class="slot" data-slot="ADAPTER_REGISTRY_SERVICE_TOKEN">e79c869311ca1566722e78de74eddcfc0beaba11b4b4d7bddf325db28a767a31</span></dd>
+          <dt>What</dt><dd>Service-to-service calls between the backend planes and the bridge's permissions proxy.</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="secret">
+      <div class="name"><h4>Database passwords</h4><small>as the running containers use them</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Postgres</dt><dd>user <code>postgres</code> · <span class="slot" data-slot="POSTGRES_PASSWORD">7vccIqcGhb15i6XfiiHjIBVE</span></dd>
+          <dt>MySQL</dt><dd>user <code>root</code> · <span class="slot" data-slot="MYSQL_ROOT_PASSWORD">mysqlroot</span></dd>
+          <dt>Mongo</dt><dd>user <span class="slot" data-slot="MONGO_INITDB_ROOT_USERNAME">mongo</span> · <span class="slot" data-slot="MONGO_INITDB_ROOT_PASSWORD">mongo</span></dd>
+          <dt>SQL Server</dt><dd>user <code>sa</code> · <span class="slot" data-slot="MSSQL_SA_PASSWORD">Mssql_Strong!Pass1</span></dd>
+          <dt>MinIO</dt><dd>user <span class="slot" data-slot="MINIO_ROOT_USER">minioadmin</span> · <span class="slot" data-slot="MINIO_ROOT_PASSWORD">e13c9e3a28a2aa7fba65da9279c46b6c</span></dd>
+          <dt>Careful</dt><dd>An engine reads its password only the first time it starts on an empty volume. Changing the file later changes nothing: use <code>make -C apps/grobase reconcile-credentials</code>.</dd>
+        </dl>
+        <div class="term"><div class="bar"><span>print what the running engines use</span><button type="button" class="copy">Copy</button></div><pre><span class="cmd">docker exec mini-baas-postgres printenv POSTGRES_PASSWORD</span>
+<span class="cmd">docker exec mini-baas-mysql printenv MYSQL_ROOT_PASSWORD</span>
+<span class="cmd">docker exec mini-baas-mongo printenv MONGO_INITDB_ROOT_USERNAME MONGO_INITDB_ROOT_PASSWORD</span>
+<span class="cmd">docker exec mini-baas-mssql printenv MSSQL_SA_PASSWORD</span>
+<span class="cmd">docker exec mini-baas-minio printenv MINIO_ROOT_USER MINIO_ROOT_PASSWORD</span></pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="group">Apps — ~/Documents/Groot/.env.local (private; a teammate's is rebuilt from the backend keys + team/env-local)</div>
+  <div class="secret-list">
+    <div class="secret" id="accounts">
+      <div class="name"><h4>App accounts</h4><small>auth.users in Postgres — 43 on this machine</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>Yours</dt><dd class="wrap"><span class="slot" data-slot="ACCOUNT_EMAILS">admin@gourmand.local, employe@gourmand.local, client@gourmand.local, alice@tetris.local, bob@tetris.local, carol@tetris.local, dave@tetris.local, eve@tetris.local, frank@tetris.local, grace@tetris.local, heidi@tetris.local, dev.pro.photo@gmail.com, demo@osionos.local, alice@acme.test, bob@acme.test, carol@acme.test, dave@acme.test, qa_1782424440@example.com, highueraslp@gmail.com, test123@gmail.com, higueraslp@gmail.com</span></dd>
+          <dt>Agency demo</dt><dd><code>owner@agency.local</code> / <code>BinocleOwner1!</code>, and 20 staff accounts with password <code>AgencyDemo1!</code> (created by <code>make agency-people</code>).</dd>
+          <dt>Note</dt><dd>Passwords for your own accounts are not stored anywhere readable; use the ones you know, or reset through the website portal.</dd>
+        </dl>
+        <div class="term"><div class="bar"><span>list every account</span><button type="button" class="copy">Copy</button></div><pre><span class="cmd">docker exec mini-baas-postgres psql -U postgres -tAc "select email from auth.users order by created_at"</span></pre></div>
+      </div>
+    </div>
+    <div class="secret">
+      <div class="name"><h4>Switches</h4><small>in .env.local</small><span class="who team">team</span></div>
+      <div class="info">
+        <dl>
+          <dt>OSIONOS_IDE_SANDBOX</dt><dd><code>1</code> here; keep <code>0</code> on a new machine until <code>verify.sh</code> passes 16 of 16.</dd>
+          <dt>PERMS_SERVICE_*</dt><dd>Leave blank. The bridge then uses its own service key; copies here went stale once.</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ part 4: new secrets ═══════════════ -->
+<section class="part" id="new">
+  <div class="part-head">
+    <h2>Making new secrets</h2>
+    <p class="sub">After any of these, publish the new value: <code>make vault42-team-push</code> for the team environment, <code>make vault42-push-all</code> for your personal copy, then a dry-run pull to confirm.</p>
+  </div>
+  <div class="two">
+    <div>
+      <h3>A new vault identity</h3>
+      <div class="term"><div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div><pre><span class="cmd">42ctl keys init                <span class="k"># choose the passphrase</span></span>
+<span class="cmd">42ctl auth --help              <span class="k"># then log in with the vault account</span></span>
+<span class="cmd">42ctl keys escrow</span></pre></div>
+      <p>A new identity cannot read what the old one sealed. Push again from a machine that still has the files, and update <code>NEW-CREDENTIALS.env</code> and this page.</p>
+    </div>
+    <div>
+      <h3>Local HTTPS authority</h3>
+      <div class="term"><div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div><pre><span class="cmd">cd ~/Documents/Groot</span>
+<span class="cmd">rm apps/grobase/certs/track-binocle-local-ca*.pem   <span class="k"># only to replace it</span></span>
+<span class="cmd">make certs &amp;&amp; make certs-trust-local</span></pre></div>
+    </div>
+    <div>
+      <h3>Agency demo accounts</h3>
+      <div class="term"><div class="bar"><span>terminal</span><button type="button" class="copy">Copy commands</button></div><pre><span class="cmd">cd ~/Documents/Groot &amp;&amp; make agency-people</span>
+<span class="out">writes tools/seeds/.agency-people.env — pushed to the vault with everything else</span></pre></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ part 5: reference ═══════════════ -->
+<section class="part" id="ref">
+  <div class="part-head">
+    <h2>42ctl and make, at a glance</h2>
+    <p class="sub"><code>42ctl help kickoff</code> is the built-in walkthrough; <code>42ctl &lt;command&gt; --help</code> gives exact flags. Run <code>make</code> commands from <code>~/Documents/Groot</code>.</p>
+  </div>
+  <div class="filter">
+    <label for="cmd-filter"><strong>Find</strong></label>
+    <input id="cmd-filter" type="search" placeholder="escrow, pull, restore, health…">
+    <small id="cmd-count"></small>
+  </div>
+  <div class="table">
+    <table class="filterable">
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>make all</code></td><td class="wrap">Everything: submodules, secrets from the vault, certificates, backend, data when empty, apps, health check, address list.</td></tr>
+        <tr><td><code>make vault42-seed</code></td><td class="wrap">Dump every running database into <code>./secrets</code> with a manifest and checksums.</td></tr>
+        <tr><td><code>make vault42-push-all</code></td><td class="wrap">Seal and upload every env file and seed. Deletes vault entries whose local file is gone.</td></tr>
+        <tr><td><code>make vault42-pull-all</code></td><td class="wrap">Dry run. <code>APPLY=1</code> writes; <code>FORCE=1</code> overwrites local files.</td></tr>
+        <tr><td><code>make vault-restore</code></td><td class="wrap">Replace every database with the seeds (backs up Postgres first). <code>FETCH=1</code> pulls first.</td></tr>
+        <tr><td><code>make restore-if-empty</code></td><td class="wrap">What <code>make all</code> runs: restores only when the databases are provably empty.</td></tr>
+        <tr><td><code>make secrets-ensure</code></td><td class="wrap">Only the vault-pull step of <code>make all</code>.</td></tr>
+        <tr><td><code>make vault42-team-pull</code></td><td class="wrap">Team environment: dry run of the shared tree + seeds. <code>APPLY=1</code> writes (overwrites, no merge), then derives <code>.env.local</code> with the team lines laid over it. The teammate's pull.</td></tr>
+        <tr><td><code>make vault42-team-push</code></td><td class="wrap">Publish this checkout's env tree + seeds to everyone granted the environment; <code>*.local</code> stays private. Writers and admins.</td></tr>
+        <tr><td><code>make all VAULT42_SOURCE=team</code></td><td class="wrap">A fresh clone that pulls the team environment instead of the personal project, and stops instead of falling back to LOCAL mode.</td></tr>
+        <tr><td><code>sh scripts/vault42-team.sh pull --apply --only 'secrets/*'</code></td><td class="wrap">Part of the team tree only; <code>--backup</code> keeps <code>.bak</code> copies. <code>VAULT42_TEAM=org/project/env</code> picks another environment.</td></tr>
+        <tr><td><code>make healthcheck</code> · <code>make showcase</code></td><td class="wrap">Check the stack; list every local address.</td></tr>
+        <tr><td><code>make frontends-up</code></td><td class="wrap">Rebuild and restart the apps (osionos, bridge, website, auth gateway, proxy).</td></tr>
+        <tr><td><code>make backend-up</code></td><td class="wrap">Start the backend if it is down. <code>GROBASE_EDITION=devlean|migrate|full</code>.</td></tr>
+        <tr><td><code>make certs</code> · <code>make certs-trust-local</code></td><td class="wrap">Make and trust the local HTTPS authority.</td></tr>
+        <tr><td><code>make apply-models</code></td><td class="wrap">Apply new database migrations from <code>models/</code>. Manual; <code>sh scripts/apply-models.sh status</code> lists pending ones.</td></tr>
+        <tr><td><code>make -C apps/grobase reconcile-credentials</code></td><td class="wrap">Make the running databases accept the passwords in the env files.</td></tr>
+        <tr><td><code>make -C apps/grobase ctl-remote ARGS="…"</code></td><td class="wrap">Run any 42ctl command through the Docker image (no host binary needed). The target lives in the grobase submodule, not the repo root — plain <code>make ctl-remote</code> from the root answers <code>No rule to make target</code>.</td></tr>
+        <tr><td><code>42ctl push --project groot --prune</code></td><td class="wrap">Seal and upload; prune. (What <code>make vault42-push-all</code> runs.)</td></tr>
+        <tr><td><code>42ctl pull --project groot</code></td><td class="wrap">Dry run; add <code>--apply --force</code> to write. Needs <code>FT_S3_KEY</code>/<code>FT_S3_SECRET</code> for the big files.</td></tr>
+        <tr><td><code>42ctl vault ls · get · set · rm</code></td><td class="wrap">Your personal sealed items, such as <code>infra/S3_KEY</code>.</td></tr>
+        <tr><td><code>42ctl vault share · import · export</code></td><td class="wrap">Share an item with another identity; move items in and out.</td></tr>
+        <tr><td><code>42ctl keys init · export-pub · enroll</code></td><td class="wrap">Create an identity; print its public address; publish it to an org.</td></tr>
+        <tr><td><code>42ctl keys escrow · recover</code></td><td class="wrap">Back up the sealed keystore; restore it on a new machine by emailed code.</td></tr>
+        <tr><td><code>42ctl auth whoami</code></td><td class="wrap">Who you are logged in as. <code>42ctl auth --help</code> for log in / log out.</td></tr>
+        <tr><td><code>42ctl env push · pull · files</code></td><td class="wrap">The shared tree, sealed to the environment's key — what the team targets run. Always <code>--org univers42 --project groot --env prod</code>.</td></tr>
+        <tr><td><code>42ctl env secret set · get</code></td><td class="wrap">One shared value, such as <code>infra/S3_KEY</code> or <code>team/env-local</code>.</td></tr>
+        <tr><td><code>42ctl org invite · invite accept</code></td><td class="wrap">The owner prints a one-time token; the teammate redeems it (7 days, bound to their email).</td></tr>
+        <tr><td><code>42ctl project grant add · ls · rm</code></td><td class="wrap">Who may do what on <code>groot</code>: <code>read</code>, <code>write</code> or <code>admin</code>, optionally <code>--env prod</code> only.</td></tr>
+        <tr><td><code>42ctl env keys ls · sync · rotate</code></td><td class="wrap">Who holds the environment's key; wrap it to new members; re-key after a removal or a role change.</td></tr>
+        <tr><td><code>42ctl team create · member add · grant</code></td><td class="wrap">Grant a whole team at once instead of person by person.</td></tr>
+        <tr><td><code>42ctl org member rm</code></td><td class="wrap">Remove a person: their teams, grants and public key go too. Follow with <code>env keys rotate</code>.</td></tr>
+        <tr><td><code>42ctl db · note</code></td><td class="wrap">Encrypted records and notes that travel with a project.</td></tr>
+        <tr><td><code>42ctl cloud health</code></td><td class="wrap">Checks the Fly deployment (11 checks). Needs <code>FLY_API_TOKEN</code>.</td></tr>
+        <tr><td><code>42ctl update</code></td><td class="wrap">Update to the latest release, checksum-verified.</td></tr>
+        <tr><td><code>42ctl account</code></td><td class="wrap">The account itself, including its irreversible deletion.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="plain">
+    <h3>Environment variables 42ctl reads</h3>
+    <div class="table">
+      <table>
+        <thead><tr><th>Variable</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>FT_PASSPHRASE</code></td><td class="wrap">Unlocks the keystore without a prompt. Required when no terminal is attached (scripts, make), or it fails with <code>os error 6</code>.</td></tr>
+          <tr><td><code>FT_CONFIG</code> · <code>FT_KEYSTORE</code></td><td class="wrap">Paths to <code>config.json</code> and <code>keystore.v42</code>. Default: <code>~/.config/42ctl/</code>.</td></tr>
+          <tr><td><code>FT_S3_KEY</code> · <code>FT_S3_SECRET</code></td><td class="wrap">Object-store pair for files over 4 MiB.</td></tr>
+          <tr><td><code>FT_PASSWORD</code> · <code>FT_LOGIN_EMAIL</code></td><td class="wrap">Account password and default email for <code>auth login --password</code> without prompts. A different secret from the passphrase.</td></tr>
+          <tr><td><code>FT_REGISTER_TOKEN</code></td><td class="wrap">The registration token, read by <code>auth signup</code> so it never sits on the command line.</td></tr>
+          <tr><td><code>VAULT42_TEAM</code> · <code>VAULT42_SOURCE</code></td><td class="wrap">make: the team environment (<code>org/project/env</code>, default <code>univers42/groot/prod</code>) and which source <code>make all</code> pulls from (<code>personal</code>, the default, or <code>team</code>).</td></tr>
+          <tr><td><code>FLY_API_TOKEN</code></td><td class="wrap">For <code>42ctl cloud</code>.</td></tr>
+          <tr><td><code>RUST_LOG=debug</code></td><td class="wrap">Verbose output when a transfer misbehaves.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ part 6: seeds ═══════════════ -->
+<section class="part" id="seeds">
+  <div class="part-head">
+    <h2>The seeds</h2>
+    <p class="sub">What <code>make vault42-seed</code> writes into <code>./secrets</code>. Each is a proper export taken through the running engine, never a copy of a live disk — that is why it can be loaded into a different version on a different machine.</p>
+  </div>
+  <div class="table">
+    <table>
+      <thead><tr><th>File</th><th>Engine</th><th class="num">Size</th><th>How it is made</th></tr></thead>
+      <tbody>
+        <tr><td><code>postgres-all.sql.gz</code></td><td>Postgres</td><td class="num">3.0 MB</td><td class="wrap"><code>pg_dumpall --clean --no-role-passwords</code> — users, pages, tasks, share rules</td></tr>
+        <tr><td><code>mysql-all.sql.gz</code></td><td>MySQL</td><td class="num">0.2 MB</td><td class="wrap">application schemas only</td></tr>
+        <tr><td><code>mongo.archive.gz</code></td><td>Mongo</td><td class="num">1.2 MB</td><td class="wrap"><code>mongodump --archive --gzip</code></td></tr>
+        <tr><td><code>minio.tar.gz</code></td><td>MinIO</td><td class="num">7.6 MB</td><td class="wrap">object mirror; travels as 2 chunks</td></tr>
+        <tr><td><code>redis.rdb</code></td><td>Redis</td><td class="num">1.6 KB</td><td class="wrap">RDB snapshot</td></tr>
+        <tr><td><code>mssql-all.tar.gz</code></td><td>SQL Server</td><td class="num">0.5 MB</td><td class="wrap">native <code>.bak</code> backups</td></tr>
+        <tr><td><code>dynamodb-all.tar.gz</code></td><td>DynamoDB</td><td class="num">29 KB</td><td class="wrap">table schemas and items as JSON</td></tr>
+        <tr><td><code>MANIFEST.json</code></td><td>—</td><td class="num">—</td><td class="wrap">which engines were captured; all seven on 2026-09-17</td></tr>
+        <tr><td><code>SHA256SUMS</code></td><td>—</td><td class="num">—</td><td class="wrap">checksums; a restore verifies the dumps it uses</td></tr>
+        <tr><td><code>inception-wordpress.tar.gz</code> and 4 more</td><td>side apps</td><td class="num">31 MB</td><td class="wrap">archives of older projects; not restored automatically</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="notice blue">
+    <b>The same seeds, for the team</b>
+    <p>Step c of <a href="#team">Bring a teammate in</a> publishes <code>./secrets</code> into the team environment; a teammate's <code>make vault42-team-pull APPLY=1</code> brings the dumps back to <code>./secrets</code>, and <code>make all</code> loads them into empty engines. To refresh only the seeds on a checkout with local edits: <code>sh scripts/vault42-team.sh pull --apply --only 'secrets/*'</code>, then <code>make vault-restore</code>. The <code>inception-*</code> archives travel too unless moved out before the push.</p>
+  </div>
+  <div class="plain">
+    <div class="term"><div class="bar"><span>check the seeds on disk</span><button type="button" class="copy">Copy commands</button></div><pre><span class="cmd">cd ~/Documents/Groot/secrets &amp;&amp; sha256sum -c SHA256SUMS</span>
+<span class="out">postgres-all.sql.gz: OK        … (14 lines)</span></pre></div>
+    <h3>Files the tools leave behind</h3>
+    <ul>
+      <li><code>~/Documents/Groot/.vault42-local-mode</code> — this machine fell back to self-made secrets because the vault could not be reached.</li>
+      <li><code>~/.local/state/groot/restore-in-progress</code> — a vault restore started and did not finish; <code>make all</code> refuses to continue until you resolve it.</li>
+      <li><code>~/.local/state/grobase/vault-restore/</code> — Postgres backups taken just before each restore.</li>
+      <li><code>~/.local/state/grobase/migrations/</code> — dumps taken before database migrations.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ═══════════════ part 7: fix ═══════════════ -->
+<section class="part" id="fix">
+  <div class="part-head">
+    <h2>When something fails</h2>
+  </div>
+  <div class="table">
+    <table class="filterable">
+      <thead><tr><th>You see</th><th>Why</th><th>Do this</th></tr></thead>
+      <tbody>
+        <tr><td class="wrap"><code>os error 6</code></td><td class="wrap">42ctl wanted to ask for the passphrase but has no terminal.</td><td class="wrap"><code>export VAULT42_PASSPHRASE='…'</code> (or <code>FT_PASSPHRASE</code>) before the command.</td></tr>
+        <tr><td class="wrap">“stored as N chunk(s) … FT_S3_KEY”</td><td class="wrap">A bare <code>42ctl pull</code> without the object-store pair.</td><td class="wrap">Use <code>make vault42-pull-all</code>, which fetches the pair first.</td></tr>
+        <tr><td class="wrap">“THIS MACHINE IS IN LOCAL MODE”</td><td class="wrap"><code>make all</code> ran before the identity files (step 3) were in place, or the vault pull failed. The backend then made its own secrets and loaded the old git snapshot; from then on every <code>make all</code> skips the vault.</td><td class="wrap">Prove the vault works, changing nothing: <code>export VAULT42_PASSPHRASE='…'</code> then <code>make vault42-pull-all</code> (54 file lines, then “pull completed”). Then reset this machine’s local data and pull for real: <code>docker compose -p mini-baas down -v --remove-orphans</code>, <code>rm -f apps/grobase/.env apps/grobase/.env.secrets apps/grobase/.env.local ./.env.local .vault42-local-mode</code>, <code>make vault42-pull-all APPLY=1 FORCE=1</code>, <code>make all</code>. A teammate: the same reset, then <code>make vault42-team-pull APPLY=1</code> and <code>make all</code>.</td></tr>
+        <tr><td class="wrap"><code>no manifest for project groot</code></td><td class="wrap">A <em>personal</em> pull under an identity that never pushed — a teammate running <code>make vault42-pull-all</code> or plain <code>make all</code>.</td><td class="wrap"><code>make vault42-team-pull APPLY=1</code>. If <code>make all</code> already ran, the LOCAL MODE row above.</td></tr>
+        <tr><td class="wrap"><code>HTTP 401</code> from org, project or env commands</td><td class="wrap">The session is older than 24 h.</td><td class="wrap"><code>42ctl auth login --password --email … --tenant …</code></td></tr>
+        <tr><td class="wrap">Sign-up refused with <code>401</code></td><td class="wrap">Missing or outdated registration token.</td><td class="wrap">Ask the owner for the current one.</td></tr>
+        <tr><td class="wrap">Sign-up “accepted”, login <code>401</code></td><td class="wrap">The email already had an account, or a typo — sign-up never says which.</td><td class="wrap">Use the original password, or the right email.</td></tr>
+        <tr><td class="wrap"><code>409 tenant name is taken</code></td><td class="wrap">Someone holds that handle.</td><td class="wrap">Pick another.</td></tr>
+        <tr><td class="wrap">Invite accept: <code>403</code> / <code>409</code></td><td class="wrap">Signed in as a different email than invited / the invite expired (7 days) or was used.</td><td class="wrap">Log in as the invited email, or get a new invite.</td></tr>
+        <tr><td class="wrap">“no scope key for this env — run env init first”</td><td class="wrap">No key wrapped to you yet.</td><td class="wrap">Owner: grant + <code>env keys sync</code>. <strong>Never run <code>env init</code></strong> — it makes a new key for the whole environment.</td></tr>
+        <tr><td class="wrap"><code>pending-enrollment</code> / <code>pending-provision</code> in <code>env keys ls</code></td><td class="wrap">No public key published / enrolled but not wrapped yet.</td><td class="wrap">Teammate: <code>42ctl keys enroll --org univers42</code> / owner: <code>env keys sync</code>.</td></tr>
+        <tr><td class="wrap">“a read-only member of this scope may not write its env secrets”</td><td class="wrap">You hold <code>read</code>; the server refused (measured).</td><td class="wrap">Owner: grant <code>write</code>, then <code>env keys rotate</code>.</td></tr>
+        <tr><td class="wrap"><code>contract none</code> in <code>auth whoami</code></td><td class="wrap">Logged in without <code>--tenant</code>, or just recovered a keystore.</td><td class="wrap"><code>42ctl auth login --password --email … --tenant …</code></td></tr>
+        <tr><td class="wrap">“no file in environment 'prod' matches …”</td><td class="wrap">An <code>--only</code> pattern typo.</td><td class="wrap">Patterns match the stored relative path; <code>*</code> crosses <code>/</code>.</td></tr>
+        <tr><td class="wrap">“FT_S3_KEY and FT_S3_SECRET are not set” on a team pull</td><td class="wrap">A chunked seed, and step a has not put the pair in the environment.</td><td class="wrap">Owner: step a. Meanwhile: <code>export FT_S3_KEY=… FT_S3_SECRET=…</code> before the pull.</td></tr>
+        <tr><td class="wrap">“a vault restore started … never finished”</td><td class="wrap">A restore was interrupted; some databases may be empty.</td><td class="wrap"><code>make vault-restore</code>, then <code>rm ~/.local/state/groot/restore-in-progress</code>.</td></tr>
+        <tr><td class="wrap">“vault seeds failed verification”</td><td class="wrap">A dump does not match <code>SHA256SUMS</code>.</td><td class="wrap"><code>make vault42-pull-all APPLY=1 FORCE=1</code>; if it persists, re-run <code>make vault42-seed</code> and push on the source machine.</td></tr>
+        <tr><td class="wrap">401 on every request after a restore</td><td class="wrap">Secrets and database volumes come from different generations.</td><td class="wrap"><code>make -C apps/grobase reconcile-credentials</code>, then <code>make frontends-up</code>.</td></tr>
+        <tr><td class="wrap">Browser: certificate warning</td><td class="wrap">The local authority is not trusted on this machine yet.</td><td class="wrap"><code>make certs-trust-local</code>, then restart the browser.</td></tr>
+        <tr><td class="wrap">Settings → Permissions: “not available”</td><td class="wrap">The permission engine refused the bridge's credentials.</td><td class="wrap">Keep <code>PERMS_SERVICE_*</code> blank in <code>.env.local</code>; <code>docker compose --env-file ./.env.local up -d --build osionos-bridge</code>.</td></tr>
+        <tr><td class="wrap">Share dialog: “not available”</td><td class="wrap">The share-rules table is missing (older snapshot).</td><td class="wrap"><code>docker exec -i mini-baas-postgres psql -U postgres -v ON_ERROR_STOP=1 &lt; models/osionos-share-rules-migration.sql</code></td></tr>
+        <tr><td class="wrap">IDE terminal: “enable the workspace sandbox”</td><td class="wrap">The sandbox is off or its network rules are missing.</td><td class="wrap">The optional sandbox setup above.</td></tr>
+        <tr><td class="wrap">MSSQL and DynamoDB not running after <code>make all</code></td><td class="wrap">They belong to the optional “extra engines” group, off by default to save memory.</td><td class="wrap">The optional SQL Server and DynamoDB step above, then <code>make vault-restore</code>.</td></tr>
+        <tr><td class="wrap">Ports 3002 / 3003 answer 502</td><td class="wrap">Mail and calendar are not started by <code>make all</code>.</td><td class="wrap">Nothing; expected.</td></tr>
+        <tr><td class="wrap">Mongo shows “unhealthy” for a while</td><td class="wrap">Its health check takes up to 10 s on a busy machine.</td><td class="wrap">Wait a minute, run <code>docker ps</code> again.</td></tr>
+        <tr><td class="wrap">A build ends with “Killed”</td><td class="wrap">Out of memory (6 GB machines).</td><td class="wrap"><code>docker stop mini-baas-mssql mini-baas-dynamodb-local</code>, rebuild, then <code>docker start</code> them.</td></tr>
+        <tr><td class="wrap">“no space left on device”</td><td class="wrap">Build cache and old images filled <code>/var</code>.</td><td class="wrap"><code>docker builder prune -f --filter type=regular</code> (keeps the dependency caches that make rebuilds fast), then <code>docker image prune -f</code>. Never <code>docker system prune --volumes</code>: the volumes hold your data.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="two">
+    <div class="notice red"><b>Passphrase lost</b><p>Nobody can decrypt the vault, by design. Make a new identity (Making new secrets) and push again from a machine that still has the files.</p></div>
+    <div class="notice"><b>Keystore lost, passphrase known</b><p>Step 3 rebuilds it from the text on this page; or <code>42ctl keys recover</code> if you escrowed it; or decode it from the GitHub secret.</p></div>
+    <div class="notice blue"><b>vault42 unreachable</b><p><code>make all</code> falls back to local mode and never touches existing data. Check <code>42ctl cloud health</code>, wait, pull again.</p></div>
+    <div class="notice green"><b>Restored in the wrong direction</b><p>The Postgres state from just before is in <code>~/.local/state/grobase/vault-restore/</code>. The other engines: re-seed from the machine that has the right data.</p></div>
+  </div>
+</section>
+
+<footer>Groot Vault Handbook — private. The owner copy carries the owner's identity and machines; the teammate copy (<code>groot-vault42-handbook.team.html</code>) is the same page without it. Rebuilt from the repository on 2026-09-17, values filled from this machine's files the same day; teammate part added 2026-09-19 from a live run (42ctl 0.1.12, authority v0.2.2 at 3e4242d, Groot 97416b44 + team targets).</footer>
+</main>
+</div>
+
+<script>
+(function () {
+  var KEY_STEPS = 'groot-handbook-steps', KEY_THEME = 'groot-handbook-theme';
+  function load(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; } }
+  function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage unavailable */ } }
+
+  /* copy buttons: copy only the command lines of the pane, with real values */
+  document.querySelectorAll('.term').forEach(function (term) {
+    var button = term.querySelector('.copy');
+    if (!button) return;
+    button.addEventListener('click', function () {
+      var lines = [];
+      term.querySelectorAll('.cmd, .cont').forEach(function (line) {
+        var clone = line.cloneNode(true);
+        clone.querySelectorAll('.k').forEach(function (k) { k.remove(); });
+        lines.push(clone.textContent.replace(/\s+$/, ''));
+      });
+      var text = lines.join('\n');
+      var done = function () { button.textContent = 'Copied'; button.dataset.done = '1'; setTimeout(function () { button.textContent = button.dataset.label; delete button.dataset.done; }, 1500); };
+      button.dataset.label = button.dataset.label || button.textContent;
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
+      else { fallback(text); done(); }
+    });
+  });
+  function fallback(text) {
+    var area = document.createElement('textarea');
+    area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
+    document.body.appendChild(area); area.select();
+    try { document.execCommand('copy'); } catch (e) { /* nothing to do */ }
+    document.body.removeChild(area);
+  }
+
+  /* secret values: a value is typed once; an empty slot borrows it from the first filled slot
+     with the same name. Then every value is blurred until clicked. */
+  var slots = document.querySelectorAll('.slot'), values = {};
+  slots.forEach(function (slot) { var t = slot.textContent.trim(); if (t && t !== 'not filled' && !values[slot.dataset.slot]) values[slot.dataset.slot] = t; });
+  slots.forEach(function (slot) {
+    if (!slot.textContent.trim()) slot.textContent = values[slot.dataset.slot] || 'not filled';
+    var filled = slot.textContent.trim() !== 'not filled';
+    slot.classList.toggle('empty', !filled);
+    if (!filled) return;
+    slot.classList.add('hidden-value');
+    slot.title = 'Click to show or hide';
+    slot.addEventListener('click', function () { slot.classList.toggle('hidden-value'); });
+  });
+  var revealAll = document.getElementById('reveal-all');
+  if (revealAll) revealAll.addEventListener('click', function () {
+    var anyHidden = Array.prototype.some.call(slots, function (s) { return s.classList.contains('hidden-value'); });
+    slots.forEach(function (s) { if (!s.classList.contains('empty')) s.classList.toggle('hidden-value', !anyHidden); });
+    revealAll.textContent = anyHidden ? 'Hide all values' : 'Reveal all values';
+  });
+
+  /* step checklists, one progress bar per group, remembered in this browser */
+  var boxes = document.querySelectorAll('.done input');
+  var state = load(KEY_STEPS) || {};
+  function paint() {
+    var totals = {};
+    boxes.forEach(function (box) {
+      var id = box.dataset.step, group = box.dataset.group || 'setup', on = !!state[id];
+      box.checked = on;
+      var step = document.getElementById(id);
+      if (step) step.classList.toggle('is-done', on);
+      var link = document.querySelector('.rail a[data-step="' + id + '"]');
+      if (link) link.classList.toggle('done', on);
+      totals[group] = totals[group] || { done: 0, all: 0 };
+      totals[group].all += 1;
+      if (on) totals[group].done += 1;
+    });
+    Object.keys(totals).forEach(function (group) {
+      var bar = document.getElementById('rail-bar-' + group), text = document.getElementById('rail-progress-' + group);
+      if (bar) bar.style.width = (100 * totals[group].done / totals[group].all) + '%';
+      if (text) text.textContent = totals[group].done + ' of ' + totals[group].all + ' done';
+    });
+  }
+  boxes.forEach(function (box) { box.addEventListener('change', function () { state[box.dataset.step] = box.checked; save(KEY_STEPS, state); paint(); }); });
+  paint();
+
+  /* filter across the reference tables */
+  var input = document.getElementById('cmd-filter'), count = document.getElementById('cmd-count');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('table.filterable tbody tr'));
+  input.addEventListener('input', function () {
+    var q = input.value.trim().toLowerCase(), shown = 0;
+    rows.forEach(function (row) { var hit = !q || row.textContent.toLowerCase().indexOf(q) !== -1; row.hidden = !hit; if (hit) shown += 1; });
+    count.textContent = q ? shown + ' matching row' + (shown === 1 ? '' : 's') : '';
+  });
+
+  /* theme */
+  var root = document.documentElement, buttons = document.querySelectorAll('[data-theme-set]');
+  function setTheme(value) {
+    if (value === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', value);
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.themeSet === value)); });
+    save(KEY_THEME, value);
+  }
+  buttons.forEach(function (b) { b.addEventListener('click', function () { setTheme(b.dataset.themeSet); }); });
+  setTheme(load(KEY_THEME) || 'system');
+})();
+</script>
+</body>
+</html>
