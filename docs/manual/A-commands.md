@@ -88,13 +88,14 @@ RBAC-checked encrypted records, decrypted client-side
 
 ## org
 
-Organisations: create, member ls / rm, invite
+Organisations: create, member ls / rm / erase, invite
 
 | Command | Description |
 |---|---|
 | `42ctl org create --slug <SLUG> --name <TEXT>` | Create an org |
 | `42ctl org member ls --org <SLUG> [--format <TEMPLATE>] [--filter <KEY=VALUE>]... [--quiet]` | List an org's members  (alias: list) |
 | `42ctl org member rm --org <SLUG> --user <USER>...` | Remove members from an org, with every membership derived from it |
+| `42ctl org member erase --org <SLUG> --user <USER>... [--yes]` | Permanently delete members' whole accounts, not just their seat — IRREVERSIBLE |
 | `42ctl org invite --org <SLUG> --email <EMAIL> --role <ROLE>` | Invite an email to an org with a role (prints the one-time token) |
 
 ## team

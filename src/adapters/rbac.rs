@@ -337,10 +337,30 @@ fn url(grobase: &str, path: &str) -> String {
     format!("{}{path}", grobase.trim_end_matches('/'))
 }
 
-/// Bail with the route + HTTP status when `resp` is not a success.
+/// A non-2xx answer from a control-plane route. Typed, so a command that knows what a status
+/// means on its route can say so instead of printing a bare code; it prints as it always did.
+#[derive(Debug)]
+pub struct HttpStatus {
+    pub path: String,
+    pub code: u16,
+}
+
+impl std::fmt::Display for HttpStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} failed: HTTP {}", self.path, self.code)
+    }
+}
+
+impl std::error::Error for HttpStatus {}
+
+/// Fail with the route + HTTP status when `resp` is not a success.
 fn fail_on_error(resp: &reqwest::Response, path: &str) -> anyhow::Result<()> {
     if resp.status().is_success() {
         return Ok(());
     }
-    anyhow::bail!("{path} failed: HTTP {}", resp.status().as_u16())
+    Err(HttpStatus {
+        path: path.to_string(),
+        code: resp.status().as_u16(),
+    }
+    .into())
 }
