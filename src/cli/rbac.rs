@@ -33,7 +33,7 @@ pub enum Org {
         #[arg(long, value_name = "TEXT")]
         name: String,
     },
-    /// An org's members: ls, rm
+    /// An org's members: ls, rm, erase
     #[command(subcommand)]
     Member(OrgMember),
     /// Invite an email to an org with a role (prints the one-time token)
@@ -89,6 +89,27 @@ pub enum OrgMember {
         /// authorised on its own; one refusal does not stop the rest.
         #[arg(long, required = true, num_args = 1.., value_name = "USER")]
         user: Vec<String>,
+    },
+    /// Permanently delete members' whole accounts, not just their seat — IRREVERSIBLE
+    ///
+    /// Everything `rm` does, in every organisation they belong to, and then the account itself:
+    /// sessions, credentials, address, tenant names, pending invites, second-factor codes and key
+    /// escrow. You must be allowed to `rm` them from EVERY organisation they sit in (an owner of
+    /// all of them, or an admin over a plain member), so nobody reaches a person through one org.
+    ///
+    /// Their vault42-server data is the operator's half: `fly ssh console -a <server-app>
+    /// --command "/vault42-server purge-owner <fingerprint>"`. Rotate every environment they
+    /// could read (`env keys rotate`) — a scope key already held stays readable until then.
+    Erase {
+        /// Org slug
+        #[arg(long, value_name = "SLUG")]
+        org: String,
+        /// User ids or emails — repeat the flag, or list several after it
+        #[arg(long, required = true, num_args = 1.., value_name = "USER")]
+        user: Vec<String>,
+        /// Confirm the irreversible erasure; without it nothing is sent
+        #[arg(long)]
+        yes: bool,
     },
 }
 

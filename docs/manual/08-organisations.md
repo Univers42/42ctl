@@ -171,6 +171,7 @@ $ 42ctl org member rm --org acme --user bea@example.com
 | `group member rm` | the group's grants reaching that person | everything else |
 | `project grant rm` | that grant, for everyone it reached | everything else; the revoked grant is kept as a record |
 | `org member rm` | the membership and **everything derived from it**: teams, groups, published public key, direct grants | nothing in that organisation |
+| `org member erase --yes` | everything `org member rm` takes, in **every** organisation, then the account: sessions, credentials, address, tenant names, pending invites, second-factor codes, key escrow | the access history (who granted what), as an anonymous id |
 
 Each command accepts several `--user` (or `--grant`) values and attempts every one, even after a
 refusal.
@@ -180,6 +181,18 @@ refusal.
 > key before. Every removal command says so. To make sure they cannot read anything written from now
 > on, **rotate the environment** (`env keys rotate`, chapter 9). Anything they could read before,
 > they may already have — no system can take that back.
+
+`org member erase` is refused unless you could `org member rm` the person from **every**
+organisation they belong to — an owner of all of them, or an admin over a plain member — so nobody
+reaches a person through one organisation. Their data on vault42-server (their own secrets, audit
+chain and scope-key wraps) is the operator's half, because that server never consults the authority:
+
+```sh
+$ fly ssh console -a vault42-server --command "/vault42-server purge-owner FINGERPRINT"
+```
+
+The fingerprint is the `author_fp` of their tenant. The purge refuses when they hold the last wrap of
+an environment, which would leave it claimable.
 
 `--user` also composes with listings, to remove many at once:
 

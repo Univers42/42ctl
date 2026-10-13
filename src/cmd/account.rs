@@ -72,7 +72,7 @@ async fn delete(profile: &str, yes: bool) -> anyhow::Result<()> {
 ///
 /// The message names both what is lost and the flag that proceeds, because a refusal an
 /// operator cannot act on is a refusal they work around.
-fn confirmed(yes: bool) -> anyhow::Result<()> {
+pub(crate) fn confirmed(yes: bool) -> anyhow::Result<()> {
     if yes {
         return Ok(());
     }

@@ -83,7 +83,9 @@ async fn password_login(
 async fn signup(profile: &str, email: &str, token: Option<&str>) -> anyhow::Result<()> {
     let base = Config::load()?.endpoint(profile)?.otp_base().to_string();
     let password = passphrase::prompt_new_secret("password")?;
-    let created = account::signup(&base, email, &password, token).await?;
+    let created = account::signup(&base, email, &password, token)
+        .await
+        .map_err(|error| explain_signup(error, token.is_some()))?;
     if let Some(id) = &created.account_id {
         ui::field("account", id);
     }
@@ -91,6 +93,26 @@ async fn signup(profile: &str, email: &str, token: Option<&str>) -> anyhow::Resu
         "if {email} was not already registered, it is now — log in to obtain a session"
     ));
     Ok(())
+}
+
+/// Say what a refused sign-up means. The authority checks the registration token before it
+/// reads anything else, so on this route a 401 is about the token — never the email, the
+/// password or the passphrase, which is what a bare "HTTP 401" sends people off to retype.
+fn explain_signup(error: anyhow::Error, sent_token: bool) -> anyhow::Error {
+    let refused = error
+        .downcast_ref::<crate::adapters::rbac::HttpStatus>()
+        .is_some_and(|status| status.code == 401);
+    if !refused {
+        return error;
+    }
+    error.context(if sent_token {
+        "the authority refused this registration token (FT_REGISTER_TOKEN / --token): it is not \
+         the current one. Ask the owner for it again, pasted rather than retyped. The email and \
+         password were not checked."
+    } else {
+        "this authority requires a registration token: set FT_REGISTER_TOKEN or pass --token \
+         with the one the owner gave you."
+    })
 }
 
 /// Change this account's password, which revokes every session including this one.
@@ -258,7 +280,31 @@ fn logout(profile: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::status_line;
+    use super::{explain_signup, status_line};
+    use crate::adapters::rbac::HttpStatus;
+
+    fn refused(code: u16) -> anyhow::Error {
+        HttpStatus {
+            path: "/v1/auth/signup".into(),
+            code,
+        }
+        .into()
+    }
+
+    /// A 401 on sign-up names the registration token, whether one was sent or not, and keeps
+    /// the route and status underneath; any other failure passes through untouched.
+    #[test]
+    fn a_refused_signup_names_the_registration_token() {
+        let sent = format!("{:#}", explain_signup(refused(401), true));
+        assert!(
+            sent.contains("not the current one") && sent.contains("HTTP 401"),
+            "{sent}"
+        );
+        let unsent = format!("{:#}", explain_signup(refused(401), false));
+        assert!(unsent.contains("FT_REGISTER_TOKEN"), "{unsent}");
+        let other = format!("{:#}", explain_signup(refused(400), true));
+        assert_eq!(other, "/v1/auth/signup failed: HTTP 400");
+    }
 
     /// A password login saves a session and no contract, and is still logged in.
     #[test]

@@ -133,7 +133,7 @@ pub enum Command {
     /// RBAC-checked encrypted records, decrypted client-side
     #[command(subcommand)]
     Db(Db),
-    /// Organisations: create, member ls / rm, invite
+    /// Organisations: create, member ls / rm / erase, invite
     #[command(subcommand)]
     Org(Org),
     /// Teams inside an org: create, ls, member add / rm, invite, grant

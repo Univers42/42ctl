@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-//! `42ctl org` — org-scoped RBAC (create / member ls|rm / invite / accept-invite). Each call
+//! `42ctl org` — org-scoped RBAC (create / member ls|rm|erase / invite / accept-invite). Each call
 //! sends the session token (from `auth login`) to the authority, which RBAC-checks it. Invites
 //! print the one-time cleartext token.
 
@@ -22,6 +22,9 @@ use crate::ui;
 
 /// Run an `org` subcommand for `profile` against the authority, with the saved session token.
 pub async fn run(cmd: &Org, profile: &str) -> anyhow::Result<()> {
+    if let Org::Member(OrgMember::Erase { yes, .. }) = cmd {
+        crate::cmd::account::confirmed(*yes)?;
+    }
     let (grobase, token) = session::connect(profile)?;
     match cmd {
         Org::Create { slug, name } => {
@@ -37,7 +40,10 @@ pub async fn run(cmd: &Org, profile: &str) -> anyhow::Result<()> {
             ui::success(&format!("invited {email} to org '{org}' as '{role}'"));
         }
         Org::Member(OrgMember::Rm { org, user }) => {
-            remove_member(&grobase, &token, org, user).await?
+            remove_member(&grobase, &token, (org, user), Removal::Seat).await?
+        }
+        Org::Member(OrgMember::Erase { org, user, .. }) => {
+            remove_member(&grobase, &token, (org, user), Removal::Account).await?
         }
         Org::AcceptInvite { token: invite } => {
             org::accept_invite(&grobase, &token, invite).await?;
@@ -75,13 +81,13 @@ async fn members(
 async fn remove_member(
     grobase: &str,
     token: &str,
-    org: &str,
-    users: &[String],
+    (org, users): (&str, &[String]),
+    how: Removal,
 ) -> anyhow::Result<()> {
     let attempt = bulk::targets(users);
     let mut failed = Vec::new();
     for user in &attempt {
-        if let Err(error) = remove_one(grobase, token, org, user).await {
+        if let Err(error) = remove_one(grobase, token, (org, user), how).await {
             bulk::failure(user, &error);
             failed.push(user.clone());
         }
@@ -89,10 +95,28 @@ async fn remove_member(
     bulk::report(&failed, attempt.len())
 }
 
+/// What a removal takes: the seat in this org, or the whole account.
+#[derive(Clone, Copy)]
+enum Removal {
+    Seat,
+    Account,
+}
+
 /// Remove one member from `org` and report what their removal left reachable.
-async fn remove_one(grobase: &str, token: &str, org: &str, user: &str) -> anyhow::Result<()> {
-    let removed = org::remove_member(grobase, token, org, user).await?;
-    ui::success(&format!("removed {user} from org '{org}'"));
+async fn remove_one(
+    grobase: &str,
+    token: &str,
+    (org, user): (&str, &str),
+    how: Removal,
+) -> anyhow::Result<()> {
+    let removed = match how {
+        Removal::Seat => org::remove_member(grobase, token, org, user).await?,
+        Removal::Account => org::erase_member(grobase, token, org, user).await?,
+    };
+    match how {
+        Removal::Seat => ui::success(&format!("removed {user} from org '{org}'")),
+        Removal::Account => ui::success(&format!("erased the account of {user} (via org '{org}')")),
+    }
     warn_rotation(&removed);
     Ok(())
 }
@@ -103,4 +127,28 @@ pub fn warn_rotation(removed: &crate::adapters::rbac::Removed) {
         return;
     }
     println!("{}", ui::warn(&removed.detail));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An erase without `--yes` refuses before it looks for a session, so the refusal names the
+    /// flag even for a profile that was never logged in — nothing reaches the authority.
+    #[tokio::test]
+    async fn an_unconfirmed_erase_refuses_before_any_login() {
+        let cmd = Org::Member(OrgMember::Erase {
+            org: "acme".into(),
+            user: vec!["bea@example.com".into()],
+            yes: false,
+        });
+        let said = run(&cmd, "never-logged-in")
+            .await
+            .expect_err("an unconfirmed erase must refuse")
+            .to_string();
+        assert!(
+            said.contains("--yes") && said.contains("IRREVERSIBLE"),
+            "{said}"
+        );
+    }
 }

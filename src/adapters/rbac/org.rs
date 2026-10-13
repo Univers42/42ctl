@@ -91,3 +91,18 @@ pub async fn remove_member(
     let path = format!("/v1/orgs/{org}/members/{user}");
     rbac::delete_json(grobase, token, &path).await
 }
+
+/// Erase the whole account of `user` (account id or email), reached through `org`
+/// (`DELETE /v1/orgs/{org}/members/{user}/account`).
+///
+/// The authority refuses unless the caller may remove `user` from every organization they
+/// belong to; the answer has the same shape as a removal.
+pub async fn erase_member(
+    grobase: &str,
+    token: &str,
+    org: &str,
+    user: &str,
+) -> anyhow::Result<rbac::Removed> {
+    let path = format!("/v1/orgs/{org}/members/{user}/account");
+    rbac::delete_json(grobase, token, &path).await
+}
