@@ -3,7 +3,10 @@
 # single binary on distroless (non-root). P6 switches the runtime to scratch+musl for a
 # truly minimal multi-arch image and adds cosign signing + SBOM/provenance. For now this
 # is a reproducible build proven in CI (no push).
-FROM public.ecr.aws/docker/library/rust:1.96-slim-bookworm AS builder
+#
+# Use Docker Hub (not public.ecr.aws) so CI does not hit the unauthenticated ECR Public
+# data-transfer limit that surfaces as 429 Too Many Requests / "Data limit exceeded".
+FROM rust:1.96-slim-bookworm AS builder
 WORKDIR /build
 COPY . .
 ARG FT_GIT_SHA=unknown
