@@ -155,10 +155,13 @@ impl Manifest {
     /// Returns how many were pruned, and the paths kept because their file is still on disk
     /// (or their stored path could not be validated) — an incomplete tree the caller must
     /// name, because this is the run that would otherwise have deleted them.
-    pub fn prune_to_scanned(
+    /// Drop entries the scan did not produce AND whose file is genuinely gone,
+    /// or unconditionally if `force` is asserted.
+    pub fn prune_to_scanned_with_force(
         &mut self,
         scanned: &HashSet<String>,
         root: &Path,
+        force: bool,
     ) -> (usize, Vec<String>) {
         let before = self.entries.len();
         let mut kept = Vec::new();
@@ -171,6 +174,9 @@ impl Manifest {
             if entry.kind == vault42_core::Kind::Note as u8 {
                 return true;
             }
+            if force {
+                return false;
+            }
             // sec: validate before any FS op — an unvalidatable path is never joined and
             // never stat'd, and is kept rather than deleted on a check that did not run.
             match projpath::validate_stored(&entry.relative_path) {
@@ -182,6 +188,15 @@ impl Manifest {
             }
         });
         (before - self.entries.len(), kept)
+    }
+
+    /// Drop entries the scan did not produce AND whose file is genuinely gone.
+    pub fn prune_to_scanned(
+        &mut self,
+        scanned: &HashSet<String>,
+        root: &Path,
+    ) -> (usize, Vec<String>) {
+        self.prune_to_scanned_with_force(scanned, root, false)
     }
 
     /// Serialize to canonical JSON bytes (sealed by the caller).
@@ -371,6 +386,33 @@ mod tests {
     }
 
     /// The case prune exists for: the file really is gone, so the entry goes too.
+    #[test]
+    fn a_forced_prune_drops_unscanned_entries_even_when_present_on_disk() {
+        let root = scratch("forced-prune-present");
+        let file = root.join("present.env");
+        std::fs::write(&file, "SECRET=1\n").unwrap();
+
+        let mut manifest = Manifest::new("proj");
+        manifest.upsert(entry_at("present.env", vault42_core::Kind::EnvFile as u8));
+
+        let (pruned, kept) = manifest.prune_to_scanned_with_force(&HashSet::new(), &root, true);
+        assert_eq!(pruned, 1, "forced prune did not drop entry");
+        assert!(kept.is_empty(), "kept should be empty on forced prune");
+        assert!(manifest.entries.is_empty());
+    }
+
+    #[test]
+    fn a_forced_prune_still_never_drops_notes() {
+        let root = scratch("forced-prune-notes");
+        let mut manifest = Manifest::new("proj");
+        manifest.upsert(entry_at("notes/my-note", vault42_core::Kind::Note as u8));
+
+        let (pruned, kept) = manifest.prune_to_scanned_with_force(&HashSet::new(), &root, true);
+        assert_eq!(pruned, 0, "a note was pruned even under force");
+        assert!(kept.is_empty());
+        assert_eq!(manifest.entries.len(), 1);
+    }
+
     #[test]
     fn an_entry_whose_file_is_gone_is_pruned() {
         let root = scratch("gone");

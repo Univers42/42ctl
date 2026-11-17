@@ -22,7 +22,7 @@
 pub const SECTIONS: &[(&str, &[&str])] = &[
     (
         "Common Commands",
-        &["auth", "push", "pull", "vault", "version"],
+        &["auth", "push", "pull", "rm", "vault", "version"],
     ),
     (
         "Management Commands",

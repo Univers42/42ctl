@@ -193,12 +193,14 @@ this directory reuse it — but a second machine would generate a different one.
 ## Push
 $ 42ctl push --project api                                # scans, seals, uploads changed files
 $ 42ctl push --project api --prune                        # also drop entries whose file is gone
+$ 42ctl push --project api --prune --force                # drop unscanned entries even if still on disk
+$ 42ctl rm secrets/stale.env --project api                # withdraw one file without deleting local copy
 
   --prune drops an entry only when the file is GONE from the disk, never merely because
   the scan did not produce it, and never a note. An entry whose file is still present but
   was not scanned is kept and named — the tree is incomplete, usually a clone without its
-  submodules. To withdraw a file whose local copy still exists, delete it and prune: see
-  https://github.com/Univers42/42ctl/issues/13.
+  submodules. To withdraw a file whose local copy still exists, use `42ctl rm <path>` or
+  `42ctl push --prune --force`.
 
 ## Pull is a dry-run until you say --apply
 $ 42ctl pull --project api                                # lists: create / update / conflict / in-sync

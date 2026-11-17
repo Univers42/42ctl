@@ -31,9 +31,20 @@ pub(in crate::cmd) async fn open_session(profile: &str) -> anyhow::Result<Sessio
 /// `prune` drops manifest entries whose file is gone from the disk. An entry the scan did
 /// not produce but whose file is still present is KEPT and named: the scan declines whole
 /// directories, so "not scanned" is a lower bound on the tree, never proof of deletion.
-pub async fn push(profile: &str, project: Option<&str>, prune: bool) -> anyhow::Result<()> {
+pub async fn push(
+    profile: &str,
+    project: Option<&str>,
+    prune: bool,
+    force: bool,
+) -> anyhow::Result<()> {
     let mut session = open_session(profile).await?;
-    session.cmd_push(project, prune).await
+    session.cmd_push(project, prune, force).await
+}
+
+/// Withdraw a file from the project's vault manifest without deleting its local copy.
+pub async fn rm(profile: &str, project: Option<&str>, path: &str) -> anyhow::Result<()> {
+    let mut session = open_session(profile).await?;
+    session.cmd_rm_project_file(project, path).await
 }
 
 /// `pull` — fetch the manifest + blobs and materialize the tree (dry-run unless apply).
