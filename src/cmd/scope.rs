@@ -120,10 +120,12 @@ async fn transfer(session: &mut Session, cmd: &Env, profile: &str) -> anyhow::Re
             scope,
             private,
             label,
+            dry_run,
         } => {
             let rules = scope_tree::PushRules {
                 private: private.clone(),
                 labels: scope_private::parse_labels(label)?,
+                dry_run: *dry_run,
             };
             scope_tree::push_env(session, &resolve(profile, scope).await?, &rules).await
         }
