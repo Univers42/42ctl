@@ -344,6 +344,6 @@ mod tests {
     fn empty_or_whitespace_email_is_detected() {
         assert!("".trim().is_empty());
         assert!("   ".trim().is_empty());
-        assert!(! "user@example.com".trim().is_empty());
+        assert!(!"user@example.com".trim().is_empty());
     }
 }

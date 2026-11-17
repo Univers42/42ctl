@@ -196,7 +196,10 @@ async fn dry_run_push(
                 let rel = &entry.relative_path;
                 let local_path = proj.root.join(rel);
                 if local_path.exists() {
-                    println!("  {:<14} shared:  {rel} (retained on disk)", "= (unscanned)");
+                    println!(
+                        "  {:<14} shared:  {rel} (retained on disk)",
+                        "= (unscanned)"
+                    );
                 } else {
                     println!("  {:<14} shared:  {rel} (remote only)", "= (retained)");
                 }
