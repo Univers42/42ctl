@@ -38,9 +38,10 @@ use crate::core::chunk::{self, ChunkSet, Naming};
 use crate::core::manifest::{Entry, Manifest};
 use crate::core::materialize::Opts;
 use crate::core::{materialize, project, projpath};
+use crate::ops::sync::{report_declined, report_kept};
 use crate::ui;
 use anyhow::Context as _;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use vault42_core::RecipientPublicKey;
 use zeroize::Zeroizing;
@@ -80,11 +81,15 @@ struct Push<'a> {
 pub async fn push_env(session: &mut Session, ctx: &Ctx, rules: &PushRules) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let (proj, _) = project::open(&cwd, None)?;
-    let files = project::scan(&proj)?.files;
+    let scan = project::scan(&proj)?;
+    let files = scan.files;
     let (shared, private) = scope_private::partition(&files, &proj.root, &rules.private)?;
     scope_private::refuse_oversized(&private)?;
+    report_declined(&proj.root, &scan.declined);
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let owner = hex::encode(scope_id);
+    let secret =
+        recover_scope_secret(session, scope_id, ctx.epoch(), ctx.scope_pubkey.as_deref()).await?;
     let mut push = Push {
         heads: Heads::read(session, &owner, ctx.epoch()).await?,
         owner,
@@ -93,9 +98,16 @@ pub async fn push_env(session: &mut Session, ctx: &Ctx, rules: &PushRules) -> an
         naming: None,
         rules,
     };
-    let mine = publish(session, ctx, &mut push, (&shared, &private))
-        .await
-        .map_err(|error| scope_store::overtaken(error, &ctx.env_name))?;
+    let mine = publish(
+        session,
+        ctx,
+        &mut push,
+        (&shared, &private),
+        &secret,
+        &proj.root,
+    )
+    .await
+    .map_err(|error| scope_store::overtaken(error, &ctx.env_name))?;
     refuse_if_rotated(ctx).await?;
     ui::success(&format!(
         "pushed {} shared and {mine} private file(s) to environment '{}'",
@@ -132,11 +144,13 @@ async fn publish(
     ctx: &Ctx,
     push: &mut Push<'_>,
     files: (&[Scanned], &[Scanned]),
+    secret: &Zeroizing<[u8; 32]>,
+    root: &Path,
 ) -> anyhow::Result<usize> {
     let (shared, private) = files;
-    seal_tree(session, ctx, push, shared).await?;
+    seal_tree(session, ctx, push, shared, secret, root).await?;
     let at = (push.owner.as_str(), push.project_id.as_str(), &push.heads);
-    scope_private::push(session, ctx, at, (private, &push.rules.labels)).await
+    scope_private::push(session, ctx, at, (private, &push.rules.labels), root).await
 }
 
 /// Seal every shared file and commit their manifest last, so an interrupted push leaves
@@ -146,14 +160,29 @@ async fn seal_tree(
     ctx: &Ctx,
     push: &mut Push<'_>,
     shared: &[Scanned],
+    secret: &Zeroizing<[u8; 32]>,
+    root: &Path,
 ) -> anyhow::Result<()> {
-    let mut manifest = Manifest::new(&push.project_id);
+    let slot = Slot {
+        owner: &push.owner,
+        epoch: ctx.epoch(),
+        path: TREE_MANIFEST,
+        rev: 0,
+    };
+    let mut manifest = match scope_store::fetch_one(session, slot, &Key::Scope(secret)).await? {
+        Some(raw) => Manifest::parse(&raw).unwrap_or_else(|_| Manifest::new(&push.project_id)),
+        None => Manifest::new(&push.project_id),
+    };
+    let mut scanned = HashSet::new();
     for (file, rel) in shared {
+        scanned.insert(rel.to_string());
         let entry = seal_scanned(session, ctx, push, (rel, file))
             .await
             .with_context(|| format!("could not push {rel}"))?;
         manifest.upsert(labelled(entry, file, &push.rules.labels));
     }
+    let (_pruned, kept) = manifest.prune_to_scanned(&scanned, root);
+    report_kept(&kept);
     let dest = shared_dest(ctx, &push.owner)?;
     let at = (TREE_MANIFEST, push.heads.of(TREE_MANIFEST));
     scope_store::put_one(session, dest, at, &manifest.to_bytes()?).await?;
