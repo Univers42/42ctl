@@ -31,8 +31,9 @@ use crate::cmd::scope_store::{self, Dest, Heads, Key, Slot};
 use crate::cmd::scope_tree;
 use crate::core::manifest::{Entry, Manifest};
 use crate::core::{chunk, project, projpath};
+use crate::ops::sync::report_kept;
 use crate::ui;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use vault42_core::Kind;
 use zeroize::Zeroizing;
@@ -125,6 +126,7 @@ pub async fn push(
     ctx: &Ctx,
     at: (&str, &str, &Heads),
     what: (&[Scanned], &BTreeMap<String, String>),
+    root: &Path,
 ) -> anyhow::Result<usize> {
     let (owner, project_id, heads) = at;
     let (files, labels) = what;
@@ -134,8 +136,13 @@ pub async fn push(
         epoch: ctx.epoch(),
         to: session.identity.encryption_public(),
     };
-    let mut manifest = Manifest::new(project_id);
+    let mut manifest = match newest_mine(session, owner, ctx.epoch()).await? {
+        Some(mine) => mine.manifest,
+        None => Manifest::new(project_id),
+    };
+    let mut scanned = HashSet::new();
     for (file, rel) in files {
+        scanned.insert(rel.to_string());
         let plaintext = Zeroizing::new(std::fs::read(file)?);
         let vault_path = blob_path(owner, &principal, rel);
         let after = heads.of(&vault_path);
@@ -147,6 +154,8 @@ pub async fn push(
             ..entry
         });
     }
+    let (_pruned, kept) = manifest.prune_to_scanned(&scanned, root);
+    report_kept(&kept);
     commit(session, dest, &manifest, heads).await?;
     Ok(files.len())
 }
