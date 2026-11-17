@@ -472,7 +472,7 @@ fn is_not_found(error: &anyhow::Error) -> bool {
 /// Widening the scan fixed each instance and left the class. Naming what was declined is what
 /// makes the next one a question the operator asks rather than something they discover at a
 /// restore.
-fn report_declined(root: &std::path::Path, declined: &[std::path::PathBuf]) {
+pub(crate) fn report_declined(root: &std::path::Path, declined: &[std::path::PathBuf]) {
     if declined.is_empty() {
         return;
     }
@@ -501,7 +501,7 @@ fn report_declined(root: &std::path::Path, declined: &[std::path::PathBuf]) {
 /// probe found a candidate — and that probe gives up past its entry limit, so the biggest
 /// declined directory is the one it cannot see. This line is what tells an operator their
 /// tree is incomplete on the run that would otherwise have deleted those entries.
-fn report_kept(kept: &[String]) {
+pub(crate) fn report_kept(kept: &[String]) {
     if kept.is_empty() {
         return;
     }

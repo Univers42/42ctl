@@ -25,4 +25,4 @@ mod notes;
 mod reconcile;
 mod secret;
 mod share;
-mod sync;
+pub(crate) mod sync;
