@@ -59,12 +59,13 @@ Your own secrets, sealed on your machine — get, set, ls, rm, share, import, ex
 | `42ctl vault import <FILE> [--prefix <PREFIX>]` | Import a .env file, sealing each KEY=VALUE as KEY, or as PREFIX/KEY with --prefix |
 | `42ctl vault export [--prefix <PREFIX>]` | Export your secrets under a prefix as KEY=value lines |
 
-## push · pull
+## push · pull · rm
 
 | Command | Description |
 |---|---|
-| `42ctl push [--project <NAME>] [--prune]` | Upload the project's env tree to the vault, sealed to you (path-aware, byte-exact) |
+| `42ctl push [--project <NAME>] [--prune] [--force]` | Upload the project's env tree to the vault, sealed to you (path-aware, byte-exact) |
 | `42ctl pull [--project <NAME>] [--apply] [--force] [--backup] [--at <VERSION>]` | Download the project's tree back — a dry-run until you pass --apply |
+| `42ctl rm <PATH> [--project <NAME>]` | Withdraw a file from the project's vault manifest without deleting its local copy |
 
 ## note
 

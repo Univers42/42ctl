@@ -42,7 +42,12 @@ pub(crate) const MAX_BLOB: usize = chunk::CHUNK_BYTES;
 impl Session {
     /// Scan the project, seal + push each matched file under an opaque vault path, and
     /// push the encrypted manifest mapping real paths → those vault paths.
-    pub async fn cmd_push(&mut self, explicit_id: Option<&str>, prune: bool) -> anyhow::Result<()> {
+    pub async fn cmd_push(
+        &mut self,
+        explicit_id: Option<&str>,
+        prune: bool,
+        force: bool,
+    ) -> anyhow::Result<()> {
         let cwd = std::env::current_dir()?;
         let (proj, created) = project::open(&cwd, explicit_id)?;
         if created {
@@ -65,7 +70,7 @@ impl Session {
             manifest.upsert(entry);
         }
         let (pruned, kept_present) = if prune {
-            manifest.prune_to_scanned(&scanned, &proj.root)
+            manifest.prune_to_scanned_with_force(&scanned, &proj.root, force)
         } else {
             (0, Vec::new())
         };
@@ -81,6 +86,42 @@ impl Session {
             } else {
                 String::new()
             },
+            proj.project_id
+        ));
+        Ok(())
+    }
+    /// Withdraw a file from the project's vault manifest without deleting its local copy.
+    pub async fn cmd_rm_project_file(
+        &mut self,
+        explicit_id: Option<&str>,
+        path_to_remove: &str,
+    ) -> anyhow::Result<()> {
+        let cwd = std::env::current_dir()?;
+        let (proj, _) = project::open(&cwd, explicit_id)?;
+        let candidate = if std::path::Path::new(path_to_remove).is_absolute() {
+            std::path::PathBuf::from(path_to_remove)
+        } else {
+            cwd.join(path_to_remove)
+        };
+        let rel = projpath::canonicalize_for_storage(&candidate, &proj.root)?;
+        let mut manifest = self.load_manifest(&proj.project_id).await?.ok_or_else(|| {
+            anyhow::anyhow!("project '{}' has no manifest in vault", proj.project_id)
+        })?;
+        let removed = manifest.remove(rel.as_str());
+        if removed.is_none() {
+            anyhow::bail!(
+                "path '{}' is not present in the vault for project '{}'",
+                rel.as_str(),
+                proj.project_id
+            );
+        }
+        self.push_manifest(&proj.project_id, &manifest).await?;
+        let mut state = SyncState::load(&proj.root);
+        state.bases.remove(rel.as_str());
+        state.save(&proj.root)?;
+        ui::success(&format!(
+            "withdrew '{}' from vault for project '{}'",
+            rel.as_str(),
             proj.project_id
         ));
         Ok(())

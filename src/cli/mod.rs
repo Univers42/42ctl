@@ -103,6 +103,18 @@ pub enum Command {
         /// Drop manifest entries whose file is GONE from the disk (never merely unscanned)
         #[arg(long)]
         prune: bool,
+        /// With --prune, accept the scanned set as authoritative and drop unscanned entries even if still on disk
+        #[arg(long, requires = "prune")]
+        force: bool,
+    },
+    /// Withdraw a file from the project's vault manifest without deleting its local copy
+    Rm {
+        /// Path to withdraw from the project vault (relative to working directory or project root)
+        #[arg(value_name = "PATH")]
+        path: String,
+        /// Project id: any name (default: `.42ctl/project.json` here)
+        #[arg(long, value_name = "NAME")]
+        project: Option<String>,
     },
     /// Download the project's tree back — a dry-run until you pass --apply
     Pull {
