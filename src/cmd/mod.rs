@@ -99,9 +99,11 @@ async fn net(command: &Command, profile: &str) -> anyhow::Result<()> {
         Command::Project(cmd) => project::run(cmd, profile).await,
         Command::Invite(cmd) => invite::run(cmd, profile).await,
         Command::Cloud(cmd) => cloud::run(cmd, profile).await,
-        Command::Push { project, prune, force } => {
-            sync::push(profile, project.as_deref(), *prune, *force).await
-        }
+        Command::Push {
+            project,
+            prune,
+            force,
+        } => sync::push(profile, project.as_deref(), *prune, *force).await,
         Command::Rm { path, project } => sync::rm(profile, project.as_deref(), path).await,
         Command::Pull {
             project,

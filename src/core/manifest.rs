@@ -191,6 +191,7 @@ impl Manifest {
     }
 
     /// Drop entries the scan did not produce AND whose file is genuinely gone.
+    #[allow(dead_code)]
     pub fn prune_to_scanned(
         &mut self,
         scanned: &HashSet<String>,

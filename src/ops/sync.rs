@@ -42,7 +42,12 @@ pub(crate) const MAX_BLOB: usize = chunk::CHUNK_BYTES;
 impl Session {
     /// Scan the project, seal + push each matched file under an opaque vault path, and
     /// push the encrypted manifest mapping real paths → those vault paths.
-    pub async fn cmd_push(&mut self, explicit_id: Option<&str>, prune: bool, force: bool) -> anyhow::Result<()> {
+    pub async fn cmd_push(
+        &mut self,
+        explicit_id: Option<&str>,
+        prune: bool,
+        force: bool,
+    ) -> anyhow::Result<()> {
         let cwd = std::env::current_dir()?;
         let (proj, created) = project::open(&cwd, explicit_id)?;
         if created {
@@ -99,10 +104,9 @@ impl Session {
             cwd.join(path_to_remove)
         };
         let rel = projpath::canonicalize_for_storage(&candidate, &proj.root)?;
-        let mut manifest = self
-            .load_manifest(&proj.project_id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("project '{}' has no manifest in vault", proj.project_id))?;
+        let mut manifest = self.load_manifest(&proj.project_id).await?.ok_or_else(|| {
+            anyhow::anyhow!("project '{}' has no manifest in vault", proj.project_id)
+        })?;
         let removed = manifest.remove(rel.as_str());
         if removed.is_none() {
             anyhow::bail!(
