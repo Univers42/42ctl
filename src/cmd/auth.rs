@@ -27,7 +27,10 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
                 let email = email
                     .as_deref()
                     .context("`--password` needs `--email` to say which account")?;
-                password_login(profile, email, tenant.as_deref(), token.as_deref()).await
+                if email.trim().is_empty() {
+                    anyhow::bail!("`--email` cannot be empty");
+                }
+                password_login(profile, email.trim(), tenant.as_deref(), token.as_deref()).await
             } else {
                 let tenant = tenant
                     .as_deref()
@@ -35,7 +38,12 @@ pub async fn run(cmd: &Auth, profile: &str) -> anyhow::Result<()> {
                 login(profile, tenant, token.as_deref()).await
             }
         }
-        Auth::Signup { email, token } => signup(profile, email, token.as_deref()).await,
+        Auth::Signup { email, token } => {
+            if email.trim().is_empty() {
+                anyhow::bail!("`--email` cannot be empty");
+            }
+            signup(profile, email.trim(), token.as_deref()).await
+        }
         Auth::Passwd => passwd(profile).await,
         Auth::Mfa { on, .. } => mfa(profile, *on).await,
         Auth::Me => me(profile).await,
@@ -330,5 +338,12 @@ mod tests {
             status_line("p", false, false),
             (false, "profile 'p': logged out".to_string())
         );
+    }
+
+    #[test]
+    fn empty_or_whitespace_email_is_detected() {
+        assert!("".trim().is_empty());
+        assert!("   ".trim().is_empty());
+        assert!(!"user@example.com".trim().is_empty());
     }
 }

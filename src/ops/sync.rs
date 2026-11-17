@@ -78,6 +78,7 @@ impl Session {
         state.save(&proj.root)?;
         report_declined(&proj.root, &scan.declined);
         report_kept(&kept_present);
+        report_skipped(&proj.root, &scan.skipped);
         ui::success(&format!(
             "pushed {} file(s){} + manifest for project {}",
             files.len(),
@@ -513,6 +514,31 @@ pub(crate) fn report_kept(kept: &[String]) {
             kept.len(),
             if kept.len() == 1 { "y" } else { "ies" },
             kept[0]
+        ))
+    );
+}
+
+/// Name the files a scan SKIPPED because their name marks them as backup (`*.bak*`) or
+/// stale (`*.stale`) copies.
+pub(crate) fn report_skipped(root: &std::path::Path, skipped: &[std::path::PathBuf]) {
+    if skipped.is_empty() {
+        return;
+    }
+    let names: Vec<String> = skipped
+        .iter()
+        .map(|p| {
+            p.strip_prefix(root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    println!(
+        "{}",
+        ui::warn(&format!(
+            "skipped {} backup or stale file(s) (.bak / .stale): {}",
+            names.len(),
+            names.join(", ")
         ))
     );
 }

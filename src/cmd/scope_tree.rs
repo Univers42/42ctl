@@ -38,7 +38,7 @@ use crate::core::chunk::{self, ChunkSet, Naming};
 use crate::core::manifest::{Entry, Manifest};
 use crate::core::materialize::Opts;
 use crate::core::{materialize, project, projpath};
-use crate::ops::sync::{report_declined, report_kept};
+use crate::ops::sync::{report_declined, report_kept, report_skipped};
 use crate::ui;
 use anyhow::Context as _;
 use std::collections::{BTreeMap, HashSet};
@@ -53,6 +53,7 @@ pub(super) const TREE_MANIFEST: &str = "__42ctl/tree";
 pub struct PushRules {
     pub private: Vec<String>,
     pub labels: BTreeMap<String, String>,
+    pub dry_run: bool,
 }
 
 /// A push in progress: what every file of it shares — the environment's owner id, the
@@ -86,6 +87,11 @@ pub async fn push_env(session: &mut Session, ctx: &Ctx, rules: &PushRules) -> an
     let (shared, private) = scope_private::partition(&files, &proj.root, &rules.private)?;
     scope_private::refuse_oversized(&private)?;
     report_declined(&proj.root, &scan.declined);
+    report_skipped(&proj.root, &scan.skipped);
+    if rules.dry_run {
+        dry_run_push(session, ctx, &proj, &shared, &private, &scan.skipped).await?;
+        return Ok(());
+    }
     let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
     let owner = hex::encode(scope_id);
     let secret =
@@ -114,6 +120,108 @@ pub async fn push_env(session: &mut Session, ctx: &Ctx, rules: &PushRules) -> an
         shared.len(),
         ctx.env_name
     ));
+    Ok(())
+}
+
+/// Preview what `env push` would write without uploading anything or mutating remote state.
+///
+/// Fetches the existing shared manifest (when the caller holds the scope secret) to compute
+/// a diff against remote state: new files (`+`), modified files (`~`), and unchanged files (`=`).
+/// Also displays private files to be sealed, retained remote files, and skipped files.
+async fn dry_run_push(
+    session: &mut Session,
+    ctx: &Ctx,
+    proj: &project::Project,
+    shared: &[scope_private::Scanned],
+    private: &[scope_private::Scanned],
+    skipped: &[std::path::PathBuf],
+) -> anyhow::Result<()> {
+    let scope_id = crypto::scope_id(&ctx.project, &ctx.env_name)?;
+    let owner = hex::encode(scope_id);
+    let secret_res =
+        recover_scope_secret(session, scope_id, ctx.epoch(), ctx.scope_pubkey.as_deref()).await;
+
+    let existing_manifest = match secret_res {
+        Ok(secret) => {
+            let slot = Slot {
+                owner: &owner,
+                epoch: ctx.epoch(),
+                path: TREE_MANIFEST,
+                rev: 0,
+            };
+            match scope_store::fetch_one(session, slot, &Key::Scope(&secret)).await {
+                Ok(Some(raw)) => Manifest::parse(&raw).ok(),
+                _ => None,
+            }
+        }
+        Err(_) => None,
+    };
+
+    println!(
+        "{}",
+        ui::dim(&format!(
+            "[dry-run] environment '{}' (epoch {})",
+            ctx.env_name,
+            ctx.epoch()
+        ))
+    );
+
+    for (file, rel) in shared {
+        let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
+        let status = match &existing_manifest {
+            Some(manifest) => match manifest.entries.iter().find(|e| &e.relative_path == rel) {
+                Some(entry) => {
+                    if entry.size != size {
+                        "~ (modified)"
+                    } else {
+                        "= (unchanged)"
+                    }
+                }
+                None => "+ (new)",
+            },
+            None => "+ (new)",
+        };
+        println!("  {status:<14} shared:  {rel} ({size} bytes)");
+    }
+
+    for (file, rel) in private {
+        let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
+        println!("  {:<14} private: {rel} ({size} bytes)", "+ (private)");
+    }
+
+    if let Some(manifest) = &existing_manifest {
+        let scanned_shared: HashSet<&str> = shared.iter().map(|(_, rel)| rel.as_str()).collect();
+        for entry in &manifest.entries {
+            if !scanned_shared.contains(entry.relative_path.as_str()) {
+                let rel = &entry.relative_path;
+                let local_path = proj.root.join(rel);
+                if local_path.exists() {
+                    println!(
+                        "  {:<14} shared:  {rel} (retained on disk)",
+                        "= (unscanned)"
+                    );
+                } else {
+                    println!("  {:<14} shared:  {rel} (remote only)", "= (retained)");
+                }
+            }
+        }
+    }
+
+    for path in skipped {
+        let rel = path
+            .strip_prefix(&proj.root)
+            .unwrap_or(path)
+            .to_string_lossy();
+        println!("  {:<14} skipped: {rel} (.bak / .stale)", "- (skipped)");
+    }
+
+    ui::success(&format!(
+        "dry-run: would push {} shared and {} private file(s) to '{}' (no changes written)",
+        shared.len(),
+        private.len(),
+        ctx.env_name
+    ));
+
     Ok(())
 }
 

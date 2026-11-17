@@ -44,7 +44,16 @@ pub async fn recover_scope_secret(
     let (blob, granter) = session
         .get_scope_key(&hex::encode(scope_id), epoch)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("no scope key for this env — run `env init` first"))?;
+        .ok_or_else(|| {
+            if advertised.filter(|key| !key.is_empty()).is_some() {
+                anyhow::anyhow!(
+                    "no scope key wrap found for your account in this env — \
+                     this env already has a scope key; ask an admin or key holder to run `env keys sync` (do not run `env init`, which would orphan existing keys)"
+                )
+            } else {
+                anyhow::anyhow!("no scope key for this env — run `env init` first")
+            }
+        })?;
     let grant = GrantedScopeKey::from_bytes(&blob)
         .map_err(|_| anyhow::anyhow!("stored scope-key grant is malformed"))?;
     let granter_pub = granter_key(&granter)?;
@@ -133,5 +142,31 @@ mod tests {
         let (_keyset, secret) = generate_keyset([3u8; 16], 1);
         assert!(check_advertised(&secret, Some("not base64!!")).is_err());
         assert!(check_advertised(&secret, Some(&STANDARD.encode([0u8; 16]))).is_err());
+    }
+
+    /// When an advertised key exists but the caller has no wrap, the error guides the caller
+    /// to run `env keys sync` instead of dangerously suggesting `env init` (which would orphan teammates' keys).
+    #[test]
+    fn missing_wrap_with_advertised_key_suggests_keys_sync_never_init() {
+        let advertised = Some("MC4CAQAwBQYDK2VuBCIEI...");
+        let err = if advertised.filter(|key| !key.is_empty()).is_some() {
+            anyhow::anyhow!(
+                "no scope key wrap found for your account in this env — \
+                 this env already has a scope key; ask an admin or key holder to run `env keys sync` (do not run `env init`, which would orphan existing keys)"
+            )
+        } else {
+            anyhow::anyhow!("no scope key for this env — run `env init` first")
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("env keys sync"));
+        assert!(msg.contains("do not run `env init`"));
+
+        let no_adv: Option<&str> = None;
+        let err_no_adv = if no_adv.filter(|key| !key.is_empty()).is_some() {
+            anyhow::anyhow!("wrap error")
+        } else {
+            anyhow::anyhow!("no scope key for this env — run `env init` first")
+        };
+        assert!(err_no_adv.to_string().contains("run `env init` first"));
     }
 }

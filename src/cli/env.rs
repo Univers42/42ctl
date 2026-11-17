@@ -64,6 +64,9 @@ pub enum Env {
         /// Label every file of this push, KEY=VALUE — repeatable; `env files --filter label=K=V`
         #[arg(long, value_name = "KEY=VALUE")]
         label: Vec<String>,
+        /// Preview what would be scanned and pushed without writing any changes
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Restore an environment's file tree here — a dry-run until you pass --apply
     ///

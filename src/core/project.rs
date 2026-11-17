@@ -151,11 +151,12 @@ pub fn default_patterns() -> Vec<String> {
 pub struct Scan {
     pub files: Vec<PathBuf>,
     pub declined: Vec<PathBuf>,
+    pub skipped: Vec<PathBuf>,
 }
 
 /// Scan the project tree for matching files (skips `.42ctl/` + symlinks), path-sorted.
 pub fn scan(project: &Project) -> anyhow::Result<Scan> {
-    let (mut files, mut declined) = (Vec::new(), Vec::new());
+    let (mut files, mut declined, mut skipped) = (Vec::new(), Vec::new(), Vec::new());
     walk(
         &project.root,
         &project.patterns,
@@ -163,17 +164,24 @@ pub fn scan(project: &Project) -> anyhow::Result<Scan> {
         &mut Found {
             files: &mut files,
             declined: &mut declined,
+            skipped: &mut skipped,
         },
     )?;
     files.sort();
     declined.sort();
-    Ok(Scan { files, declined })
+    skipped.sort();
+    Ok(Scan {
+        files,
+        declined,
+        skipped,
+    })
 }
 
-/// Where a walk puts what it finds, so the two lists travel together.
+/// Where a walk puts what it finds, so the lists travel together.
 struct Found<'a> {
     files: &'a mut Vec<PathBuf>,
     declined: &'a mut Vec<PathBuf>,
+    skipped: &'a mut Vec<PathBuf>,
 }
 
 /// Directory names never descended during a scan: the marker dir plus VCS / build /
@@ -227,6 +235,7 @@ fn walk_repositories_inside(
     dir: &Path,
     patterns: &[String],
     out: &mut Vec<PathBuf>,
+    skipped: &mut Vec<PathBuf>,
 ) -> anyhow::Result<()> {
     let mut ignored = Vec::new();
     for entry in std::fs::read_dir(dir)? {
@@ -244,6 +253,7 @@ fn walk_repositories_inside(
                 &mut Found {
                     files: out,
                     declined: &mut ignored,
+                    skipped,
                 },
             )?;
         }
@@ -295,15 +305,19 @@ fn walk(dir: &Path, patterns: &[String], all: bool, found: &mut Found<'_>) -> an
                 continue;
             }
             if skip_dir(&name) {
-                walk_repositories_inside(&path, patterns, found.files)?;
+                walk_repositories_inside(&path, patterns, found.files, found.skipped)?;
                 if holds_a_candidate(&path, patterns) {
                     found.declined.push(path);
                 }
             } else {
                 walk(&path, patterns, all || is_secret_dir(&name), found)?;
             }
-        } else if (all || matches(&name, patterns)) && !skip_file(&name) {
-            found.files.push(entry.path());
+        } else if all || matches(&name, patterns) {
+            if skip_file(&name) {
+                found.skipped.push(entry.path());
+            } else {
+                found.files.push(entry.path());
+            }
         }
     }
     Ok(())
@@ -761,6 +775,31 @@ mod tests {
             !found.iter().any(|f| f.contains("node_modules")),
             "a dependency tree under secrets/ must not be swept in, got {found:?}"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Backup and stale files (.bak / .stale) that match patterns or live under secrets/
+    /// are omitted from files but recorded in scan.skipped so the operator is warned.
+    #[test]
+    fn backup_and_stale_files_are_reported_in_scan_skipped() {
+        let root = temp_project("skipped-bak-stale");
+        std::fs::create_dir_all(root.join("secrets")).expect("mkdir");
+        std::fs::write(root.join("secrets/db.bak"), b"old").expect("write");
+        std::fs::write(root.join("secrets/temp.stale"), b"tmp").expect("write");
+        std::fs::write(root.join("secrets/real.txt"), b"real").expect("write");
+        std::fs::write(root.join(".env"), b"K=V").expect("write");
+        std::fs::write(root.join(".env.stale"), b"old").expect("write");
+        let scan = scan(&mk(root.clone(), "p", default_patterns())).expect("scan");
+        assert_eq!(scan.files.len(), 2, "real.txt and .env");
+        assert_eq!(scan.skipped.len(), 3, "db.bak, temp.stale, .env.stale");
+        let names: Vec<String> = scan
+            .skipped
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"db.bak".to_string()));
+        assert!(names.contains(&"temp.stale".to_string()));
+        assert!(names.contains(&".env.stale".to_string()));
         let _ = std::fs::remove_dir_all(&root);
     }
 
